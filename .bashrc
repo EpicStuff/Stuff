@@ -33,7 +33,8 @@ alias edit='micro'
 alias dockerc='docker compose'
 alias dockerc-up='docker compose up -d && docker compose logs -f'
 alias fpaq='zpaqfranz'
-alias zel='zellij attach -c main'
+# alias zel='zellij attach -c main'
+alias zel='bash <(curl -L https://zellij.dev/launch) attach -c main'
 alias py='python'
 alias hand='nice -15 prime-run ghb & disown'
 alias resolve='prime-run /opt/resolve/bin/resolve & disown'  
@@ -80,7 +81,8 @@ eval "$(zoxide init bash)"
 
 # activate zellij if on server
 if [[ -z "$ZELLIJ" && "$(hostname)" = "server" ]]; then
-    zellij attach -c main
+    # zellij attach -c main
+	bash <(curl -L https://zellij.dev/launch) attach -c main
 fi
 
 [[ ! ${BLE_VERSION-} ]] || ble-attach

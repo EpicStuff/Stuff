@@ -1,0 +1,8 @@
+{
+	"colorscheme": "dukedark-tc",
+	"ftoptions": false,
+	"mkparents": true,
+	"softwrap": true,
+	"wordwrap": true,
+	"clipboard": "terminal"
+}

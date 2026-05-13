@@ -1,0 +1,89 @@
+import std/[strutils, os]
+import docopt, nyml, parsetoml
+import utils
+
+
+let doc = '''
+frp taml2toml
+cuz yaml > toml
+
+Usage:
+	taml2toml <input> [<output>] [-v | --verbose]
+'''
+
+let args = doc.docopt()
+
+let file = args['<input>'].`$`.read_file()
+let output = args['<output>']
+let yaml = file.yaml.toJson.get
+
+let root = newTTable()
+
+
+# make sure the "root" keys are first
+for key, val in yaml:
+	if key notin ['proxies', 'visitors'] and val.kind notin {JArray, JObject, JNull}:
+		root[key] = val.to_toml()
+	;
+;
+
+# everything else
+if 'visitors' in file:
+	root['visitors'] = newTArray()
+;
+if 'proxies' in file:
+	root['proxies'] = newTArray()
+;
+
+for key, val in yaml:
+	# special (custom config format) stuff for visitors and proxies
+	if key == 'visitors':
+		for type, node in val:
+			assert node.kind == JObject
+			for name, visitor in node:
+				assert visitor.kind == JObject
+				visitor['type'] = %type
+				visitor['name'] = %name
+				visitor['serverName'] = %name
+				if 'bindAddr' notin visitor:
+					visitor['bindAddr'] = %'127.0.0.1'
+				;
+
+				root['visitors'].add visitor.to_toml()
+			;
+		;
+	;
+	elif key == 'proxies':
+		for type, node in val:
+			assert node.kind == JObject
+			for name, proxy in node:
+				assert proxy.kind == JObject
+				proxy['type'] = %type
+				proxy['name'] = %name
+				if 'localIP' notin proxy:
+					proxy['localIP'] = %'127.0.0.1'
+				;
+
+				root['proxies'].add proxy.to_toml()
+			;
+		;
+	;
+	else:
+		root[key] = val.to_toml()
+	;
+;
+
+# save output
+if args['-v'] or args['--verbose']:
+	echo root
+	echo ''
+;
+if $output != '':
+	echo 'writing to ', $output
+	writeFile $output, $root
+;
+else:
+	let output = args['<input>'].`$`.change_file_ext('.toml')
+	echo 'writing to ', output
+	writeFile output, $root
+;

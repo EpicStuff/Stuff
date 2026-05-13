@@ -1,0 +1,37 @@
+import std/json
+import parsetoml
+
+proc to_toml*(node: JsonNode): TomlValueRef =
+	case node.kind
+	of JObject:
+		result = newTTable()
+		for key, value in node:
+			if value.kind != JNull:
+				result[key] = value.to_toml()
+			;
+		;
+	;
+	of JArray:
+		result = newTArray()
+		for value in node:
+			if value.kind != JNull:
+				result.add value.to_toml()
+			;
+		;
+	;
+	of JString:
+		result = newTString(node.getStr())
+	;
+	of JInt:
+		result = newTInt(node.getBiggestInt())
+	;
+	of JFloat:
+		result = newTFloat(node.getFloat())
+	;
+	of JBool:
+		result = newTBool(node.getBool())
+	;
+	of JNull:
+		result = newTNull()
+	;
+;

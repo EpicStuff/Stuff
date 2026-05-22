@@ -180,7 +180,11 @@ clamav ALL=(ALL) NOPASSWD: SETENV: /usr/bin/systemd-run --user --collect --quiet
   setFilePermissions(tmp, {fpUserRead, fpGroupRead})  # 0440
   let visudoBin = findExe("visudo")
   if visudoBin.len > 0:
-    if runWait(visudoBin, ["-cf", tmp]) != 0:
+    let (rc, _) = runCapture(visudoBin, ["-cf", tmp])
+    # visudo's stdout on success is the noisy "parsed OK" line; suppress it.
+    # On failure visudo writes errors to stderr which we leave attached to
+    # the parent terminal, so the user still sees what was wrong.
+    if rc != 0:
       removeFile(tmp)
       echo "install: visudo rejected the file; nothing written."
       quit(2)
@@ -215,39 +219,40 @@ proc cmdEvent() =
     ])
 
 proc cmdNotify(file, virus: string) =
-  let prompt = &"Signature: {virus}\nFile: {file}\n\nChoose an action:"
-  let (code, choice) = runCapture("/usr/bin/kdialog", [
-    "--title", "Virus found!",
-    "--radiolist", prompt,
-    "quarantine", "Quarantine the file",   "off",
-    "delete",     "Delete the file",       "off",
-    "ignore",     "Ignore from now on",    "off",
-    "dismiss",    "Take no action",        "on",
+  # Primary UI: a desktop notification with action buttons. Light-touch and
+  # dismissable; the action key (`quarantine` / `delete` / `ignore`) comes
+  # back on stdout when `--wait` is honored. Empty stdout = the user closed
+  # the bubble without picking anything.
+  let (code, choice) = runCapture("/usr/bin/notify-send", [
+    "-u", "critical",
+    "-i", "dialog-warning",
+    "--action=quarantine=Quarantine",
+    "--action=delete=Delete",
+    "--action=ignore=Ignore",
+    "--wait",
+    "Virus found!",
+    &"Signature: {virus}\nFile: {file}",
   ])
-  if code != 0: return  # user cancelled / closed the dialog
+  if code != 0: return
 
   case choice
   of "quarantine":
-    discard runWait("/usr/bin/sudo", ["-n", Self, "action", "quarantine", file])
+    # Editable popup so the user can adjust the path before it gets moved
+    # (typo in detection, want to quarantine a sibling, etc.). Empty / Cancel
+    # bails without touching anything.
+    let (pc, path) = runCapture("/usr/bin/kdialog", [
+      "--title", "Quarantine path",
+      "--inputbox", "Edit the path to quarantine:", file,
+    ])
+    if pc != 0 or path.len == 0: return
+    discard runWait("/usr/bin/sudo", ["-n", Self, "action", "quarantine", path])
   of "delete":
     discard runWait("/usr/bin/sudo", ["-n", Self, "action", "delete", file])
   of "ignore":
-    let (pc, path) = runCapture("/usr/bin/kdialog", [
-      "--title", "Ignore path",
-      "--inputbox", "Edit the path to ignore:", file,
-    ])
-    if pc != 0 or path.len == 0: return
-    let (sc, scope) = runCapture("/usr/bin/kdialog", [
-      "--title", "Ignore scope",
-      "--radiolist", "Match this entry as:",
-      "file",   "File (exact match)",   "on",
-      "folder", "Folder (recursive)",   "off",
-    ])
-    if sc != 0 or scope.len == 0: return
     discard runWait("/usr/bin/sudo",
-                    ["-n", Self, "action", "ignore", scope, path])
+                    ["-n", Self, "action", "ignore", "file", file])
   else:
-    discard  # "dismiss" or anything unexpected → do nothing
+    discard  # dismissed
 
 proc quarantineMountFlags(): seq[string] =
   ## Returns the per-mount option list for QuarantineRoot from

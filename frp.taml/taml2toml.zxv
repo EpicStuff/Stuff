@@ -1,4 +1,4 @@
-import std/[strutils, os]
+import std/[os, json]
 import docopt, nyml, parsetoml
 import utils
 
@@ -18,9 +18,9 @@ let file = args['<input>'].`$`.read_file()
 let output = args['<output>']
 let verbose = args['-v'] or args['--verbose']
 
-let json = file.yaml.toJson()
-let defaults = json.get('defaults')
-let taml = json.get()
+let yaml = file.yaml.toJson()
+let defaults = yaml.get('defaults')
+let taml = yaml.get()
 
 if verbose:
 	if defaults == nil:
@@ -58,13 +58,24 @@ for key, val in taml:
 			assert node.kind == JObject
 			for name, visitor in node:
 				assert visitor.kind == JObject
+				
+				# get type and name
 				visitor['type'] = %type
 				visitor['name'] = %name
 				visitor['serverName'] = %name
-
+				# load defaults if they exist
 				if defaults != nil and 'visitors' in defaults:
 					if verbose: echo visitor, 'loading defaults'
 					visitor.load_defaults defaults['visitors']
+				;
+				# "rename" port and ip
+				if 'port' in visitor:
+					visitor['bindPort'] = visitor['port']
+					visitor.delete 'port'
+				;
+				if 'ip' in visitor:
+					visitor['bindAddr'] = visitor['ip']
+					visitor.delete 'ip'
 				;
 
 				root['visitors'].add visitor.to_toml()
@@ -76,13 +87,24 @@ for key, val in taml:
 			assert node.kind == JObject
 			for name, proxy in node:
 				assert proxy.kind == JObject
+				
+				# get type and name
 				proxy['type'] = %type
 				proxy['name'] = %name
-
+				# load defaults if they exist
 				if defaults != nil and 'proxies' in defaults:
 					if verbose: echo proxy, ' - loading defaults'
 					proxy.load_defaults defaults['proxies'], verbose
 					if verbose: echo proxy
+				;
+				# "rename" port and ip
+				if 'port' in proxy:
+					proxy['localPort'] = proxy['port']
+					proxy.delete 'port'
+				;
+				if 'ip' in proxy:
+					proxy['localIP'] = proxy['ip']
+					proxy.delete 'ip'
 				;
 
 				root['proxies'].add proxy.to_toml()

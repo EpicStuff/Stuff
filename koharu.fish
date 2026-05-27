@@ -4,6 +4,7 @@ set LLM_MODEL vntl-llama3-8b-v2
 set RESIZE_MAX 1440x2560
 set RESTART_MODE headless
 set MODE full
+set -l flags --port 4000
 set -g STARTED_OPS
 
 # ─── ARGS ───────────────────────────────────────────────────
@@ -45,17 +46,11 @@ function koharu_is_up
 	curl -sf $KOHARU/meta > /dev/null 2>&1
 end
 
-function ensure_koharu_up --argument-names mode capture
+function ensure_koharu_up --argument-names mode
 	koharu_is_up; and return 0
-	set -l flags --port 4000
 	test "$mode" != gui; and set -a flags --headless
 	echo "Launching koharu ($mode)..."
-	if test "$capture" = yes
-		: > /tmp/koharu.log
-		prime-run koharu $flags > /tmp/koharu.log 2>&1 &
-	else
-		prime-run koharu $flags &
-	end
+	prime-run koharu $flags &
 	disown
 	set -l tries 0
 	while not koharu_is_up
@@ -110,33 +105,30 @@ function wait_for_pipelines
 	end
 end
 
-function watch_pipeline --argument-names label expected_steps grep_pattern
-	if not test "$expected_steps" -gt 0 2>/dev/null
-		echo "$label: bad expected_steps='$expected_steps', falling back to spinner"
+function watch_pipeline --argument-names label expected role
+	if not test "$expected" -gt 0 2>/dev/null
+		echo "$label: bad expected='$expected', falling back to spinner"
 		wait_for_pipelines
 		return
 	end
 	set -l ours_json (printf '%s\n' $STARTED_OPS | jq -R . | jq -s .)
-	# Give koharu a beat to register the new operation
 	sleep 1
 	set -l saw_running no
 	while true
-		set -l done 0
-		if test -f /tmp/koharu.log
-			set done (grep -cE $grep_pattern /tmp/koharu.log 2>/dev/null)
-			test -z "$done"; and set done 0
-		end
-		test $done -gt $expected_steps; and set done $expected_steps
-		set -l pct    (math --scale=0 "$done * 100 / $expected_steps")
-		set -l filled (math --scale=0 "$done * 30 / $expected_steps")
+		set -l done (curl -s $KOHARU/scene.json \
+			| jq --arg role "$role" \
+				'[.scene.pages[] | select(any(.nodes[]; .kind.image.role? == $role))] | length')
+		test -z "$done"; and set done 0
+		set -l pct    (math --scale=0 "$done * 100 / $expected")
+		set -l filled (math --scale=0 "$done * 30 / $expected")
 		set -l bar (string repeat -n $filled █)(string repeat -n (math "30 - $filled") ·)
-		printf "\r%s [%s] %3d%% (%d/%d)" $label $bar $pct $done $expected_steps
+		printf "\r%s [%s] %3d%% (%d/%d)" $label $bar $pct $done $expected
 		set -l running (curl -s $KOHARU/operations \
 			| jq --argjson ours "$ours_json" \
 				'[.operations[] | select(.id as $i | $ours | index($i)) | select(.status=="running" or .status=="pending" or .status=="queued")] | length')
 		test $running -gt 0; and set saw_running yes
 		test "$saw_running" = yes; and test $running -eq 0; and break
-		sleep 0.5
+		sleep 1
 	end
 	printf "\r\e[K"
 	echo "$label done."
@@ -162,16 +154,11 @@ function cleanup --on-event fish_exit
 		echo "Shutting down headless koharu."
 		pkill -INT koharu; sleep 1; pkill koharu
 	end
-	rm -f /tmp/koharu.log
 end
 
 # ─── INIT KOHARU + REMEMBER ORIGINAL STATE ─────────────────
 koharu_is_up; and set RESTART_MODE gui
-if koharu_is_up
-	echo "Killing existing koharu for clean capture."
-	pkill -INT koharu; sleep 1; pkill koharu; sleep 2
-end
-ensure_koharu_up headless yes; or exit 1
+ensure_koharu_up headless; or exit 1
 
 # ─── PICK PROJECT ──────────────────────────────────────────
 set CHOICE (curl -s $KOHARU/projects \
@@ -219,12 +206,12 @@ if test $MODE = full
 		"paddle-ocr-vl-1.5",
 		"lama-manga"
 	]'
-	watch_pipeline "Phase 1" (math "$PAGE_COUNT * 6") '^ℹ .* timings|^├ step '
+	watch_pipeline "Phase 1" $PAGE_COUNT inpainted
 
 	# ─── PHASE 2: RESTART + LOAD LLM ───────────────────────
 	echo "── Restarting koharu to free GPU VRAM ──"
 	pkill -INT koharu; sleep 1; pkill koharu; sleep 2
-	ensure_koharu_up $RESTART_MODE yes; or exit 1
+	ensure_koharu_up $RESTART_MODE; or exit 1
 	open_project $PROJECT_ID
 
 	echo "── Phase 2: load LLM ──"
@@ -257,8 +244,8 @@ if test $MODE = full
 
 		sleep 1
 		set tries (math $tries + 1)
-		if test $tries -gt 60   # 60 × 1s = 1 min
-			echo "LLM load timed out after 1 min." >&2
+		if test $tries -gt 60
+			echo "LLM load timed out after 5 min." >&2
 			exit 1
 		end
 	end
@@ -266,7 +253,7 @@ if test $MODE = full
 	# ─── PHASE 3: TRANSLATE + RENDER ───────────────────────
 	echo "── Phase 3: translate + render ──"
 	run_pipeline $PAGES_JSON '["llm","koharu-renderer"]'
-	watch_pipeline "Phase 3" (math "$PAGE_COUNT * 2") '^├ step '
+	watch_pipeline "Phase 3" $PAGE_COUNT rendered
 
 	echo "Done."
 end

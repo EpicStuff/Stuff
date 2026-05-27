@@ -3,4 +3,7 @@
 !*.*
 !*/
 !.gitignore
-!fish/fish_variables
+!configs/fish/fish_variables
+
+# stuff
+*.nim

@@ -1,5 +1,5 @@
 from pathlib import Path
-from epicstuff import open, run_install_trace
+from epicstuff import open, run_install_trace  # noqa: A004, F401
 from json import load
 
 

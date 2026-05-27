@@ -128,23 +128,28 @@ function watch_pipeline --argument-names label bars
 
 		switch $f[1]
 			case jobProgress
+				set -l page_n (math "$f[3] + 1")
 				set -l page_pct 0
-				test $f[4] -gt 0; and set page_pct (math --scale=0 "$f[3] * 100 / $f[4]")
+				test $f[4] -gt 0; and set page_pct (math --scale=0 "$page_n * 100 / $f[4]")
 
 				test "$first" = no; and printf "\033["$bars"A"
 				set first no
 
-				printf "\r  page [%s] %3d%% (%d/%d)\e[K\n" (bar $page_pct $bw) $page_pct $f[3] $f[4]
+				printf "\r  page [%s] %3d%% (%d/%d)\e[K\n" (bar $page_pct $bw) $page_pct $page_n $f[4]
 				if test $bars -ge 2
+					set -l step_n (math "$f[5] + 1")
 					set -l step_pct 0
-					test $f[6] -gt 0; and set step_pct (math --scale=0 "$f[5] * 100 / $f[6]")
-					printf "\r  step [%s] %3d%% (%d/%d %s)\e[K\n" (bar $step_pct $bw) $step_pct $f[5] $f[6] $f[7]
+					test $f[6] -gt 0; and set step_pct (math --scale=0 "$step_n * 100 / $f[6]")
+					printf "\r  step [%s] %3d%% (%d/%d)\e[K\n" (bar $step_pct $bw) $step_pct $step_n $f[6]
 				end
 			case jobFinished
 				test "$first" = no; and printf "\033["$bars"A\e[J"
 				break
 		end
 	end
+	# Kill the curl that was feeding the SSE pipe — otherwise the
+	# pipeline waits forever for it to exit on next event.
+	pkill -P $fish_pid curl 2>/dev/null
 	echo "$label done."
 end
 
@@ -210,7 +215,7 @@ echo
 # ─── PIPELINE PHASES (full mode only) ──────────────────────
 if test $MODE = full
 	# ─── PHASE 1: VISION ───────────────────────────────────
-	echo "──────────────── Phase 1: vision ─────────────────"
+	echo "──────────────── Phase 1: Vision ─────────────────"
 	curl -sX DELETE $KOHARU/llm/current > /dev/null
 	run_pipeline $PAGES_JSON '[
 		"comic-text-bubble-detector",
@@ -228,7 +233,7 @@ if test $MODE = full
 	ensure_koharu_up $RESTART_MODE; or exit 1
 	open_project $PROJECT_ID
 
-	echo "─────────────── Phase 2: load LLM ────────────────"
+	echo "─────────── Phase 2: Unloading Models ────────────"
 	curl -sX PUT $KOHARU/llm/current \
 		-H 'content-type: application/json' \
 		-d "{\"target\":{\"kind\":\"local\",\"modelId\":\"$LLM_MODEL\",\"providerId\":null}}" > /dev/null
@@ -265,7 +270,7 @@ if test $MODE = full
 	end
 
 	# ─── PHASE 3: TRANSLATE + RENDER ───────────────────────
-	echo "────────── Phase 3: translate + render ───────────"
+	echo "────────── Phase 3: Translate + Render ───────────"
 	run_pipeline $PAGES_JSON '["llm","koharu-renderer"]'
 	watch_pipeline "Phase 3" 1
 

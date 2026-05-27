@@ -105,33 +105,27 @@ function wait_for_pipelines
 	end
 end
 
-function watch_pipeline --argument-names label expected role
-	if not test "$expected" -gt 0 2>/dev/null
-		echo "$label: bad expected='$expected', falling back to spinner"
-		wait_for_pipelines
-		return
+function watch_pipeline --argument-names label
+	curl -sN -H 'Accept: text/event-stream' $KOHARU/events | while read -l line
+		string match -q 'data: *' -- $line; or continue
+		set -l data (string sub -s 7 -- $line)
+
+		set -l f (echo $data \
+			| jq -r '[.event, .jobId // .id // "", .overallPercent // 0, .currentPage // 0, .totalPages // 0, .step // ""] | @tsv' \
+			| string split \t)
+		contains -- $f[2] $STARTED_OPS; or continue
+
+		switch $f[1]
+			case jobProgress
+				set -l filled (math --scale=0 "$f[3] * 30 / 100")
+				set -l blocks (string repeat -n $filled █)
+				set -l bar    (string pad -w 30 -c · "$blocks")
+				printf "\r%s [%s] %3d%% page %d/%d %s\e[K" $label $bar $f[3] $f[4] $f[5] $f[6]
+			case jobFinished
+				printf "\r\e[K"
+				break
+		end
 	end
-	set -l ours_json (printf '%s\n' $STARTED_OPS | jq -R . | jq -s .)
-	sleep 1
-	set -l saw_running no
-	while true
-		set -l done (curl -s $KOHARU/scene.json \
-			| jq --arg role "$role" \
-				'[.scene.pages[] | select(any(.nodes[]; .kind.image.role? == $role))] | length')
-		test -z "$done"; and set done 0
-		set -l pct    (math --scale=0 "$done * 100 / $expected")
-		set -l filled (math --scale=0 "$done * 30 / $expected")
-		set -l blocks (string repeat -n $filled █)
-		set -l bar    (string pad -w 30 -c · "$blocks")
-		printf "\r%s [%s] %3d%% (%d/%d)" $label $bar $pct $done $expected
-		set -l running (curl -s $KOHARU/operations \
-			| jq --argjson ours "$ours_json" \
-				'[.operations[] | select(.id as $i | $ours | index($i)) | select(.status=="running" or .status=="pending" or .status=="queued")] | length')
-		test $running -gt 0; and set saw_running yes
-		test "$saw_running" = yes; and test $running -eq 0; and break
-		sleep 1
-	end
-	printf "\r\e[K"
 	echo "$label done."
 end
 
@@ -207,7 +201,7 @@ if test $MODE = full
 		"paddle-ocr-vl-1.5",
 		"lama-manga"
 	]'
-	watch_pipeline "Phase 1" $PAGE_COUNT inpainted
+	watch_pipeline "Phase 1"
 
 	# ─── PHASE 2: RESTART + LOAD LLM ───────────────────────
 	echo "── Restarting koharu to free GPU VRAM ──"
@@ -254,7 +248,7 @@ if test $MODE = full
 	# ─── PHASE 3: TRANSLATE + RENDER ───────────────────────
 	echo "── Phase 3: translate + render ──"
 	run_pipeline $PAGES_JSON '["llm","koharu-renderer"]'
-	watch_pipeline "Phase 3" $PAGE_COUNT rendered
+	watch_pipeline "Phase 3"
 
 	echo "Done."
 end

@@ -119,7 +119,7 @@ function watch_pipeline --argument-names label
 			case jobProgress
 				set -l filled (math --scale=0 "$f[3] * 30 / 100")
 				set -l blocks (string repeat -n $filled █)
-				set -l bar    (string pad -w 30 -c · "$blocks")
+				set -l bar    (string pad -r -w 30 -c · "$blocks")
 				printf "\r%s [%s] %3d%% page %d/%d %s\e[K" $label $bar $f[3] $f[4] $f[5] $f[6]
 			case jobFinished
 				printf "\r\e[K"
@@ -285,7 +285,7 @@ if test "$DO_EXPORT" = yes
 			set png $pngs[$i]
 			set filled (math --scale=0 "$i * 30 / $total")
 			set blocks (string repeat -n $filled █)
-			set bar    (string pad -w 30 -c · "$blocks")
+			set bar    (string pad -r -w 30 -c · "$blocks")
 			printf "\rResize [%s] %d/%d" $bar $i $total
 			magick $png -resize "$RESIZE_MAX>" $png &>/dev/null
 		end
@@ -300,7 +300,7 @@ if test "$DO_EXPORT" = yes
 			set png $pngs[$i]
 			set filled (math --scale=0 "$i * 30 / $total")
 			set blocks (string repeat -n $filled █)
-			set bar    (string pad -w 30 -c · "$blocks")
+			set bar    (string pad -r -w 30 -c · "$blocks")
 			printf "\rJXL [%s] %d/%d" $bar $i $total
 			cjxl -q 100 -e 7 $png (string replace -r '\.png$' '.jxl' $png) &>/dev/null
 			rm $png

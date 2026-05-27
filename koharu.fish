@@ -193,7 +193,8 @@ if test $MODE = full
 	set -l expected (math "$PAGE_COUNT * $stages")
 	set -l ours_json (printf '%s\n' $STARTED_OPS | jq -R . | jq -s .)
 	while true
-		set -l done (grep -cE '^ℹ .* timings|^├ step ' /tmp/koharu.log 2>/dev/null; or echo 0)
+		set -l done (grep -cE '^ℹ .* timings|^├ step ' /tmp/koharu.log 2>/dev/null)
+		test -z "$done"; and set done 0
 		test $done -gt $expected; and set done $expected
 		set -l pct (math --scale=0 "$done * 100 / $expected")
 		set -l filled (math --scale=0 "$done * 30 / $expected")
@@ -259,7 +260,8 @@ if test $MODE = full
 	set -l expected (math "$PAGE_COUNT * $stages")
 	set -l ours_json (printf '%s\n' $STARTED_OPS | jq -R . | jq -s .)
 	while true
-		set -l done (grep -cE '^├ step ' /tmp/koharu.log 2>/dev/null; or echo 0)
+		set -l done (grep -cE '^├ step ' /tmp/koharu.log 2>/dev/null)
+		test -z "$done"; and set done 0
 		test $done -gt $expected; and set done $expected
 		set -l pct (math --scale=0 "$done * 100 / $expected")
 		set -l filled (math --scale=0 "$done * 30 / $expected")

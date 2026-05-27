@@ -1,0 +1,6 @@
+# Ignore extensionless files (typically compiled binaries)
+*
+!*.*
+!*/
+!.gitignore
+!fish/fish_variables

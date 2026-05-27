@@ -4,7 +4,6 @@ set LLM_MODEL vntl-llama3-8b-v2
 set RESIZE_MAX 1440x2560
 set RESTART_MODE headless
 set MODE full
-set -l flags --port 4000
 set -g STARTED_OPS
 
 # ─── ARGS ───────────────────────────────────────────────────
@@ -46,11 +45,17 @@ function koharu_is_up
 	curl -sf $KOHARU/meta > /dev/null 2>&1
 end
 
-function ensure_koharu_up --argument-names mode
+function ensure_koharu_up --argument-names mode capture
 	koharu_is_up; and return 0
+	set -l flags --port 4000
 	test "$mode" != gui; and set -a flags --headless
 	echo "Launching koharu ($mode)..."
-	prime-run koharu $flags &
+	if test "$capture" = yes
+		: > /tmp/koharu.log
+		prime-run koharu $flags > /tmp/koharu.log 2>&1 &
+	else
+		prime-run koharu $flags &
+	end
 	disown
 	set -l tries 0
 	while not koharu_is_up
@@ -125,11 +130,16 @@ function cleanup --on-event fish_exit
 		echo "Shutting down headless koharu."
 		pkill -INT koharu; sleep 1; pkill koharu
 	end
+	rm -f /tmp/koharu.log
 end
 
 # ─── INIT KOHARU + REMEMBER ORIGINAL STATE ─────────────────
 koharu_is_up; and set RESTART_MODE gui
-ensure_koharu_up headless; or exit 1
+if koharu_is_up
+	echo "Killing existing koharu for clean capture."
+	pkill -INT koharu; sleep 1; pkill koharu; sleep 2
+end
+ensure_koharu_up headless yes; or exit 1
 
 # ─── PICK PROJECT ──────────────────────────────────────────
 set CHOICE (curl -s $KOHARU/projects \
@@ -177,12 +187,31 @@ if test $MODE = full
 		"paddle-ocr-vl-1.5",
 		"lama-manga"
 	]'
-	wait_for_pipelines
+
+	# Log-parsing progress bar (koharu output is captured to /tmp/koharu.log)
+	set -l stages 6
+	set -l expected (math "$PAGE_COUNT * $stages")
+	set -l ours_json (printf '%s\n' $STARTED_OPS | jq -R . | jq -s .)
+	while true
+		set -l done (grep -cE '^ℹ .* timings|^├ step ' /tmp/koharu.log 2>/dev/null; or echo 0)
+		test $done -gt $expected; and set done $expected
+		set -l pct (math --scale=0 "$done * 100 / $expected")
+		set -l filled (math --scale=0 "$done * 30 / $expected")
+		set -l bar (string repeat -n $filled █)(string repeat -n (math "30 - $filled") ·)
+		printf "\rPhase 1 [%s] %3d%% (%d/%d)" $bar $pct $done $expected
+		set -l running (curl -s $KOHARU/operations \
+			| jq --argjson ours "$ours_json" \
+				'[.operations[] | select(.id as $i | $ours | index($i)) | select(.status=="running" or .status=="pending" or .status=="queued")] | length')
+		test $running -eq 0; and break
+		sleep 0.5
+	end
+	printf "\r\e[K"
+	echo "Phase 1 done."
 
 	# ─── PHASE 2: RESTART + LOAD LLM ───────────────────────
 	echo "── Restarting koharu to free GPU VRAM ──"
 	pkill -INT koharu; sleep 1; pkill koharu; sleep 2
-	ensure_koharu_up $RESTART_MODE; or exit 1
+	ensure_koharu_up $RESTART_MODE no; or exit 1
 	open_project $PROJECT_ID
 
 	echo "── Phase 2: load LLM ──"
@@ -215,8 +244,8 @@ if test $MODE = full
 
 		sleep 1
 		set tries (math $tries + 1)
-		if test $tries -gt 60
-			echo "LLM load timed out after 5 min." >&2
+		if test $tries -gt 60   # 60 × 1s = 1 min
+			echo "LLM load timed out after 1 min." >&2
 			exit 1
 		end
 	end

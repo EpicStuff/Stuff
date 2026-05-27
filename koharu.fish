@@ -116,17 +116,8 @@ function watch_pipeline --argument-names label bars
 	test $bw -lt 15; and set bw 15
 	test $bw -gt 80; and set bw 80
 
-	# Curl writes SSE to a FIFO in the background so we can kill it
-	# explicitly after break. Piping directly deadlocks: curl blocks
-	# on the socket waiting for the next event, and the pipeline
-	# can't exit until curl does.
-	set -l fifo (mktemp -u)
-	mkfifo $fifo
-	curl -sN -H 'Accept: text/event-stream' $KOHARU/events > $fifo &
-	set -l curl_pid $last_pid
-
 	set -l first yes
-	while read -l line
+	curl -sN -H 'Accept: text/event-stream' $KOHARU/events | while read -l line
 		string match -q 'data: *' -- $line; or continue
 		set -l data (string sub -s 7 -- $line)
 
@@ -152,10 +143,7 @@ function watch_pipeline --argument-names label bars
 			case jobFinished
 				break
 		end
-	end < $fifo
-
-	kill $curl_pid 2>/dev/null
-	rm -f $fifo
+	end
 	echo "  $label done."
 end
 
@@ -216,7 +204,6 @@ echo "Pages: $PAGE_COUNT"
 if test $PAGE_COUNT -eq 0
 	echo "No pages — nothing to do."; exit 1
 end
-echo
 
 # ─── PIPELINE PHASES (full mode only) ──────────────────────
 if test $MODE = full

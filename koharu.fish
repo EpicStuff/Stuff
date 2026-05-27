@@ -211,7 +211,7 @@ if test $MODE = full
 	# ─── PHASE 2: RESTART + LOAD LLM ───────────────────────
 	echo "── Restarting koharu to free GPU VRAM ──"
 	pkill -INT koharu; sleep 1; pkill koharu; sleep 2
-	ensure_koharu_up $RESTART_MODE no; or exit 1
+	ensure_koharu_up $RESTART_MODE yes; or exit 1
 	open_project $PROJECT_ID
 
 	echo "── Phase 2: load LLM ──"
@@ -253,7 +253,26 @@ if test $MODE = full
 	# ─── PHASE 3: TRANSLATE + RENDER ───────────────────────
 	echo "── Phase 3: translate + render ──"
 	run_pipeline $PAGES_JSON '["llm","koharu-renderer"]'
-	wait_for_pipelines
+
+	# Log-parsing progress bar — 2 stages (llm + renderer) per page
+	set -l stages 2
+	set -l expected (math "$PAGE_COUNT * $stages")
+	set -l ours_json (printf '%s\n' $STARTED_OPS | jq -R . | jq -s .)
+	while true
+		set -l done (grep -cE '^├ step ' /tmp/koharu.log 2>/dev/null; or echo 0)
+		test $done -gt $expected; and set done $expected
+		set -l pct (math --scale=0 "$done * 100 / $expected")
+		set -l filled (math --scale=0 "$done * 30 / $expected")
+		set -l bar (string repeat -n $filled █)(string repeat -n (math "30 - $filled") ·)
+		printf "\rPhase 3 [%s] %3d%% (%d/%d)" $bar $pct $done $expected
+		set -l running (curl -s $KOHARU/operations \
+			| jq --argjson ours "$ours_json" \
+				'[.operations[] | select(.id as $i | $ours | index($i)) | select(.status=="running" or .status=="pending" or .status=="queued")] | length')
+		test $running -eq 0; and break
+		sleep 0.5
+	end
+	printf "\r\e[K"
+	echo "Phase 3 done."
 
 	echo "Done."
 end

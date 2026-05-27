@@ -50,7 +50,7 @@ function ensure_koharu_up --argument-names mode
 	koharu_is_up; and return 0
 	test "$mode" != gui; and set -a flags --headless
 	echo "Launching koharu ($mode)..."
-	prime-run koharu $flags &
+	prime-run koharu $flags &>/dev/null &
 	disown
 	set -l tries 0
 	while not koharu_is_up
@@ -121,7 +121,8 @@ function watch_pipeline --argument-names label expected role
 		test -z "$done"; and set done 0
 		set -l pct    (math --scale=0 "$done * 100 / $expected")
 		set -l filled (math --scale=0 "$done * 30 / $expected")
-		set -l bar (string repeat -n $filled █)(string repeat -n (math "30 - $filled") ·)
+		set -l blocks (string repeat -n $filled █)
+		set -l bar    (string pad -w 30 -c · "$blocks")
 		printf "\r%s [%s] %3d%% (%d/%d)" $label $bar $pct $done $expected
 		set -l running (curl -s $KOHARU/operations \
 			| jq --argjson ours "$ours_json" \
@@ -289,7 +290,8 @@ if test "$DO_EXPORT" = yes
 		for i in (seq $total)
 			set png $pngs[$i]
 			set filled (math --scale=0 "$i * 30 / $total")
-			set bar (string repeat -n $filled █)(string repeat -n (math "30 - $filled") ·)
+			set blocks (string repeat -n $filled █)
+			set bar    (string pad -w 30 -c · "$blocks")
 			printf "\rResize [%s] %d/%d" $bar $i $total
 			magick $png -resize "$RESIZE_MAX>" $png &>/dev/null
 		end
@@ -303,7 +305,8 @@ if test "$DO_EXPORT" = yes
 		for i in (seq $total)
 			set png $pngs[$i]
 			set filled (math --scale=0 "$i * 30 / $total")
-			set bar (string repeat -n $filled █)(string repeat -n (math "30 - $filled") ·)
+			set blocks (string repeat -n $filled █)
+			set bar    (string pad -w 30 -c · "$blocks")
 			printf "\rJXL [%s] %d/%d" $bar $i $total
 			cjxl -q 100 -e 7 $png (string replace -r '\.png$' '.jxl' $png) &>/dev/null
 			rm $png

@@ -105,12 +105,17 @@ function wait_for_pipelines
 	end
 end
 
-function bar30 --argument-names pct
-	set -l blocks (string repeat -n (math --scale=0 "$pct * 30 / 100") █)
-	string pad -r -w 30 -c · "$blocks"
+function bar --argument-names pct width
+	set -l blocks (string repeat -n (math --scale=0 "$pct * $width / 100") █)
+	string pad -r -w $width -c · "$blocks"
 end
 
-function watch_pipeline --argument-names label
+function watch_pipeline --argument-names label bars
+	test -z "$bars"; and set bars 2
+	set -l bw (math "$COLUMNS - 45")
+	test $bw -lt 15; and set bw 15
+	test $bw -gt 80; and set bw 80
+
 	set -l first yes
 	curl -sN -H 'Accept: text/event-stream' $KOHARU/events | while read -l line
 		string match -q 'data: *' -- $line; or continue
@@ -125,16 +130,18 @@ function watch_pipeline --argument-names label
 			case jobProgress
 				set -l page_pct 0
 				test $f[4] -gt 0; and set page_pct (math --scale=0 "$f[3] * 100 / $f[4]")
-				set -l step_pct 0
-				test $f[6] -gt 0; and set step_pct (math --scale=0 "$f[5] * 100 / $f[6]")
 
-				test "$first" = no; and printf "\033[2A"
+				test "$first" = no; and printf "\033["$bars"A"
 				set first no
 
-				printf "\r  page [%s] %3d%% (%d/%d)\e[K\n"       (bar30 $page_pct) $page_pct $f[3] $f[4]
-				printf "\r  step [%s] %3d%% (%d/%d %s)\e[K\n"    (bar30 $step_pct) $step_pct $f[5] $f[6] $f[7]
+				printf "\r  page [%s] %3d%% (%d/%d)\e[K\n" (bar $page_pct $bw) $page_pct $f[3] $f[4]
+				if test $bars -ge 2
+					set -l step_pct 0
+					test $f[6] -gt 0; and set step_pct (math --scale=0 "$f[5] * 100 / $f[6]")
+					printf "\r  step [%s] %3d%% (%d/%d %s)\e[K\n" (bar $step_pct $bw) $step_pct $f[5] $f[6] $f[7]
+				end
 			case jobFinished
-				test "$first" = no; and printf "\033[2A\e[J"
+				test "$first" = no; and printf "\033["$bars"A\e[J"
 				break
 		end
 	end
@@ -203,7 +210,7 @@ echo
 # ─── PIPELINE PHASES (full mode only) ──────────────────────
 if test $MODE = full
 	# ─── PHASE 1: VISION ───────────────────────────────────
-	echo "── Phase 1: vision ──"
+	echo "──────────────── Phase 1: vision ─────────────────"
 	curl -sX DELETE $KOHARU/llm/current > /dev/null
 	run_pipeline $PAGES_JSON '[
 		"comic-text-bubble-detector",
@@ -216,12 +223,12 @@ if test $MODE = full
 	watch_pipeline "Phase 1"
 
 	# ─── PHASE 2: RESTART + LOAD LLM ───────────────────────
-	echo "── Restarting koharu to free GPU VRAM ──"
+	echo "Restarting koharu to free GPU VRAM"
 	pkill -INT koharu; sleep 1; pkill koharu; sleep 2
 	ensure_koharu_up $RESTART_MODE; or exit 1
 	open_project $PROJECT_ID
 
-	echo "── Phase 2: load LLM ──"
+	echo "─────────────── Phase 2: load LLM ────────────────"
 	curl -sX PUT $KOHARU/llm/current \
 		-H 'content-type: application/json' \
 		-d "{\"target\":{\"kind\":\"local\",\"modelId\":\"$LLM_MODEL\",\"providerId\":null}}" > /dev/null
@@ -258,9 +265,9 @@ if test $MODE = full
 	end
 
 	# ─── PHASE 3: TRANSLATE + RENDER ───────────────────────
-	echo "── Phase 3: translate + render ──"
+	echo "────────── Phase 3: translate + render ───────────"
 	run_pipeline $PAGES_JSON '["llm","koharu-renderer"]'
-	watch_pipeline "Phase 3"
+	watch_pipeline "Phase 3" 1
 
 	echo "Done."
 end

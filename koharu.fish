@@ -105,38 +105,23 @@ function wait_for_pipelines
 	end
 end
 
-function bar30 --argument-names pct
-	set -l blocks (string repeat -n (math --scale=0 "$pct * 30 / 100") █)
-	string pad -r -w 30 -c · "$blocks"
-end
-
 function watch_pipeline --argument-names label
-	set -l first yes
 	curl -sN -H 'Accept: text/event-stream' $KOHARU/events | while read -l line
 		string match -q 'data: *' -- $line; or continue
 		set -l data (string sub -s 7 -- $line)
 
 		set -l f (echo $data \
-			| jq -r '[.event, .jobId // .id // "", .overallPercent // 0, .currentPage // 0, .totalPages // 0, .currentStepIndex // 0, .totalSteps // 0, .step // ""] | @tsv' \
+			| jq -r '[.event, .jobId // .id // "", .overallPercent // 0, .currentPage // 0, .totalPages // 0, .step // ""] | @tsv' \
 			| string split \t)
 		contains -- $f[2] $STARTED_OPS; or continue
 
 		switch $f[1]
 			case jobProgress
-				set -l main_pct $f[3]
-				set -l page_pct 0
-				test $f[5] -gt 0; and set page_pct (math --scale=0 "$f[4] * 100 / $f[5]")
-				set -l step_pct 0
-				test $f[7] -gt 0; and set step_pct (math --scale=0 "$f[6] * 100 / $f[7]")
-
-				test "$first" = no; and printf "\033[3A"
-				set first no
-
-				printf "\r%s [%s] %3d%%\e[K\n"                $label             (bar30 $main_pct) $main_pct
-				printf "\r  page [%s] %3d%% (%d/%d)\e[K\n"                       (bar30 $page_pct) $page_pct $f[4] $f[5]
-				printf "\r  step [%s] %3d%% (%d/%d %s)\e[K\n"                    (bar30 $step_pct) $step_pct $f[6] $f[7] $f[8]
+				set -l blocks (string repeat -n (math --scale=0 "$f[3] * 30 / 100") █)
+				set -l bar    (string pad -r -w 30 -c · "$blocks")
+				printf "\r%s [%s] %3d%% page %d/%d %s\e[K" $label $bar $f[3] $f[4] $f[5] $f[6]
 			case jobFinished
-				test "$first" = no; and printf "\033[3A\e[J"
+				printf "\r\e[K"
 				break
 		end
 	end

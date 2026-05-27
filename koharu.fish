@@ -110,6 +110,38 @@ function wait_for_pipelines
 	end
 end
 
+function watch_pipeline --argument-names label expected_steps grep_pattern
+	if not test "$expected_steps" -gt 0 2>/dev/null
+		echo "$label: bad expected_steps='$expected_steps', falling back to spinner"
+		wait_for_pipelines
+		return
+	end
+	set -l ours_json (printf '%s\n' $STARTED_OPS | jq -R . | jq -s .)
+	# Give koharu a beat to register the new operation
+	sleep 1
+	set -l saw_running no
+	while true
+		set -l done 0
+		if test -f /tmp/koharu.log
+			set done (grep -cE $grep_pattern /tmp/koharu.log 2>/dev/null)
+			test -z "$done"; and set done 0
+		end
+		test $done -gt $expected_steps; and set done $expected_steps
+		set -l pct    (math --scale=0 "$done * 100 / $expected_steps")
+		set -l filled (math --scale=0 "$done * 30 / $expected_steps")
+		set -l bar (string repeat -n $filled █)(string repeat -n (math "30 - $filled") ·)
+		printf "\r%s [%s] %3d%% (%d/%d)" $label $bar $pct $done $expected_steps
+		set -l running (curl -s $KOHARU/operations \
+			| jq --argjson ours "$ours_json" \
+				'[.operations[] | select(.id as $i | $ours | index($i)) | select(.status=="running" or .status=="pending" or .status=="queued")] | length')
+		test $running -gt 0; and set saw_running yes
+		test "$saw_running" = yes; and test $running -eq 0; and break
+		sleep 0.5
+	end
+	printf "\r\e[K"
+	echo "$label done."
+end
+
 function on_sigint --on-signal SIGINT
 	echo
 	echo "Interrupted."
@@ -187,27 +219,7 @@ if test $MODE = full
 		"paddle-ocr-vl-1.5",
 		"lama-manga"
 	]'
-
-	# Log-parsing progress bar (koharu output is captured to /tmp/koharu.log)
-	set -l stages 6
-	set -l expected (math "$PAGE_COUNT * $stages")
-	set -l ours_json (printf '%s\n' $STARTED_OPS | jq -R . | jq -s .)
-	while true
-		set -l done (grep -cE '^ℹ .* timings|^├ step ' /tmp/koharu.log 2>/dev/null)
-		test -z "$done"; and set done 0
-		test $done -gt $expected; and set done $expected
-		set -l pct (math --scale=0 "$done * 100 / $expected")
-		set -l filled (math --scale=0 "$done * 30 / $expected")
-		set -l bar (string repeat -n $filled █)(string repeat -n (math "30 - $filled") ·)
-		printf "\rPhase 1 [%s] %3d%% (%d/%d)" $bar $pct $done $expected
-		set -l running (curl -s $KOHARU/operations \
-			| jq --argjson ours "$ours_json" \
-				'[.operations[] | select(.id as $i | $ours | index($i)) | select(.status=="running" or .status=="pending" or .status=="queued")] | length')
-		test $running -eq 0; and break
-		sleep 0.5
-	end
-	printf "\r\e[K"
-	echo "Phase 1 done."
+	watch_pipeline "Phase 1" (math "$PAGE_COUNT * 6") '^ℹ .* timings|^├ step '
 
 	# ─── PHASE 2: RESTART + LOAD LLM ───────────────────────
 	echo "── Restarting koharu to free GPU VRAM ──"
@@ -254,27 +266,7 @@ if test $MODE = full
 	# ─── PHASE 3: TRANSLATE + RENDER ───────────────────────
 	echo "── Phase 3: translate + render ──"
 	run_pipeline $PAGES_JSON '["llm","koharu-renderer"]'
-
-	# Log-parsing progress bar — 2 stages (llm + renderer) per page
-	set -l stages 2
-	set -l expected (math "$PAGE_COUNT * $stages")
-	set -l ours_json (printf '%s\n' $STARTED_OPS | jq -R . | jq -s .)
-	while true
-		set -l done (grep -cE '^├ step ' /tmp/koharu.log 2>/dev/null)
-		test -z "$done"; and set done 0
-		test $done -gt $expected; and set done $expected
-		set -l pct (math --scale=0 "$done * 100 / $expected")
-		set -l filled (math --scale=0 "$done * 30 / $expected")
-		set -l bar (string repeat -n $filled █)(string repeat -n (math "30 - $filled") ·)
-		printf "\rPhase 3 [%s] %3d%% (%d/%d)" $bar $pct $done $expected
-		set -l running (curl -s $KOHARU/operations \
-			| jq --argjson ours "$ours_json" \
-				'[.operations[] | select(.id as $i | $ours | index($i)) | select(.status=="running" or .status=="pending" or .status=="queued")] | length')
-		test $running -eq 0; and break
-		sleep 0.5
-	end
-	printf "\r\e[K"
-	echo "Phase 3 done."
+	watch_pipeline "Phase 3" (math "$PAGE_COUNT * 2") '^├ step '
 
 	echo "Done."
 end

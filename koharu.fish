@@ -33,8 +33,8 @@ end
 
 # ─── HELPERS ────────────────────────────────────────────────
 function pick_yn --argument-names prompt default
-	test "$default" = yes; and set order yes no; or set order no yes
-	set -l result (printf '%s\n' $order | fzf --prompt="$prompt " --height=10% --reverse)
+	test "$default" = yes; and set order Yes No; or set order No Yes
+	set -l result (printf '%s\n' $order | fzf --prompt="$prompt " --height=10% --reverse | string lower)
 	if test -z "$result"
 		echo "Cancelled" >&2
 		exit 1
@@ -49,7 +49,7 @@ end
 function ensure_koharu_up --argument-names mode
 	koharu_is_up; and return 0
 	test "$mode" != gui; and set -a flags --headless
-	echo "Launching koharu ($mode)..."
+	echo "  Launching koharu ($mode)..."
 	prime-run koharu $flags &>/dev/null &
 	disown
 	set -l tries 0
@@ -61,7 +61,7 @@ function ensure_koharu_up --argument-names mode
 			return 1
 		end
 	end
-	echo "Koharu is up."
+	echo "  Koharu is up."
 end
 
 function open_project --argument-names project_id
@@ -116,8 +116,17 @@ function watch_pipeline --argument-names label bars
 	test $bw -lt 15; and set bw 15
 	test $bw -gt 80; and set bw 80
 
+	# Curl writes SSE to a FIFO in the background so we can kill it
+	# explicitly after break. Piping directly deadlocks: curl blocks
+	# on the socket waiting for the next event, and the pipeline
+	# can't exit until curl does.
+	set -l fifo (mktemp -u)
+	mkfifo $fifo
+	curl -sN -H 'Accept: text/event-stream' $KOHARU/events > $fifo &
+	set -l curl_pid $last_pid
+
 	set -l first yes
-	curl -sN -H 'Accept: text/event-stream' $KOHARU/events | while read -l line
+	while read -l line
 		string match -q 'data: *' -- $line; or continue
 		set -l data (string sub -s 7 -- $line)
 
@@ -128,29 +137,26 @@ function watch_pipeline --argument-names label bars
 
 		switch $f[1]
 			case jobProgress
-				set -l page_n (math "$f[3] + 1")
 				set -l page_pct 0
-				test $f[4] -gt 0; and set page_pct (math --scale=0 "$page_n * 100 / $f[4]")
+				test $f[4] -gt 0; and set page_pct (math --scale=0 "$f[3] * 100 / $f[4]")
 
 				test "$first" = no; and printf "\033["$bars"A"
 				set first no
 
-				printf "\r  page [%s] %3d%% (%d/%d)\e[K\n" (bar $page_pct $bw) $page_pct $page_n $f[4]
+				printf "\r  page [%s] %3d%% (%d/%d)\e[K\n" (bar $page_pct $bw) $page_pct $f[3] $f[4]
 				if test $bars -ge 2
-					set -l step_n (math "$f[5] + 1")
 					set -l step_pct 0
-					test $f[6] -gt 0; and set step_pct (math --scale=0 "$step_n * 100 / $f[6]")
-					printf "\r  step [%s] %3d%% (%d/%d)\e[K\n" (bar $step_pct $bw) $step_pct $step_n $f[6]
+					test $f[6] -gt 0; and set step_pct (math --scale=0 "$f[5] * 100 / $f[6]")
+					printf "\r  step [%s] %3d%% (%d/%d)\e[K\n" (bar $step_pct $bw) $step_pct $f[5] $f[6]
 				end
 			case jobFinished
-				test "$first" = no; and printf "\033["$bars"A\e[J"
 				break
 		end
-	end
-	# Kill the curl that was feeding the SSE pipe — otherwise the
-	# pipeline waits forever for it to exit on next event.
-	pkill -P $fish_pid curl 2>/dev/null
-	echo "$label done."
+	end < $fifo
+
+	kill $curl_pid 2>/dev/null
+	rm -f $fifo
+	echo "  $label done."
 end
 
 function on_sigint --on-signal SIGINT
@@ -228,12 +234,12 @@ if test $MODE = full
 	watch_pipeline "Phase 1"
 
 	# ─── PHASE 2: RESTART + LOAD LLM ───────────────────────
-	echo "Restarting koharu to free GPU VRAM"
+	echo "─────────── Phase 2: Unloading Models ────────────"
+	echo "  Restarting koharu to free GPU VRAM"
 	pkill -INT koharu; sleep 1; pkill koharu; sleep 2
 	ensure_koharu_up $RESTART_MODE; or exit 1
 	open_project $PROJECT_ID
 
-	echo "─────────── Phase 2: Unloading Models ────────────"
 	curl -sX PUT $KOHARU/llm/current \
 		-H 'content-type: application/json' \
 		-d "{\"target\":{\"kind\":\"local\",\"modelId\":\"$LLM_MODEL\",\"providerId\":null}}" > /dev/null
@@ -257,7 +263,7 @@ if test $MODE = full
 				echo "LLM returned to empty state — aborting." >&2
 				exit 1
 			case '*'
-				echo "LLM ready ($llm_status)."
+				echo "  LLM ready ($llm_status)."
 				break
 		end
 

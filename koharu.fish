@@ -105,6 +105,8 @@ function watch_pipeline --argument-names label bars
 
 	set -l first yes
 	set -l finished no
+	set -l total_pages 0
+	set -l total_steps 0
 	curl -sN -H 'Accept: text/event-stream' $KOHARU/events | while read -l line
 		string match -q 'data: *' -- $line; or continue
 		set -l data (string sub -s 7 -- $line)
@@ -118,6 +120,8 @@ function watch_pipeline --argument-names label bars
 			case jobProgress
 				set -l page_pct 0
 				test $f[4] -gt 0; and set page_pct (math --scale=0 "$f[3] * 100 / $f[4]")
+				set total_pages $f[4]
+				set total_steps $f[6]
 
 				test "$first" = no; and printf '\033[%dA' $bars
 				set first no
@@ -130,6 +134,13 @@ function watch_pipeline --argument-names label bars
 				end
 			case jobFinished
 				set finished yes
+				if test "$first" = no; and test $total_pages -gt 0
+					printf '\033[%dA' $bars
+					printf '\r  page [%s] %3d%% (%d/%d)\e[K\n' (bar 100 $bw) 100 $total_pages $total_pages
+					if test $bars -ge 2
+						printf '\r  step [%s] %3d%% (%d/%d)\e[K\n' (bar 100 $bw) 100 $total_steps $total_steps
+					end
+				end
 				break
 		end
 	end

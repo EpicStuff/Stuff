@@ -97,6 +97,16 @@ function bar --argument-names pct width
 	string pad -r -w $width -c · "$blocks"
 end
 
+function draw_bars --argument-names cp tp cs ts bw bars
+	set -l pp 0
+	test $tp -gt 0; and set pp (math --scale=0 "$cp * 100 / $tp")
+	printf '\r  page [%s] %3d%% (%d/%d)\e[K\n' (bar $pp $bw) $pp $cp $tp
+	test $bars -lt 2; and return
+	set -l sp 0
+	test $ts -gt 0; and set sp (math --scale=0 "$cs * 100 / $ts")
+	printf '\r  step [%s] %3d%% (%d/%d)\e[K\n' (bar $sp $bw) $sp $cs $ts
+end
+
 function watch_pipeline --argument-names label bars
 	test -z "$bars"; and set bars 2
 	set -l bw (math "$COLUMNS - 45")
@@ -105,8 +115,6 @@ function watch_pipeline --argument-names label bars
 
 	set -l first yes
 	set -l finished no
-	set -l total_pages 0
-	set -l total_steps 0
 	curl -sN -H 'Accept: text/event-stream' $KOHARU/events | while read -l line
 		string match -q 'data: *' -- $line; or continue
 		set -l data (string sub -s 7 -- $line)
@@ -118,28 +126,18 @@ function watch_pipeline --argument-names label bars
 
 		switch $f[1]
 			case jobProgress
-				set -l page_pct 0
-				test $f[4] -gt 0; and set page_pct (math --scale=0 "$f[3] * 100 / $f[4]")
-				set total_pages $f[4]
-				set total_steps $f[6]
-
+				set current_page $f[3]; set total_pages $f[4]
+				set current_step $f[5]; set total_steps $f[6]
 				test "$first" = no; and printf '\033[%dA' $bars
 				set first no
-
-				printf '\r  page [%s] %3d%% (%d/%d)\e[K\n' (bar $page_pct $bw) $page_pct $f[3] $f[4]
-				if test $bars -ge 2
-					set -l step_pct 0
-					test $f[6] -gt 0; and set step_pct (math --scale=0 "$f[5] * 100 / $f[6]")
-					printf '\r  step [%s] %3d%% (%d/%d)\e[K\n' (bar $step_pct $bw) $step_pct $f[5] $f[6]
-				end
+				draw_bars $current_page $total_pages $current_step $total_steps $bw $bars
 			case jobFinished
 				set finished yes
-				if test "$first" = no; and test $total_pages -gt 0
+				if test "$first" = no
+					set current_page (math "min($current_page + 1, $total_pages)")
+					set current_step (math "min($current_step + 1, $total_steps)")
 					printf '\033[%dA' $bars
-					printf '\r  page [%s] %3d%% (%d/%d)\e[K\n' (bar 100 $bw) 100 $total_pages $total_pages
-					if test $bars -ge 2
-						printf '\r  step [%s] %3d%% (%d/%d)\e[K\n' (bar 100 $bw) 100 $total_steps $total_steps
-					end
+					draw_bars $current_page $total_pages $current_step $total_steps $bw $bars
 				end
 				break
 		end

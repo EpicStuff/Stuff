@@ -126,25 +126,27 @@ function watch_pipeline --argument-names label bars
 
 		switch $f[1]
 			case jobProgress
-				set current_page $f[3]; set total_pages $f[4]
-				set current_step $f[5]; set total_steps $f[6]
+				set total_pages $f[4]
+				set total_steps $f[6]
+				set current_page (math "$f[3] - 1")
+				set current_step (math "$f[5] - 1")
 				test "$first" = no; and printf '\033[%dA' $bars
 				set first no
 				draw_bars $current_page $total_pages $current_step $total_steps $bw $bars
 			case jobFinished
 				set finished yes
-				if test "$first" = no
-					set current_page (math "min($current_page + 1, $total_pages)")
-					set current_step (math "min($current_step + 1, $total_steps)")
-					printf '\033[%dA' $bars
-					draw_bars $current_page $total_pages $current_step $total_steps $bw $bars
-				end
 				break
 		end
 	end
 	if test "$finished" != yes
 		echo "  $label: event stream ended before jobFinished" >&2
 		exit 1
+	end
+	if test "$first" = no
+		set current_page (math "min($current_page + 1, $total_pages)")
+		set current_step (math "min($current_step + 1, $total_steps)")
+		printf '\033[%dA' $bars
+		draw_bars $current_page $total_pages $current_step $total_steps $bw $bars
 	end
 	echo "  $label done."
 end

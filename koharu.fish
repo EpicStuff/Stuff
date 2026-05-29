@@ -135,6 +135,7 @@ function watch_pipeline --argument-names label bars
 				draw_bars $current_page $total_pages $current_step $total_steps $bw $bars
 			case jobFinished
 				set finished yes
+				pkill -P $fish_pid curl 2>/dev/null
 				break
 		end
 	end

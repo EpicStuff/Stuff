@@ -120,16 +120,16 @@ function watch_pipeline --argument-names label bars
 		set -l data (string sub -s 7 -- $line)
 
 		set -l f (echo $data \
-			| jq -r '[.event, .jobId // .id // "", .currentPage // 0, .totalPages // 0, .currentStepIndex // 0, .totalSteps // 0, .step // ""] | @tsv' \
+			| jq -r '[.event, (if .event == "jobFinished" then .id else .jobId end), .currentPage, .totalPages, .currentStepIndex, .totalSteps, .step] | @tsv' \
 			| string split \t)
 		contains -- $f[2] $started_ops; or continue
 
 		switch $f[1]
 			case jobProgress
-				set total_pages $f[4]
-				set total_steps $f[6]
-				set current_page (math "$f[3] - 1")
-				set current_step (math "$f[5] - 1")
+				set current_page $f[3]
+				set total_pages  $f[4]
+				set current_step $f[5]
+				set total_steps  $f[6]
 				test "$first" = no; and printf '\033[%dA' $bars
 				set first no
 				draw_bars $current_page $total_pages $current_step $total_steps $bw $bars

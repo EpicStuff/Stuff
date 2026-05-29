@@ -12,8 +12,6 @@ set VISION_STEPS '[
 	"lama-manga"
 ]'
 set LLM_STEPS '["llm","koharu-renderer"]'
-set mode full
-set restart_mode headless
 set started_ops
 
 # ─── ARGS ───────────────────────────────────────────────────
@@ -25,8 +23,6 @@ if set -q _flag_help
 	echo '  -h, --help           Show this help'
 	exit 0
 end
-
-set -q _flag_e; and set mode export
 
 # ─── PACKAGE CHECK ──────────────────────────────────────────
 set -l missing
@@ -41,13 +37,19 @@ if test (count $missing) -gt 0
 end
 
 # ─── HELPERS ────────────────────────────────────────────────
+function die
+	echo $argv >&2
+	exit 1
+end
+
 function pick_yn --argument-names prompt default
-	test "$default" = yes; and set order Yes No; or set order No Yes
-	set -l result (printf '%s\n' $order | fzf --prompt="$prompt " --height=10% --reverse | string lower)
-	if test -z "$result"
-		echo 'Cancelled' >&2
-		exit 1
+	if test "$default" = yes
+		set order Yes No
+	else
+		set order No Yes
 	end
+	set -l result (printf '%s\n' $order | fzf --prompt="$prompt " --height=10% --reverse | string lower)
+	test -z "$result"; and die 'Cancelled'
 	echo $result
 end
 
@@ -55,20 +57,25 @@ function koharu_is_up
 	curl -sf $KOHARU/meta > /dev/null 2>&1
 end
 
+function stop_koharu
+	pkill -INT koharu; sleep 1; pkill koharu
+end
+
 function ensure_koharu_up
 	koharu_is_up; and return 0
-	set flags $BASE_FLAGS
-	test "$restart_mode" = headless; and set -a flags --headless
-	echo "  Launching koharu ($restart_mode)..."
+	set -l flags $BASE_FLAGS
+	set -l label gui
+	if not set -q koharu_was_up
+		set -a flags --headless
+		set label headless
+	end
+	echo "  Launching koharu ($label)..."
 	koharu $flags &> /tmp/koharu.log & disown
 	set -l tries 0
 	while not koharu_is_up
 		sleep 1
 		set tries (math $tries + 1)
-		if test $tries -gt 30
-			echo 'Koharu failed to start within 30s, aborting.' >&2
-			exit 1
-		end
+		test $tries -gt 30; and die 'Koharu failed to start within 30s, aborting.'
 	end
 	echo '  Koharu is up.'
 end
@@ -85,10 +92,7 @@ function run_pipeline --argument-names pages_json steps_json
 		curl -sfX POST $KOHARU/pipelines -H 'content-type: application/json' -d "{\"steps\":$steps_json,\"pages\":$pages_json}" \
 		| jq -er '.operationId'
 	)
-	or begin
-		echo 'Failed to start pipeline.' >&2
-		exit 1
-	end
+	or die 'Failed to start pipeline.'
 	set -ga started_ops $op_id
 end
 
@@ -144,10 +148,7 @@ function watch_pipeline --argument-names label bars
 				break
 		end
 	end
-	if test "$finished" != yes
-		echo "  $label: event stream ended before jobFinished" >&2
-		exit 1
-	end
+	test "$finished" != yes; and die "  $label: event stream ended before jobFinished"
 	if test "$first" = no
 		set current_page (math "min($current_page + 1, $total_pages)")
 		set current_step (math "min($current_step + 1, $total_steps)")
@@ -202,34 +203,34 @@ function cleanup --on-event fish_exit
 			end
 		end
 	end
-	if test "$restart_mode" = headless
+	if not set -q koharu_was_up
 		echo 'Shutting down headless koharu.'
-		pkill -INT koharu; sleep 1; pkill koharu
+		stop_koharu
 	end
 end
 
 # ─── INIT KOHARU + REMEMBER ORIGINAL STATE ─────────────────
-koharu_is_up; and set restart_mode gui
+koharu_is_up; and set -g koharu_was_up yes
 ensure_koharu_up
 
 # ─── PICK PROJECT ──────────────────────────────────────────
 set CHOICE (curl -s $KOHARU/projects \
 	| jq -r '.projects | sort_by(-.updatedAtMs) | .[] | "\(.id)\t\(.name)"' \
 	| fzf --with-nth=2 --delimiter='\t' --prompt='Project> ' --height=40% --reverse)
-test -z "$CHOICE"; and echo 'Cancelled'; and exit 1
-set PROJECT_ID   (echo $CHOICE | cut -f1)
-set PROJECT_NAME (echo $CHOICE | cut -f2)
+test -z "$CHOICE"; and die 'Cancelled'
+set -l parts (string split \t -- $CHOICE)
+set PROJECT_ID   $parts[1]
+set PROJECT_NAME $parts[2]
 echo "Selected: $PROJECT_NAME ($PROJECT_ID)"
 
 # ─── EXPORT / CONVERT PROMPTS ──────────────────────────────
 set DO_EXPORT no
 set DO_RESIZE no
 set DO_CONVERT no
-switch $mode
-	case full
-		set DO_EXPORT (pick_yn 'Export when done?' yes)
-	case export
-		set DO_EXPORT yes
+if set -q _flag_e
+	set DO_EXPORT yes
+else
+	set DO_EXPORT (pick_yn 'Export when done?' yes)
 end
 if test "$DO_EXPORT" = yes
 	set DO_RESIZE (pick_yn "Resize to max $RESIZE_MAX?" yes)
@@ -240,12 +241,10 @@ open_project $PROJECT_ID
 set PAGES_JSON (curl -s $KOHARU/scene.json | jq -c '.scene.pages | keys')
 set PAGE_COUNT (echo $PAGES_JSON | jq 'length')
 echo "Pages: $PAGE_COUNT"
-if test $PAGE_COUNT -eq 0
-	echo 'No pages — nothing to do.'; exit 1
-end
+test $PAGE_COUNT -eq 0; and die 'No pages — nothing to do.'
 
 # ─── PIPELINE PHASES (full mode only) ──────────────────────
-if test "$mode" = full
+if not set -q _flag_e
 	# ─── PHASE 1: VISION ───────────────────────────────────
 	echo '──────────────── Phase 1: Vision ─────────────────'
 	curl -sX DELETE $KOHARU/llm/current > /dev/null
@@ -255,7 +254,7 @@ if test "$mode" = full
 	# ─── PHASE 2: RESTART + LOAD LLM ───────────────────────
 	echo '─────────── Phase 2: Unloading Models ────────────'
 	echo '  Restarting koharu to free GPU VRAM'
-	pkill -INT koharu; sleep 1; pkill koharu; sleep 2
+	stop_koharu; sleep 2
 	ensure_koharu_up
 	open_project $PROJECT_ID
 
@@ -266,35 +265,28 @@ if test "$mode" = full
 	echo '  LLM loading...'
 	set -l tries 0
 	while true
-		set -l llm_state  (curl -s $KOHARU/llm/current)
-		set -l llm_status (echo $llm_state | jq -r '.status')
-		set -l llm_err    (echo $llm_state | jq -r '.error // empty')
+		set -l parts (curl -s $KOHARU/llm/current \
+			| jq -r '[.status, (.error // "")] | @tsv' \
+			| string split \t)
+		set -l llm_status $parts[1]
+		set -l llm_err    $parts[2]
 
-		if test -n "$llm_err"
-			echo "LLM load failed: $llm_err" >&2
-			exit 1
-		end
+		test -n "$llm_err"; and die "LLM load failed: $llm_err"
 
 		switch $llm_status
 			case loading
-				# still loading, keep polling
 			case empty
-				echo 'LLM returned to empty state — aborting.' >&2
-				exit 1
+				die 'LLM returned to empty state — aborting.'
 			case ready loaded
 				echo "  LLM ready ($llm_status)."
 				break
 			case '*'
-				echo "LLM unknown status '$llm_status' — aborting." >&2
-				exit 1
+				die "LLM unknown status '$llm_status' — aborting."
 		end
 
 		sleep 1
 		set tries (math $tries + 1)
-		if test $tries -gt 60
-			echo 'LLM load timed out after 1 min.' >&2
-			exit 1
-		end
+		test $tries -gt 60; and die 'LLM load timed out after 1 min.'
 	end
 
 	# ─── PHASE 3: TRANSLATE + RENDER ───────────────────────
@@ -313,10 +305,7 @@ if test "$DO_EXPORT" = yes
 		-H 'content-type: application/json' \
 		-d '{"format":"rendered"}' \
 		-o $tmp -w '%{content_type}')
-	or begin
-		echo 'Export failed.' >&2
-		exit 1
-	end
+	or die 'Export failed.'
 
 	if test -e $out
 		echo "⚠ $out exists — moving to trash."

@@ -113,6 +113,11 @@ function watch_pipeline --argument-names label bars
 	test $bw -lt 15; and set bw 15
 	test $bw -gt 80; and set bw 80
 
+	# Koharu buffers SSE writes when there's only one subscriber.
+	# A second discarded reader forces it to flush per-write.
+	# Killed alongside the main curl by the pkill in case jobFinished.
+	curl -sN -H 'Accept: text/event-stream' $KOHARU/events > /dev/null &
+
 	set -l first yes
 	set -l finished no
 	curl -sN -H 'Accept: text/event-stream' $KOHARU/events | while read -l line

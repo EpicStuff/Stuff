@@ -84,7 +84,7 @@ function ensure_koharu_up
 end
 
 function open_project --argument-names project_id
-	curl -sX PUT $KOHARU/projects/current \
+	curl -sfX PUT $KOHARU/projects/current \
 		-H 'content-type: application/json' \
 		-d "{\"id\":\"$project_id\"}" > /dev/null
 	sleep 1
@@ -104,30 +104,31 @@ function bar --argument-names pct width
 	string pad -r -w $width -c · "$blocks"
 end
 
-function format_bar --argument-names label cur total bw
+function draw_bar --argument-names label cur total bw
 	set -l pct 0
 	test $total -gt 0; and set pct (math --scale=0 "$cur * 100 / $total")
-	printf '%s [%s] %3d%% (%d/%d)' $label (bar $pct $bw) $pct $cur $total
+	printf '\r  %s [%s] %3d%% (%d/%d)\e[K\n' $label (bar $pct $bw) $pct $cur $total
 end
 
-function draw_bar --argument-names label cur total bw
-	printf '\r  %s\e[K\n' (format_bar $label $cur $total $bw)
+function bar_width
+	set -l bw (math "$COLUMNS - 45")
+	test $bw -lt 15; and set bw 15
+	test $bw -gt 80; and set bw 80
+	echo $bw
 end
 
 function watch_pipeline --argument-names label bars
 	test -z "$bars"; and set bars 2
-	set -l bw (math "$COLUMNS - 45")
-	test $bw -lt 15; and set bw 15
-	test $bw -gt 80; and set bw 80
+	set -l bw (bar_width)
 
 	# Koharu buffers SSE writes when there's only one subscriber.
 	# A second discarded reader forces it to flush per-write.
 	# Killed alongside the main curl by the pkill in case jobFinished.
-	curl -sN -H 'Accept: text/event-stream' $KOHARU/events > /dev/null &
+	curl -sfN -H 'Accept: text/event-stream' $KOHARU/events > /dev/null &
 
 	set -l first yes
 	set -l finished no
-	curl -sN -H 'Accept: text/event-stream' $KOHARU/events | while read -l line
+	curl -sfN -H 'Accept: text/event-stream' $KOHARU/events | while read -l line
 		string match -q 'data: *' -- $line; or continue
 		set -l data (string sub -s 7 -- $line)
 
@@ -168,11 +169,12 @@ function process_pngs --argument-names kind label dir
 	set -l total (count $pngs)
 	set -l failed
 	set -l first yes
+	set -l bw (bar_width)
 	for i in (seq $total)
 		set -l png $pngs[$i]
 		test "$first" = no; and printf '\033[1A'
 		set first no
-		draw_bar $label $i $total 30
+		draw_bar $label $i $total $bw
 		set -l rc 0
 		switch $kind
 			case resize
@@ -200,12 +202,12 @@ function on_sigint --on-signal SIGINT
 end
 function cleanup --on-event fish_exit
 	if set -q started_ops[1]; and koharu_is_up
-		set -l live (curl -s $KOHARU/operations \
-			| jq -r '.operations[] | select(.status=="running" or .status=="pending" or .status=="queued") | .id')
+		set -l live (curl -sf $KOHARU/operations \
+			| jq -r '.operations[] | select(.status | IN("running","pending","queued")) | .id')
 		for op in $started_ops
 			if contains $op $live
 				echo "Cancelling op $op"
-				curl -sX DELETE $KOHARU/operations/$op > /dev/null
+				curl -sfX DELETE $KOHARU/operations/$op > /dev/null
 			end
 		end
 	end
@@ -220,7 +222,7 @@ koharu_is_up; and set -g koharu_was_up yes
 ensure_koharu_up
 
 # ─── PICK PROJECT ──────────────────────────────────────────
-set CHOICE (curl -s $KOHARU/projects \
+set CHOICE (curl -sf $KOHARU/projects \
 	| jq -r '.projects | sort_by(-.updatedAtMs) | .[] | "\(.id)\t\(.name)"' \
 	| fzf --with-nth=2 --delimiter='\t' --prompt='Project> ' --height=40% --reverse)
 test -z "$CHOICE"; and die 'Cancelled'
@@ -230,9 +232,6 @@ set PROJECT_NAME $parts[2]
 echo "Selected: $PROJECT_NAME ($PROJECT_ID)"
 
 # ─── EXPORT / CONVERT PROMPTS ──────────────────────────────
-set DO_EXPORT no
-set DO_RESIZE no
-set DO_CONVERT no
 if set -q _flag_e
 	set DO_EXPORT yes
 else if set -q _flag_i; or set -q _flag_r
@@ -246,7 +245,7 @@ if test "$DO_EXPORT" = yes
 end
 
 open_project $PROJECT_ID
-set PAGES_JSON (curl -s $KOHARU/scene.json | jq -c '.scene.pages | keys')
+set PAGES_JSON (curl -sf $KOHARU/scene.json | jq -c '.scene.pages | keys')
 set PAGE_COUNT (echo $PAGES_JSON | jq 'length')
 echo "Pages: $PAGE_COUNT"
 test $PAGE_COUNT -eq 0; and die 'No pages — nothing to do.'
@@ -255,7 +254,7 @@ test $PAGE_COUNT -eq 0; and die 'No pages — nothing to do.'
 if not set -q _flag_e; and not set -q _flag_i; and not set -q _flag_r
 	# ─── PHASE 1: VISION ───────────────────────────────────
 	echo '──────────────── Phase 1: Vision ─────────────────'
-	curl -sX DELETE $KOHARU/llm/current > /dev/null
+	curl -sfX DELETE $KOHARU/llm/current > /dev/null
 	run_pipeline $PAGES_JSON $VISION_STEPS
 	watch_pipeline 'Phase 1'
 
@@ -266,14 +265,14 @@ if not set -q _flag_e; and not set -q _flag_i; and not set -q _flag_r
 	ensure_koharu_up
 	open_project $PROJECT_ID
 
-	curl -sX PUT $KOHARU/llm/current \
+	curl -sfX PUT $KOHARU/llm/current \
 		-H 'content-type: application/json' \
 		-d "{\"target\":{\"kind\":\"local\",\"modelId\":\"$LLM_MODEL\",\"providerId\":null}}" > /dev/null
 
 	echo '  LLM loading...'
 	set -l tries 0
 	while true
-		set -l parts (curl -s $KOHARU/llm/current \
+		set -l parts (curl -sf $KOHARU/llm/current \
 			| jq -r '[.status, (.error // "")] | @tsv' \
 			| string split \t)
 		set -l llm_status $parts[1]

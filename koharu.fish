@@ -101,14 +101,14 @@ function bar --argument-names pct width
 	string pad -r -w $width -c · "$blocks"
 end
 
-function draw_bars --argument-names cp tp cs ts bw bars
-	set -l pp 0
-	test $tp -gt 0; and set pp (math --scale=0 "$cp * 100 / $tp")
-	printf '\r  page [%s] %3d%% (%d/%d)\e[K\n' (bar $pp $bw) $pp $cp $tp
-	test $bars -lt 2; and return
-	set -l sp 0
-	test $ts -gt 0; and set sp (math --scale=0 "$cs * 100 / $ts")
-	printf '\r  step [%s] %3d%% (%d/%d)\e[K\n' (bar $sp $bw) $sp $cs $ts
+function format_bar --argument-names label cur total bw
+	set -l pct 0
+	test $total -gt 0; and set pct (math --scale=0 "$cur * 100 / $total")
+	printf '%s [%s] %3d%% (%d/%d)' $label (bar $pct $bw) $pct $cur $total
+end
+
+function draw_bar --argument-names label cur total bw
+	printf '\r  %s\e[K\n' (format_bar $label $cur $total $bw)
 end
 
 function watch_pipeline --argument-names label bars
@@ -141,7 +141,8 @@ function watch_pipeline --argument-names label bars
 				set total_steps  $f[6]
 				test "$first" = no; and printf '\033[%dA' $bars
 				set first no
-				draw_bars $current_page $total_pages $current_step $total_steps $bw $bars
+				draw_bar page $current_page $total_pages $bw
+				test $bars -ge 2; and draw_bar step $current_step $total_steps $bw
 			case jobFinished
 				set finished yes
 				pkill -P $fish_pid curl 2>/dev/null
@@ -153,7 +154,8 @@ function watch_pipeline --argument-names label bars
 		set current_page (math "min($current_page + 1, $total_pages)")
 		set current_step (math "min($current_step + 1, $total_steps)")
 		printf '\033[%dA' $bars
-		draw_bars $current_page $total_pages $current_step $total_steps $bw $bars
+		draw_bar page $current_page $total_pages $bw
+		test $bars -ge 2; and draw_bar step $current_step $total_steps $bw
 	end
 	echo "  $label done."
 end
@@ -162,10 +164,12 @@ function process_pngs --argument-names kind label dir
 	set -l pngs $dir/*.png
 	set -l total (count $pngs)
 	set -l failed
+	set -l first yes
 	for i in (seq $total)
 		set -l png $pngs[$i]
-		set -l pct (math --scale=0 "$i * 100 / $total")
-		printf '\r%s [%s] %d/%d' $label (bar $pct 30) $i $total
+		test "$first" = no; and printf '\033[1A'
+		set first no
+		draw_bar $label $i $total 30
 		set -l rc 0
 		switch $kind
 			case resize
@@ -178,7 +182,6 @@ function process_pngs --argument-names kind label dir
 		end
 		test $rc -ne 0; and set -a failed $png
 	end
-	printf '\r\e[K'
 	set -l fcount (count $failed)
 	if test $fcount -gt 0
 		echo "$label done ($fcount failed)."

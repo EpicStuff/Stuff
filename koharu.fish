@@ -15,12 +15,15 @@ set LLM_STEPS '["llm","koharu-renderer"]'
 set started_ops
 
 # ─── ARGS ───────────────────────────────────────────────────
-argparse h/help e/export-only -- $argv
+argparse h/help e/export i/inpaint r/render -- $argv
 or exit 1
 if set -q _flag_help
 	echo 'Usage: koharu.fish [OPTIONS]'
-	echo '  -e, --export-only    Skip pipeline, just export'
-	echo '  -h, --help           Show this help'
+	echo '  -i, --inpaint    Run inpaint step (lama-manga)'
+	echo '  -r, --render     Run render step (koharu-renderer)'
+	echo '  -e, --export     Export to CBZ'
+	echo '  -h, --help       Show this help'
+	echo 'No flags = full pipeline (detect + translate + render) + prompted export'
 	exit 0
 end
 
@@ -232,6 +235,8 @@ set DO_RESIZE no
 set DO_CONVERT no
 if set -q _flag_e
 	set DO_EXPORT yes
+else if set -q _flag_i; or set -q _flag_r
+	set DO_EXPORT no
 else
 	set DO_EXPORT (pick_yn 'Export when done?' yes)
 end
@@ -247,7 +252,7 @@ echo "Pages: $PAGE_COUNT"
 test $PAGE_COUNT -eq 0; and die 'No pages — nothing to do.'
 
 # ─── PIPELINE PHASES (full mode only) ──────────────────────
-if not set -q _flag_e
+if not set -q _flag_e; and not set -q _flag_i; and not set -q _flag_r
 	# ─── PHASE 1: VISION ───────────────────────────────────
 	echo '──────────────── Phase 1: Vision ─────────────────'
 	curl -sX DELETE $KOHARU/llm/current > /dev/null
@@ -298,6 +303,25 @@ if not set -q _flag_e
 	watch_pipeline 'Phase 3' 1
 
 	echo 'Done.'
+end
+
+# ─── PARTIAL PIPELINE (-i / -r) ────────────────────────────
+if set -q _flag_i; or set -q _flag_r
+	set -l steps
+	set -l labels
+	if set -q _flag_i
+		set -a steps '"lama-manga"'
+		set -a labels inpaint
+	end
+	if set -q _flag_r
+		set -a steps '"koharu-renderer"'
+		set -a labels render
+	end
+	set -l label (string join '+' $labels)
+	set -l steps_json '['(string join ',' $steps)']'
+	echo "──────────── Pipeline: $label ────────────"
+	run_pipeline $PAGES_JSON $steps_json
+	watch_pipeline $label 1
 end
 
 # ─── EXPORT ────────────────────────────────────────────────

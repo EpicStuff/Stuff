@@ -4,7 +4,6 @@ class CachyosFishConfig < Formula
 	url 'https://github.com/CachyOS/cachyos-fish-config/archive/refs/tags/v16.tar.gz'
 	sha256 '97a0b603f393be3422465ff9e18f2d03ccfc33657b672de6ba89b3a3ac3b473d'
 	license 'MIT'
-	head 'https://github.com/CachyOS/cachyos-fish-config.git', branch: 'main'
 
 	livecheck do
 		url 'https://github.com/CachyOS/cachyos-fish-config.git'
@@ -12,11 +11,13 @@ class CachyosFishConfig < Formula
 		strategy :git
 	end
 
+	depends_on 'epic/stuff/fish-loader'
+
 	def install
 		inreplace 'cachyos-config.fish', '/usr/share/cachyos-fish-config/conf.d/done.fish', "#{opt_prefix}/done.fish"
 
-		prefix.install 'cachyos-config.fish'
 		prefix.install 'conf.d/done.fish'
+		(share/'fish/vendor_conf.d').install 'cachyos-config.fish'
 	end
 
 	def command_available?(command)
@@ -27,25 +28,7 @@ class CachyosFishConfig < Formula
 	end
 
 	def caveats
-		home = Pathname(ENV.fetch('HOME'))
-		link = home/'.config/fish/conf.d/cachyos-config.fish'
-		display_link = '~/.config/fish/conf.d/cachyos-config.fish'
-		target = opt_prefix/'cachyos-config.fish'
 		message = []
-
-	if link.exist? || link.symlink?
-		message << <<~EOS
-			Warning: #{display_link} already exists and will be replaced.
-		EOS
-	end
-
-	message << <<~EOS
-		Enable with:
-		  mkdir -p ~/.config/fish/conf.d
-		  ln -fs '#{target}' #{display_link}
-
-		Make sure to remove #{display_link} before uninstalling.
-	EOS
 
 		commands = {
 			'bat' => 'bat',
@@ -66,7 +49,7 @@ class CachyosFishConfig < Formula
 			unless missing.empty?
 				message << <<~EOS
 					Install the missing packages expected by this configuration:
-					  yay -S --needed #{missing.join(' ')}
+					  yay -S #{missing.join(' ')}
 				EOS
 			end
 		elsif File.exist?('/etc/debian_version')
@@ -83,25 +66,29 @@ class CachyosFishConfig < Formula
 				EOS
 			end
 
-			unless command_available?('bat')
+			if !command_available?('bat') && command_available?('batcat')
 				message << <<~EOS
-					Debian provides the bat command as batcat. Create the expected command:
+					Debian provides bat as batcat. Create the expected command:
 					  mkdir -p ~/.local/bin
-					  ln -sf /usr/bin/batcat ~/.local/bin/bat
+					  ln -s /usr/bin/batcat ~/.local/bin/bat
+				EOS
+			elsif missing.include?('bat')
+				message << <<~EOS
+					After installing bat, create the expected command:
+					  mkdir -p ~/.local/bin
+					  ln -s /usr/bin/batcat ~/.local/bin/bat
 				EOS
 			end
 
 			arch_only = missing & %w[expac pkgfile]
 
 			unless arch_only.empty?
-				message << <<~EOS
-					#{arch_only.join(' and ')} are Arch specific, so aliases using them will not work on Debian.
-				EOS
+				message << "#{arch_only.join(' and ')} are Arch specific, so aliases using them will not work on Debian."
 			end
 		else
 			message << <<~EOS
 				This configuration expects several CachyOS utilities, including
-				fastfetch, bat, eza, expac, fzf, and tealdeer.
+				fastfetch, bat, eza, expac, fzf, pkgfile, and tealdeer.
 			EOS
 		end
 
@@ -109,9 +96,12 @@ class CachyosFishConfig < Formula
 	end
 
 	test do
-		assert_path_exists prefix/'cachyos-config.fish'
-		assert_path_exists prefix/'done.fish'
-		assert_match opt_prefix.to_s, (prefix/'cachyos-config.fish').read
-		assert_match '__done_version', (prefix/'done.fish').read
+		config = share/'fish/vendor_conf.d/cachyos-config.fish'
+		done = prefix/'done.fish'
+
+		assert_path_exists config
+		assert_path_exists done
+		assert_match opt_prefix.to_s, config.read
+		assert_match '__done_version', done.read
 	end
 end

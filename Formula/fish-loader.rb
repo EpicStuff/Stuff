@@ -4,17 +4,48 @@ class FishLoader < Formula
 	url 'https://raw.githubusercontent.com/Homebrew/brew/34c40c18ffa2029b611b61c73273e32c003d0842/Library/Homebrew/.ruby-version', using: :nounzip
 	sha256 '2e9fe584010a41f374317eb891684ccaab818403e8fa8eb7b2053c1810a8c00a'
 	license 'MIT'
-	version '1.0.0'
+	version '1.1.1'
 
 	def install
 		(prefix/'fish-loader.fish').write <<~FISH
 			set -l homebrew_fish_share '#{HOMEBREW_PREFIX}/share/fish'
 
-			contains $homebrew_fish_share/vendor_functions.d $fish_function_path; or set -ga fish_function_path $homebrew_fish_share/vendor_functions.d
-			contains $homebrew_fish_share/vendor_completions.d $fish_complete_path; or set -ga fish_complete_path $homebrew_fish_share/vendor_completions.d
+			# Return a search path ordered as: user directories, Homebrew directory, system directories.
+			function __homebrew_order_fish_path
+				set -l homebrew_directory $argv[1]
+				set -e argv[1]
 
+				set -l user_directories
+				set -l system_directories
+
+				for directory in $argv
+					# Remove the existing Homebrew entry before inserting it again.
+					if test $directory = $homebrew_directory
+						continue
+					end
+
+					# Directories below $HOME are user directories.
+					if string match -q -- "$HOME/*" $directory
+						set -a user_directories $directory
+					else
+						set -a system_directories $directory
+					end
+				end
+
+				printf '%s\n' $user_directories $homebrew_directory $system_directories
+			end
+
+			# Make user functions/completions override Homebrew functions and Homebrew functions override system functions.
+			set -g fish_function_path (__homebrew_order_fish_path $homebrew_fish_share/vendor_functions.d $fish_function_path)
+			set -g fish_complete_path (__homebrew_order_fish_path $homebrew_fish_share/vendor_completions.d $fish_complete_path)
+
+			# Cleanup, the helper is only needed for this loader.
+			functions --erase __homebrew_order_fish_path
+
+			# Fish has no configurable search path for conf.d files,
+			# so source Homebrew vendor configuration files directly.
 			if test -d $homebrew_fish_share/vendor_conf.d
-				for file in $homebrew_fish_share/vendor_conf.d/*.fish
+				for file in (command find -L $homebrew_fish_share/vendor_conf.d -maxdepth 1 -type f -name '*.fish' | sort)
 					source $file
 				end
 			end

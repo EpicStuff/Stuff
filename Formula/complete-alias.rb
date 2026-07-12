@@ -15,26 +15,20 @@ class CompleteAlias < Formula
 	depends_on 'bash-completion@2'
 
 	def install
-		pkgshare.install 'complete_alias'
+		prefix.install 'complete_alias'
 	end
 
 	def caveats
 		<<~EOS
 			Source complete-alias in ~/.bash_completion:
+			  source #{opt_prefix}/complete_alias
 
-			  source #{opt_pkgshare}/complete_alias
-
-			Then enable completion for specific aliases:
-
-			  complete -F _complete_alias foo
-
-			Or enable it for every currently defined alias:
-
+			Then enable it for every currently defined alias:
 			  complete -F _complete_alias "${!BASH_ALIASES[@]}"
 		EOS
 	end
 
 	test do
-		assert_match '_complete_alias', shell_output("bash -c 'source #{pkgshare}/complete_alias && declare -F _complete_alias'")
+		assert_match '_complete_alias', shell_output("bash -c 'source #{opt_prefix}/complete_alias && declare -F _complete_alias'")
 	end
 end

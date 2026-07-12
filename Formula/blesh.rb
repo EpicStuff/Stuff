@@ -13,22 +13,20 @@ class Blesh < Formula
 	end
 
 	def install
-		pkgshare.install Dir['*']
+		prefix.install Dir['*']
 	end
 
 	def caveats
 		<<~EOS
 			Add this near the beginning of ~/.bashrc:
-
-			  [[ $- == *i* ]] && source #{opt_pkgshare}/ble.sh --attach=none
+			  [[ $- == *i* ]] && source #{opt_prefix}/ble.sh --attach=none
 
 			Add this near the end of ~/.bashrc:
-
 			  [[ ${BLE_VERSION-} ]] && ble-attach
 		EOS
 	end
 
 	test do
-		assert_match version.to_s, shell_output("bash #{pkgshare}/ble.sh --version")
+		assert_match version.to_s, shell_output("bash #{opt_prefix}/ble.sh --version")
 	end
 end

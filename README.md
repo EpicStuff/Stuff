@@ -13,5 +13,6 @@ lets you process a koharu project with 2 extra features, 1. unload models before
 ## list chromium extension name
 goes through all the folders with extension ids and gives u their name
 
-## configs
-my configs to make it easier to setup on other devices
+## vaultwarden-nohttps
+patch the website to allow http
+

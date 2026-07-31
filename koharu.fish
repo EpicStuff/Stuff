@@ -1,18 +1,18 @@
 #!/usr/bin/env fish
 set KOHARU http://localhost:4000/api/v1
-# set LLM_MODEL vntl-llama3-8b-v2
+#set LLM_MODEL vntl-llama3-8b-v2
 set LLM_MODEL hunyuan-mt-7b
 set RESIZE_MAX 1440x2560
 set BASE_FLAGS --port 4000
-set VISION_STEPS '[
-	"comic-text-bubble-detector",
-	"yuzumarker-font-detection",
-	"comic-text-detector-seg",
-	"speech-bubble-segmentation",
-	"paddle-ocr-vl-1.5",
-	"lama-manga"
-]'
-set LLM_STEPS '["llm","koharu-renderer"]'
+#set VISION_STEPS '[
+#	"comic-text-bubble-detector",
+#	"yuzumarker-font-detection",
+#	"comic-text-detector-seg",
+#	"speech-bubble-segmentation",
+#	"paddle-ocr-vl-1.6",
+#	"lama-manga"
+#]'
+#set LLM_STEPS '["llm","koharu-renderer"]'
 set started_ops
 
 # ─── ARGS ───────────────────────────────────────────────────
@@ -58,7 +58,7 @@ function pick_yn --argument-names prompt default
 end
 
 function koharu_is_up
-	curl -sf $KOHARU/meta > /dev/null 2>&1
+	curl -sf --max-time 3 $KOHARU/meta > /dev/null 2>&1
 end
 
 function stop_koharu
@@ -92,11 +92,8 @@ function open_project --argument-names project_id
 end
 
 function run_pipeline --argument-names pages_json steps_json
-	set -l op_id (
-		curl -sfX POST $KOHARU/pipelines -H 'content-type: application/json' -d "{\"steps\":$steps_json,\"pages\":$pages_json}" \
-		| jq -er '.operationId'
-	)
-	or die 'Failed to start pipeline.'
+	set -l response (curl -sS -X POST $KOHARU/pipelines -H 'content-type: application/json' -d "{\"steps\":$steps_json,\"pages\":$pages_json}")
+	set -l op_id (printf '%s' "$response" | jq -er '.operationId'); or die "Failed to start pipeline: $response"
 	set -ga started_ops $op_id
 end
 
@@ -217,6 +214,9 @@ end
 # ─── INIT KOHARU + REMEMBER ORIGINAL STATE ─────────────────
 koharu_is_up; and set -g koharu_was_up yes
 ensure_koharu_up
+set KOHARU_CONFIG (curl -sf $KOHARU/config)
+set VISION_STEPS (printf '%s' "$KOHARU_CONFIG" | jq -c '[.pipeline.detector,.pipeline.fontDetector,.pipeline.segmenter,.pipeline.bubbleSegmenter,.pipeline.ocr,.pipeline.inpainter] | map(select(. != null and . != ""))')
+set LLM_STEPS (printf '%s' "$KOHARU_CONFIG" | jq -c '[.pipeline.translator,.pipeline.renderer] | map(select(. != null and . != ""))')
 
 # ─── PICK PROJECT ──────────────────────────────────────────
 set CHOICE (curl -s $KOHARU/projects \

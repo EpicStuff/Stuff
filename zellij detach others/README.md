@@ -15,7 +15,7 @@ rustup target add wasm32-wasip1
 cargo build --release
 ```
 
-The compiled plugin is created at: `target/wasm32-wasip1/release/zellij-detach-others.wasm`
+The compiled plugin is created at: `target/wasm32-wasip1/release/detach-others.wasm`
 
 Copy it into the Zellij plugin directory `~/.config/zellij/plugins`
 

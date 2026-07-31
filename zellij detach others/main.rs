@@ -1,76 +1,51 @@
-use std::{
-	collections::BTreeMap,
-	fs::{self, OpenOptions},
-	path::PathBuf,
-};
+use std::collections::BTreeMap;
 use zellij_tile::prelude::*;
 
 #[derive(Default)]
 struct State {
-	lock_path: Option<PathBuf>,
+	finished: bool,
 }
 
 register_plugin!(State);
 
-impl State {
-	fn claim_owner(&mut self) -> bool {
-		let plugin_ids = get_plugin_ids();
-		let lock_path = PathBuf::from(format!(
-			"/cache/detach-others-{}-{}",
-			plugin_ids.zellij_pid,
-			plugin_ids.plugin_id,
-		));
-
-		match OpenOptions::new()
-			.write(true)
-			.create_new(true)
-			.open(&lock_path)
-		{
-			Ok(_) => {
-				self.lock_path = Some(lock_path);
-				true
-			}
-			Err(_) => false,
-		}
-	}
-
-	fn release_owner(&mut self) {
-		if let Some(lock_path) = self.lock_path.take() {
-			let _ = fs::remove_file(lock_path);
-		}
-	}
-
-	fn finish(&mut self, disconnect: bool) {
-		if self.lock_path.is_none() {
-			return;
-		}
-
-		if disconnect {
-			disconnect_other_clients();
-		}
-
-		self.release_owner();
-		close_self();
-	}
-}
-
 impl ZellijPlugin for State {
 	fn load(&mut self, _configuration: BTreeMap<String, String>) {
-		if !self.claim_owner() {
-			return;
-		}
-
 		subscribe(&[EventType::PermissionRequestResult]);
-		request_permission(&[PermissionType::ChangeApplicationState]);
+
+		request_permission(&[
+			PermissionType::ReadApplicationState,
+			PermissionType::ChangeApplicationState,
+		]);
 	}
 
 	fn update(&mut self, event: Event) -> bool {
+		if self.finished {
+			return false;
+		}
+
 		match event {
 			Event::PermissionRequestResult(PermissionStatus::Granted) => {
-				self.finish(true);
+				let plugin_id = get_plugin_ids().plugin_id;
+
+				let belongs_to_invoking_client = matches!(
+					get_focused_pane_info(),
+					Ok((_, PaneId::Plugin(focused_plugin_id)))
+						if focused_plugin_id == plugin_id
+				);
+
+				if belongs_to_invoking_client {
+					self.finished = true;
+
+					eprintln!("disconnecting other clients");
+					disconnect_other_clients();
+
+					eprintln!("closing plugin pane");
+					close_plugin_pane(plugin_id);
+				}
 			}
 			Event::PermissionRequestResult(PermissionStatus::Denied) => {
-				self.finish(false);
+				self.finished = true;
+				close_self();
 			}
 			_ => {}
 		}

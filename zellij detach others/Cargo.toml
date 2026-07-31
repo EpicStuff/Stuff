@@ -1,10 +1,10 @@
 [package]
 	edition = '2021'
-	name = 'zellij-detach-others'
+	name = 'detach-others'
 	rust-version = '1.92'
-	version = '0.1.0'
+	version = '0.2.0'
 [[bin]]
-	name = 'zellij-detach-others'
+	name = 'detach-others'
 	path = 'main.rs'
 [dependencies]
 	zellij-tile = '=0.44.3'

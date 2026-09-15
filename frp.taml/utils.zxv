@@ -1,5 +1,8 @@
-import std/json
+import std/[json, strutils]
 import parsetoml
+
+
+const tmp_dot* = '__DOT__'
 
 proc to_toml*(node: JsonNode): TomlValueRef =
 	case node.kind
@@ -7,7 +10,7 @@ proc to_toml*(node: JsonNode): TomlValueRef =
 		result = newTTable()
 		for key, value in node:
 			if value.kind != JNull:
-				result[key] = value.to_toml()
+				result[key.replace('.', tmp_dot)] = value.to_toml()
 			;
 		;
 	;
@@ -44,17 +47,17 @@ proc load_defaults*(node: JsonNode, defaults: JsonNode, verbose=false) =
 		if val.kind == JObject:
 			if key in node and node[key].kind == JObject:
 				if verbose: echo '\t\t', 'calling load_defaults'
-				load_defaults(node[key], defaults[key])
+				load_defaults(node[key], val, verbose)
 			;
 			else:
-				if verbose: echo '\t\tskipping, key in node: ', key in node, ' node[key].kind: ', if key in node: $node[key].kind else: 'N/A' 
+				if verbose: echo '\t\tskipping, key in node: ', key in node, ' node[key].kind: ', if key in node: $node[key].kind else: 'N/A'
 				continue
 			;
 		;
 
 		# else, default is not object and is not in node, set it
 		if key notin node:
-			if verbose: echo '\t\t', 'adding to node' 
+			if verbose: echo '\t\t', 'adding to node'
 			node[key] = val
 		;
 	;

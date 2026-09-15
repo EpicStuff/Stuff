@@ -1,4 +1,4 @@
-import std/[os, json]
+import std/[os, json, strutils]
 import docopt, nyml, parsetoml
 import utils
 
@@ -66,7 +66,9 @@ for key, val in taml:
 				# load defaults if they exist
 				if defaults != nil and 'visitors' in defaults:
 					if verbose: echo visitor, 'loading defaults'
-					visitor.load_defaults defaults['visitors']
+					if type in defaults['visitors']:
+						visitor.load_defaults defaults['visitors'][type], verbose
+					;
 				;
 				# "rename" port and ip
 				if 'port' in visitor:
@@ -94,7 +96,9 @@ for key, val in taml:
 				# load defaults if they exist
 				if defaults != nil and 'proxies' in defaults:
 					if verbose: echo proxy, ' - loading defaults'
-					proxy.load_defaults defaults['proxies'], verbose
+					if type in defaults['proxies']:
+						proxy.load_defaults defaults['proxies'][type], verbose
+					;
 					if verbose: echo proxy
 				;
 				# "rename" port and ip
@@ -119,10 +123,10 @@ for key, val in taml:
 # save output
 if $output != '':
 	echo 'writing to ', $output
-	writeFile $output, $root
+	writeFile $output, ($root).replace(tmp_dot, '.')
 ;
 else:
 	let output = args['<input>'].`$`.change_file_ext('.toml')
 	echo 'writing to ', output
-	writeFile output, $root
+	writeFile output, ($root).replace(tmp_dot, '.')
 ;

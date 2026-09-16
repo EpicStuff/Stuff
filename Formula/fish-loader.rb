@@ -6,6 +6,10 @@ class FishLoader < Formula
 	license 'MIT'
 	version '1.1.1'
 
+	livecheck do
+		skip 'No upstream'
+	end
+
 	def install
 		(prefix/'fish-loader.fish').write <<~FISH
 			set -l homebrew_fish_share '#{HOMEBREW_PREFIX}/share/fish'

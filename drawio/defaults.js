@@ -6,6 +6,7 @@ Draw.loadPlugin(function(ui)
 	var settings = {
 		defaultText: '%Tag%\n%Desc%',
 		defaultProperties: 'Tag=\nDesc=',
+		defaultSpacing: 6,
 		applyToNewShapes: true,
 		keepExistingText: true
 	};
@@ -41,6 +42,21 @@ Draw.loadPlugin(function(ui)
 		for (var i = 0; cells != null && i < cells.length; i++)
 		{
 			if (model.isVertex(cells[i]))
+			{
+				result.push(cells[i]);
+			}
+		}
+
+		return result;
+	}
+
+	function getDrawableCells(cells)
+	{
+		var result = [];
+
+		for (var i = 0; cells != null && i < cells.length; i++)
+		{
+			if (model.isVertex(cells[i]) || model.isEdge(cells[i]))
 			{
 				result.push(cells[i]);
 			}
@@ -94,7 +110,24 @@ Draw.loadPlugin(function(ui)
 		return value;
 	}
 
-	function applyDefaults(cells)
+	function applySpacing(cells, force)
+	{
+		var drawable = getDrawableCells(cells);
+
+		for (var i = 0; i < drawable.length; i++)
+		{
+			var cell = drawable[i];
+			var style = model.getStyle(cell) || '';
+			var explicit = /(^|;)spacing=/.test(style);
+
+			if (force || !explicit)
+			{
+				model.setStyle(cell, mxUtils.setStyle(style, mxConstants.STYLE_SPACING, String(settings.defaultSpacing)));
+			}
+		}
+	}
+
+	function applyDefaults(cells, forceSpacing)
 	{
 		var vertices = getVertices(cells);
 		var properties;
@@ -113,6 +146,8 @@ Draw.loadPlugin(function(ui)
 
 		try
 		{
+			applySpacing(cells, forceSpacing);
+
 			for (var i = 0; i < vertices.length; i++)
 			{
 				var cell = vertices[i];
@@ -190,7 +225,16 @@ Draw.loadPlugin(function(ui)
 		propertiesInput.value = settings.defaultProperties;
 		container.appendChild(propertiesInput);
 
-		var applyNew = addCheckbox(container, 'Apply defaults to newly inserted shapes', settings.applyToNewShapes);
+		addLabel(container, 'Default text spacing');
+		var spacingInput = document.createElement('input');
+		spacingInput.type = 'number';
+		spacingInput.min = '0';
+		spacingInput.step = '1';
+		spacingInput.style.width = '100%';
+		spacingInput.value = settings.defaultSpacing;
+		container.appendChild(spacingInput);
+
+		var applyNew = addCheckbox(container, 'Apply defaults to newly inserted items', settings.applyToNewShapes);
 		var keepText = addCheckbox(container, 'Keep existing non empty shape text', settings.keepExistingText);
 		var buttons = document.createElement('div');
 		buttons.style.marginTop = '18px';
@@ -199,8 +243,16 @@ Draw.loadPlugin(function(ui)
 		function store()
 		{
 			parseProperties(propertiesInput.value);
+			var spacing = parseInt(spacingInput.value, 10);
+
+			if (isNaN(spacing) || spacing < 0)
+			{
+				throw new Error('Default text spacing must be zero or greater');
+			}
+
 			settings.defaultText = textInput.value;
 			settings.defaultProperties = propertiesInput.value;
+			settings.defaultSpacing = spacing;
 			settings.applyToNewShapes = applyNew.checked;
 			settings.keepExistingText = keepText.checked;
 			saveSettings();
@@ -211,7 +263,7 @@ Draw.loadPlugin(function(ui)
 			try
 			{
 				store();
-				applyDefaults(graph.getSelectionCells());
+				applyDefaults(graph.getSelectionCells(), true);
 			}
 			catch (e)
 			{
@@ -242,7 +294,7 @@ Draw.loadPlugin(function(ui)
 		}));
 
 		container.appendChild(buttons);
-		ui.showDialog(container, 500, 400, true, true);
+		ui.showDialog(container, 500, 460, true, true);
 	}
 
 	mxResources.parse(
@@ -253,7 +305,7 @@ Draw.loadPlugin(function(ui)
 	ui.actions.addAction('pidDefaultsSettings...', showSettings);
 	ui.actions.addAction('pidApplyDefaults', function()
 	{
-		applyDefaults(graph.getSelectionCells());
+		applyDefaults(graph.getSelectionCells(), true);
 	});
 
 	var extras = ui.menus.get('extras');
@@ -268,7 +320,7 @@ Draw.loadPlugin(function(ui)
 	{
 		if (settings.applyToNewShapes)
 		{
-			applyDefaults(evt.getProperty('cells'));
+			applyDefaults(evt.getProperty('cells'), false);
 		}
 	});
 });

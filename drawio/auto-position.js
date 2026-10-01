@@ -43,14 +43,53 @@ Draw.loadPlugin(function(ui)
 		return result;
 	}
 
+	function isTextBox(cell)
+	{
+		var style = graph.getCellStyle(cell);
+		var rawStyle = model.getStyle(cell) || '';
+		var shape = String(mxUtils.getValue(style, mxConstants.STYLE_SHAPE, '')).toLowerCase();
+
+		return shape == 'text' || /(^|;)text(?:;|$)/i.test(rawStyle);
+	}
+
+	function isImage(cell)
+	{
+		var style = graph.getCellStyle(cell);
+		var rawStyle = model.getStyle(cell) || '';
+		var shape = String(mxUtils.getValue(style, mxConstants.STYLE_SHAPE, '')).toLowerCase();
+
+		return shape == 'image' || /(^|;)image(?:;|$)/i.test(rawStyle);
+	}
+
+	function supportsAutoPosition(cell)
+	{
+		return model.isVertex(cell) && !isTextBox(cell) && !isImage(cell);
+	}
+
+	function getAutoVertices(cells)
+	{
+		var result = [];
+
+		for (var i = 0; cells != null && i < cells.length; i++)
+		{
+			if (supportsAutoPosition(cells[i]))
+			{
+				result.push(cells[i]);
+			}
+		}
+
+		return result;
+	}
+
 	function isAuto(cell)
 	{
-		return mxUtils.getValue(graph.getCellStyle(cell), autoStyleKey, 1) == 1;
+		return supportsAutoPosition(cell) &&
+			mxUtils.getValue(graph.getCellStyle(cell), autoStyleKey, 1) == 1;
 	}
 
 	function setAuto(cells, enabled)
 	{
-		var vertices = getVertices(cells);
+		var vertices = getAutoVertices(cells);
 		model.beginUpdate();
 
 		try

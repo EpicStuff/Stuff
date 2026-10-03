@@ -1,0 +1,1 @@
+{"version":3,"file":"theia-webview-context-fix-frontend-module.js","sourceRoot":"","sources":["../../src/browser/theia-webview-context-fix-frontend-module.ts"],"names":[],"mappings":";;AAAA,4DAA+D;AAC/D,gFAAmF;AACnF,iEAA4D;AAE5D,kBAAe,IAAI,2BAAe,CAAC,GAAG,EAAE;IACvC,uBAAa,CAAC,SAAS,CAAC,iBAAiB,GAAG,yCAAkB,CAAC,SAAS,CAAC,iBAAiB,CAAC;AAC5F,CAAC,CAAC,CAAC"}

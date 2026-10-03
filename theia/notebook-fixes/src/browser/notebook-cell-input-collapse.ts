@@ -11,7 +11,6 @@ import { NotebookService } from '@theia/notebook/lib/browser/service/notebook-se
 import { NotebookCodeCellRenderer } from '@theia/notebook/lib/browser/view/notebook-code-cell-view';
 import { NotebookCellToolbarProps } from '@theia/notebook/lib/browser/view/notebook-cell-toolbar';
 import { NotebookCellToolbarFactory } from '@theia/notebook/lib/browser/view/notebook-cell-toolbar-factory';
-import { observeCellHeight } from '@theia/notebook/lib/browser/view/notebook-cell-list-view';
 import { NotebookCellModel } from '@theia/notebook/lib/browser/view-model/notebook-cell-model';
 import { NotebookModel } from '@theia/notebook/lib/browser/view-model/notebook-model';
 
@@ -194,42 +193,60 @@ class CollapsibleCodeCellInput extends React.Component<CollapsibleCodeCellInputP
 	}
 
 	override render(): React.ReactNode {
-		if (!this.state.collapsed) {
-			return this.props.renderExpanded();
+		const expanded = this.props.renderExpanded();
+		if (!React.isValidElement<{ children?: React.ReactNode }>(expanded)) {
+			return expanded;
 		}
 
+		const outerChildren = React.Children.toArray(expanded.props.children);
+		if (outerChildren.length !== 1 || !React.isValidElement<{ children?: React.ReactNode }>(outerChildren[0])) {
+			return expanded;
+		}
+
+		const editorContainer = outerChildren[0];
+		const editorChildren = React.Children.toArray(editorContainer.props.children);
+		if (editorChildren.length < 2) {
+			return expanded;
+		}
+
+		const [editor, ...persistentChildren] = editorChildren;
+		return React.cloneElement(
+			expanded,
+			{},
+			React.cloneElement(
+				editorContainer,
+				{},
+				this.state.collapsed ? this.renderCollapsedInput() : editor,
+				...persistentChildren
+			)
+		);
+	}
+
+	protected renderCollapsedInput(): React.ReactNode {
 		return React.createElement(
 			'div',
 			{
-				className: 'theia-notebook-cell-with-sidebar',
-				ref: (ref: HTMLDivElement | null) => observeCellHeight(ref, this.props.cell)
+				title: 'Double-click to Expand Cell Input',
+				onDoubleClick: () => setInputCollapsed(this.props.cell, false),
+				style: {
+					alignItems: 'center',
+					cursor: 'default',
+					display: 'flex',
+					minHeight: '24px',
+					opacity: 0.7,
+					padding: '0 10px'
+				}
 			},
-			React.createElement(
-				'div',
-				{
-					className: 'theia-notebook-cell-editor-container',
-					title: 'Double-click to Expand Cell Input',
-					onDoubleClick: () => setInputCollapsed(this.props.cell, false),
-					style: {
-						alignItems: 'center',
-						cursor: 'default',
-						display: 'flex',
-						minHeight: '24px',
-						opacity: 0.7,
-						padding: '0 10px'
-					}
+			React.createElement('span', {
+				className: codicon('chevron-right'),
+				onClick: (event: React.MouseEvent<HTMLSpanElement>) => {
+					event.stopPropagation();
+					setInputCollapsed(this.props.cell, false);
 				},
-				React.createElement('span', {
-					className: codicon('chevron-right'),
-					onClick: (event: React.MouseEvent<HTMLSpanElement>) => {
-						event.stopPropagation();
-						setInputCollapsed(this.props.cell, false);
-					},
-					style: { cursor: 'pointer', marginRight: '6px' },
-					title: 'Expand Cell Input'
-				}),
-				React.createElement('span', undefined, 'Cell input is collapsed')
-			)
+				style: { cursor: 'pointer', marginRight: '6px' },
+				title: 'Expand Cell Input'
+			}),
+			React.createElement('span', undefined, 'Cell input is collapsed')
 		);
 	}
 }

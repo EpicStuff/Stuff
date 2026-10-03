@@ -100,7 +100,7 @@ class TheiaIde < Formula
 			workspace_path = buildpath/'theia-extensions'/"local-#{index}-#{path.basename}"
 			odie "Native extension workspace already exists: #{workspace_path}" if workspace_path.exist? || workspace_path.symlink?
 
-			ln_s path.realpath, workspace_path
+			cp_r path.realpath, workspace_path
 			dependencies[name] = version
 
 			{

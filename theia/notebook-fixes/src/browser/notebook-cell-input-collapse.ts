@@ -1,11 +1,14 @@
 import { Command, CommandContribution, CommandRegistry, Disposable, Emitter, MenuContribution, MenuModelRegistry } from '@theia/core';
-import { codicon } from '@theia/core/lib/browser';
+import { ApplicationShell, codicon } from '@theia/core/lib/browser';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import * as React from '@theia/core/shared/react';
 import { CellKind } from '@theia/notebook/lib/common';
 import { NotebookCellActionContribution } from '@theia/notebook/lib/browser/contributions/notebook-cell-actions-contribution';
+import { NotebookEditorWidget } from '@theia/notebook/lib/browser/notebook-editor-widget';
 import { NotebookEditorWidgetService } from '@theia/notebook/lib/browser/service/notebook-editor-widget-service';
 import { NotebookCodeCellRenderer } from '@theia/notebook/lib/browser/view/notebook-code-cell-view';
+import { NotebookCellToolbarProps } from '@theia/notebook/lib/browser/view/notebook-cell-toolbar';
+import { NotebookCellToolbarFactory } from '@theia/notebook/lib/browser/view/notebook-cell-toolbar-factory';
 import { observeCellHeight } from '@theia/notebook/lib/browser/view/notebook-cell-list-view';
 import { NotebookCellModel } from '@theia/notebook/lib/browser/view-model/notebook-cell-model';
 import { NotebookModel } from '@theia/notebook/lib/browser/view-model/notebook-model';
@@ -95,6 +98,90 @@ class CollapsibleCodeCellInput extends React.Component<CollapsibleCodeCellInputP
 	}
 }
 
+interface DynamicCellToolbarProps {
+	cell: NotebookCellModel;
+	renderToolbar: () => React.ReactNode;
+}
+
+interface DynamicCellToolbarState {
+	collapsed: boolean;
+}
+
+class DynamicCellToolbar extends React.Component<DynamicCellToolbarProps, DynamicCellToolbarState> {
+	protected stateSubscription?: Disposable;
+
+	constructor(props: DynamicCellToolbarProps) {
+		super(props);
+		this.state = { collapsed: isInputCollapsed(props.cell) };
+	}
+
+	override componentDidMount(): void {
+		this.stateSubscription = inputCollapseStateChangedEmitter.event(cell => {
+			if (cell === this.props.cell) {
+				this.setState({ collapsed: isInputCollapsed(cell) });
+			}
+		});
+	}
+
+	override componentWillUnmount(): void {
+		this.stateSubscription?.dispose();
+	}
+
+	override render(): React.ReactNode {
+		const toolbar = this.props.renderToolbar();
+		if (!React.isValidElement<NotebookCellToolbarProps>(toolbar)) {
+			return toolbar;
+		}
+
+		return React.cloneElement(toolbar, {
+			key: this.state.collapsed ? 'collapsed' : 'expanded'
+		});
+	}
+}
+
+let toolbarPatched = false;
+
+export function patchNotebookCellToolbarInputCollapseIcon(): void {
+	if (toolbarPatched) {
+		return;
+	}
+	toolbarPatched = true;
+
+	const originalRenderCellToolbar = NotebookCellToolbarFactory.prototype.renderCellToolbar;
+	NotebookCellToolbarFactory.prototype.renderCellToolbar = function (
+		this: NotebookCellToolbarFactory,
+		menuPath: string[],
+		cell: NotebookCellModel,
+		itemOptions
+	): React.ReactNode {
+		return React.createElement(DynamicCellToolbar, {
+			cell,
+			renderToolbar: () => {
+				const toolbar = originalRenderCellToolbar.call(this, menuPath, cell, itemOptions);
+				if (!React.isValidElement<NotebookCellToolbarProps>(toolbar)) {
+					return toolbar;
+				}
+
+				const getMenuItems = toolbar.props.getMenuItems;
+				return React.cloneElement(toolbar, {
+					getMenuItems: () => getMenuItems().map(item => {
+						if (item.id !== NotebookCellInputCollapseCommands.TOGGLE.id) {
+							return item;
+						}
+
+						const collapsed = isInputCollapsed(cell);
+						return {
+							...item,
+							icon: codicon(collapsed ? 'chevron-right' : 'chevron-down'),
+							label: collapsed ? 'Expand Cell Input' : 'Collapse Cell Input'
+						};
+					})
+				});
+			}
+		});
+	};
+}
+
 let rendererPatched = false;
 
 export function patchNotebookCodeCellInputCollapse(): void {
@@ -141,6 +228,9 @@ export namespace NotebookCellInputCollapseCommands {
 export class NotebookCellInputCollapseContribution implements CommandContribution, MenuContribution {
 	@inject(NotebookEditorWidgetService)
 	protected readonly notebookEditorWidgetService!: NotebookEditorWidgetService;
+
+	@inject(ApplicationShell)
+	protected readonly applicationShell!: ApplicationShell;
 
 	registerCommands(commands: CommandRegistry): void {
 		commands.registerCommand(NotebookCellInputCollapseCommands.COLLAPSE, {
@@ -202,8 +292,11 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 		if (first instanceof NotebookCellModel) {
 			return first;
 		}
-		return second
-			?? this.notebookEditorWidgetService.focusedEditor?.viewModel.selectedCell
-			?? this.notebookEditorWidgetService.currentEditor?.viewModel.selectedCell;
+		if (second) {
+			return second;
+		}
+
+		const currentWidget = this.applicationShell.currentWidget;
+		return currentWidget instanceof NotebookEditorWidget ? currentWidget.viewModel.selectedCell : undefined;
 	}
 }

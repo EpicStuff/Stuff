@@ -31,6 +31,7 @@ class TheiaIde < Formula
 	def install
 		ENV.prepend_path 'PKG_CONFIG_PATH', '/usr/share/pkgconfig'
 		ENV['PUPPETEER_SKIP_DOWNLOAD'] = 'true'
+		system_electron = prepare_build_manifests
 		build_jobs = [ENV.make_jobs.to_i, 1].max
 		child_jobs = [Math.sqrt(build_jobs).floor, 1].max
 		ENV['CHILD_CONCURRENCY'] = child_jobs.to_s
@@ -42,6 +43,7 @@ class TheiaIde < Formula
 		else
 			system 'yarn', 'install'
 		end
+		link_system_electron(system_electron) if system_electron
 
 		system 'yarn', 'build:extensions'
 		extensions.each do |extension|
@@ -71,6 +73,103 @@ class TheiaIde < Formula
 	end
 
 	private
+
+	def prepare_build_manifests
+		root_package_path = buildpath/'package.json'
+		root_package = JSON.parse(root_package_path.read)
+		root_package['workspaces'] = ['applications/electron', 'theia-extensions/*']
+
+		plugins = root_package.fetch('theiaPlugins')
+		plugins.delete('vscjava.vscode-java-pack')
+		plugins.delete('vscjava.vscode-java-dependency')
+
+		excluded = root_package.fetch('theiaPluginsExcludeIds')
+		excluded.concat([
+			'redhat.java',
+			'vscjava.vscode-gradle',
+			'vscjava.vscode-java-debug',
+			'vscjava.vscode-java-dependency',
+			'vscjava.vscode-java-test',
+			'vscjava.vscode-maven',
+			'vscode.theme-abyss',
+			'vscode.theme-kimbie-dark',
+			'vscode.theme-monokai',
+			'vscode.theme-monokai-dimmed',
+			'vscode.theme-quietlight',
+			'vscode.theme-red',
+			'vscode.theme-solarized-dark',
+			'vscode.theme-solarized-light',
+			'vscode.theme-tomorrow-night-blue',
+			'vscode.vscode-theme-seti',
+		])
+		root_package['theiaPluginsExcludeIds'] = excluded.uniq
+
+		lint_dependencies = %w[
+			@eclipse-dash/nodejs-wrapper
+			@typescript-eslint/eslint-plugin
+			@typescript-eslint/eslint-plugin-tslint
+			@typescript-eslint/parser
+			eslint
+			eslint-plugin-deprecation
+			eslint-plugin-import
+			eslint-plugin-no-null
+			eslint-plugin-no-unsanitized
+			eslint-plugin-react
+		]
+		lint_dependencies.each { |dependency| root_package.fetch('devDependencies').delete(dependency) }
+		root_package_path.atomic_write(JSON.pretty_generate(root_package) + "\n")
+
+		electron_package_path = buildpath/'applications/electron/package.json'
+		electron_package = JSON.parse(electron_package_path.read)
+		test_dependencies = %w[
+			@wdio/cli
+			@wdio/local-runner
+			@wdio/mocha-framework
+			@wdio/spec-reporter
+			chai
+			electron-chromedriver
+			electron-mocha
+			mocha
+			wdio-chromedriver-service
+			webdriverio
+		]
+		test_dependencies.each { |dependency| electron_package.fetch('devDependencies').delete(dependency) }
+
+		system_electron = find_system_electron(electron_package.dig('devDependencies', 'electron'))
+		if system_electron
+			electron_package['devDependencies']['electron'] = system_electron[:version]
+			patch_electron_builder(system_electron)
+		end
+		electron_package_path.atomic_write(JSON.pretty_generate(electron_package) + "\n")
+		system_electron
+	end
+
+	def find_system_electron(required_version)
+		major = required_version.to_s[/\d+/]
+		return unless major
+
+		Pathname('/usr/lib').glob('electron*/version').filter_map do |version_file|
+			version = version_file.read.strip
+			dist = version_file.dirname
+			next unless version.start_with?("#{major}.") && (dist/'electron').executable?
+
+			{ version:, dist: }
+		end.max_by { |electron| Version.new(electron[:version]) }
+	end
+
+	def patch_electron_builder(system_electron)
+		config_path = buildpath/'applications/electron/electron-builder.yml'
+		config = config_path.read
+		config = config.sub(/^electronDist:.*$/, "electronDist: #{system_electron[:dist]}")
+		config = config.sub(/^electronVersion:.*$/, "electronVersion: #{system_electron[:version]}")
+		config_path.atomic_write(config)
+	end
+
+	def link_system_electron(system_electron)
+		dist = buildpath/'node_modules/electron/dist'
+		rm_rf dist if dist.exist? || dist.symlink?
+		ln_s system_electron[:dist], dist
+	end
 
 	def prepare_native_extensions
 		extensions_path = ENV['HOMEBREW_THEIA_EXTENSIONS']

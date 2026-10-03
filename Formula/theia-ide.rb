@@ -29,6 +29,12 @@ class TheiaIde < Formula
 	env :std
 
 	def install
+		ENV.prepend_path 'PKG_CONFIG_PATH', '/usr/share/pkgconfig'
+		ENV['PUPPETEER_SKIP_DOWNLOAD'] = 'true'
+		build_jobs = [ENV.make_jobs.to_i, 1].max
+		child_jobs = [Math.sqrt(build_jobs).floor, 1].max
+		ENV['CHILD_CONCURRENCY'] = child_jobs.to_s
+		ENV['JOBS'] = [(build_jobs.to_f/child_jobs).ceil, 1].max.to_s
 		extensions = prepare_native_extensions
 
 		if extensions.empty?
@@ -55,7 +61,8 @@ class TheiaIde < Formula
 		odie 'Could not find the packaged Theia IDE launcher' unless launcher.executable?
 
 		libexec.install app_dir.children
-		bin.install_symlink libexec/'theia-ide-electron-app' => 'theia'
+		bin.write_exec_script libexec/'theia-ide-electron-app'
+		mv bin/'theia-ide-electron-app', bin/'theia'
 	end
 
 	test do
@@ -95,7 +102,7 @@ class TheiaIde < Formula
 			workspace_path = buildpath/'theia-extensions'/"local-#{index}-#{path.basename}"
 			odie "Native extension workspace already exists: #{workspace_path}" if workspace_path.exist? || workspace_path.symlink?
 
-			ln_s path.realpath, workspace_path
+			cp_r path.realpath, workspace_path
 			dependencies[name] = version
 
 			{

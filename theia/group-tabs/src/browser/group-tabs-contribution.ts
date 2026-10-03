@@ -1,8 +1,9 @@
-import { Command, CommandContribution, CommandRegistry } from '@theia/core';
+import { Command, CommandContribution, CommandRegistry, nls } from '@theia/core';
 import { ApplicationShell, FrontendApplicationContribution, NavigatableWidget, Widget, codicon } from '@theia/core/lib/browser';
 import { TabBarToolbarContribution, TabBarToolbarRegistry } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 import { inject, injectable } from '@theia/core/shared/inversify';
-import { MiniBrowserOpenHandler } from '@theia/mini-browser/lib/browser/mini-browser-open-handler';
+import { LocationMapperService } from '@theia/mini-browser/lib/browser/location-mapper-service';
+import { MiniBrowserCommands, MiniBrowserOpenHandler } from '@theia/mini-browser/lib/browser/mini-browser-open-handler';
 import { WebviewWidget } from '@theia/plugin-ext/lib/main/browser/webview/webview';
 import { GroupTabsService } from './group-tabs-service';
 
@@ -29,9 +30,13 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 	@inject(MiniBrowserOpenHandler)
 	protected readonly miniBrowserOpenHandler!: MiniBrowserOpenHandler;
 
+	@inject(LocationMapperService)
+	protected readonly locationMapperService!: LocationMapperService;
+
 	onStart(): void {
 		this.shell.onDidAddWidget(widget => {
-			if (!this.isMarkdownPreview(widget)) {
+			// A preview that is already grouped is being moved by Theia; the service puts it back.
+			if (!this.isMarkdownPreview(widget) || this.groupTabsService.getPair(widget)) {
 				return;
 			}
 
@@ -46,6 +51,10 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 				}
 			}, 0);
 		});
+	}
+
+	async onDidInitializeLayout(): Promise<void> {
+		await this.groupTabsService.adoptRestored();
 	}
 
 	registerCommands(commands: CommandRegistry): void {
@@ -82,8 +91,22 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 			throw new Error('No source widget is active for the preview');
 		}
 
-		const preview = await this.miniBrowserOpenHandler.openPreview(url);
-		await this.groupTabsService.pair(active, preview);
+		// Same props as MiniBrowserOpenHandler.openPreview, which always opens in (and widens) the right side panel.
+		// Mini Browser widgets are keyed by URI and every preview shares PREVIEW_URI, so a per source query keeps
+		// this preview from taking over Open URL's widget or another group's preview.
+		const previewUri = MiniBrowserOpenHandler.PREVIEW_URI.withQuery(`group-tabs=${active.id}`);
+		const preview = await this.miniBrowserOpenHandler.open(previewUri, {
+			name: nls.localize(MiniBrowserCommands.PREVIEW_CATEGORY_KEY, MiniBrowserCommands.PREVIEW_CATEGORY),
+			startPage: await this.locationMapperService.map(url),
+			toolbar: 'read-only',
+			resetBackground: true,
+			iconClass: codicon('preview'),
+			openFor: 'preview',
+			mode: 'reveal',
+			widgetOptions: { area: 'main', ref: active, mode: 'tab-after' }
+		});
+		// The preview server does not survive a reload, so a restored group falls back to the source.
+		await this.groupTabsService.pair(active, preview, { restoreSecondary: false });
 	}
 
 	protected findMarkdownPrimary(): Widget | undefined {

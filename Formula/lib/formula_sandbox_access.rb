@@ -10,6 +10,8 @@ module FormulaSandboxAccess
 			allow_theia_extension_path(sandbox)
 		when 'fish-loader'
 			allow_fish_loader_path(sandbox)
+		when 'xdg-data-loader'
+			allow_xdg_data_loader_path(sandbox)
 		end
 	end
 
@@ -27,6 +29,11 @@ module FormulaSandboxAccess
 
 	def allow_fish_loader_path(sandbox)
 		allow_build_path(sandbox, Pathname(Dir.home)/'.config/fish/conf.d')
+	end
+
+	def allow_xdg_data_loader_path(sandbox)
+		config_home = ENV['XDG_CONFIG_HOME'].to_s.empty? ? Pathname(Dir.home)/'.config' : Pathname(ENV['XDG_CONFIG_HOME']).expand_path
+		allow_build_path(sandbox, config_home/'plasma-workspace/env')
 	end
 
 	def allow_build_path(sandbox, path)

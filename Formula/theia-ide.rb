@@ -31,6 +31,7 @@ class TheiaIde < Formula
 	def install
 		ENV.prepend_path 'PKG_CONFIG_PATH', '/usr/share/pkgconfig'
 		ENV['PUPPETEER_SKIP_DOWNLOAD'] = 'true'
+		ENV['XDG_CACHE_HOME'] = (HOMEBREW_CACHE/'theia-ide').to_s
 		system_electron = prepare_build_manifests
 		build_jobs = [ENV.make_jobs.to_i, 1].max
 		child_jobs = [Math.sqrt(build_jobs).floor, 1].max
@@ -43,7 +44,7 @@ class TheiaIde < Formula
 		else
 			system 'yarn', 'install'
 		end
-		link_system_electron(system_electron) if system_electron
+		copy_system_electron(system_electron) if system_electron
 
 		system 'yarn', 'build:extensions'
 		extensions.each do |extension|
@@ -160,15 +161,15 @@ class TheiaIde < Formula
 	def patch_electron_builder(system_electron)
 		config_path = buildpath/'applications/electron/electron-builder.yml'
 		config = config_path.read
-		config = config.sub(/^electronDist:.*$/, "electronDist: #{system_electron[:dist]}")
 		config = config.sub(/^electronVersion:.*$/, "electronVersion: #{system_electron[:version]}")
 		config_path.atomic_write(config)
 	end
 
-	def link_system_electron(system_electron)
+	def copy_system_electron(system_electron)
 		dist = buildpath/'node_modules/electron/dist'
 		rm_rf dist if dist.exist? || dist.symlink?
-		ln_s system_electron[:dist], dist
+		mkdir_p dist
+		system 'cp', '-a', '--reflink=auto', "#{system_electron[:dist]}/.", dist
 	end
 
 	def prepare_native_extensions

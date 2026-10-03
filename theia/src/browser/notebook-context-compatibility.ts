@@ -9,6 +9,7 @@ import {
 	NOTEBOOK_KERNEL_COUNT
 } from '@theia/notebook/lib/browser/contributions/notebook-context-keys';
 import { NotebookEditorWidget } from '@theia/notebook/lib/browser/notebook-editor-widget';
+import { NotebookCellModel } from '@theia/notebook/lib/browser/view-model/notebook-cell-model';
 import { NotebookModel } from '@theia/notebook/lib/browser/view-model/notebook-model';
 
 interface NotebookContextManagerAccess {
@@ -99,20 +100,12 @@ export function patchNotebookContextCompatibility(): void {
 	};
 }
 
-type NotebookCellWithInputCollapse = Parameters<NotebookContextManagerAccess['setCellContext']>[0] extends never ? never : {
-	getData(): {
-		collapseState?: {
-			inputCollapsed?: boolean;
-		};
-	};
-};
+let inputCollapseStateReader: ((cell: NotebookCellModel) => boolean) | undefined;
 
-let inputCollapseStateReader: ((cell: NotebookCellWithInputCollapse) => boolean) | undefined;
-
-export function setNotebookCellInputCollapseStateReader(reader: (cell: NotebookCellWithInputCollapse) => boolean): void {
+export function setNotebookCellInputCollapseStateReader(reader: (cell: NotebookCellModel) => boolean): void {
 	inputCollapseStateReader = reader;
 }
 
-function isNotebookCellInputCollapsed(cell: NotebookCellWithInputCollapse): boolean {
+function isNotebookCellInputCollapsed(cell: NotebookCellModel): boolean {
 	return inputCollapseStateReader?.(cell) ?? cell.getData().collapseState?.inputCollapsed ?? false;
 }

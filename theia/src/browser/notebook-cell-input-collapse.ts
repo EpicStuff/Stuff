@@ -140,7 +140,7 @@ export namespace NotebookCellInputCollapseCommands {
 @injectable()
 export class NotebookCellInputCollapseContribution implements CommandContribution, MenuContribution {
 	@inject(NotebookEditorWidgetService)
-	protected readonly notebookEditorWidgetService: NotebookEditorWidgetService;
+	protected readonly notebookEditorWidgetService!: NotebookEditorWidgetService;
 
 	registerCommands(commands: CommandRegistry): void {
 		commands.registerCommand(NotebookCellInputCollapseCommands.COLLAPSE, {

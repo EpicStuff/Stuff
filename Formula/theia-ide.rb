@@ -37,9 +37,9 @@ class TheiaIde < Formula
 		extensions = prepare_native_extensions
 
 		if extensions.empty?
-			system 'yarn', 'install', '--frozen-lockfile', '--verbose'
+			system 'yarn', 'install', '--frozen-lockfile'
 		else
-			system 'yarn', 'install', '--verbose'
+			system 'yarn', 'install'
 		end
 
 		system 'yarn', 'build:extensions'

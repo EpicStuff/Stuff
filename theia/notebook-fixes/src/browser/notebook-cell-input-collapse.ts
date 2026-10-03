@@ -110,7 +110,7 @@ function initializeInputCollapsePersistence(storageService: StorageService, note
 	});
 }
 
-function isInputCollapsed(cell: NotebookCellModel): boolean {
+export function readNotebookCellInputCollapseState(cell: NotebookCellModel): boolean {
 	const stored = inputCollapseState.get(cell);
 	if (stored !== undefined) {
 		return stored;
@@ -120,6 +120,8 @@ function isInputCollapsed(cell: NotebookCellModel): boolean {
 	inputCollapseState.set(cell, collapsed);
 	return collapsed;
 }
+
+const isInputCollapsed = readNotebookCellInputCollapseState;
 
 function setInputCollapsed(cell: NotebookCellModel, collapsed: boolean, persist: boolean = true): void {
 	inputCollapseStateTouched.add(cell);

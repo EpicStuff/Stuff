@@ -4,7 +4,7 @@ This is a small VS Code extension for Eclipse Theia. It keeps Tinymist's existin
 
 Tinymist's built in VS Code webview preview uses a WebSocket. Theia webviews use a `*.webview.localhost` origin, which Tinymist currently rejects. Tinymist's browser preview works because it is served directly from `127.0.0.1`.
 
-The extension uses Tinymist's previewer provider API. Tinymist starts its normal preview server and passes the provider its static server port. The provider then runs Theia's `mini-browser.openUrl` command with that local URL.
+The extension uses Tinymist's previewer provider API. Tinymist starts its normal preview server and passes the provider its static server port. When `theia-group-tabs` is available, the provider runs `group-tabs.openPreviewUrl` so the source and preview share one grouped tab. It falls back to Theia's `mini-browser.openUrl` command when grouped tabs are unavailable.
 
 The package contributes this default:
 

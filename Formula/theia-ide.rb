@@ -1,3 +1,4 @@
+require 'digest'
 require 'json'
 require_relative '../lib/ensure_deps'
 require_relative '../lib/formula_sandbox_access'
@@ -31,7 +32,9 @@ class TheiaIde < Formula
 	def install
 		ENV.prepend_path 'PKG_CONFIG_PATH', '/usr/share/pkgconfig'
 		ENV['PUPPETEER_SKIP_DOWNLOAD'] = 'true'
-		ENV['XDG_CACHE_HOME'] = (HOMEBREW_CACHE/'theia-ide').to_s
+		cache_root = HOMEBREW_CACHE/'npm_cache/theia-ide'
+		ENV['XDG_CACHE_HOME'] = cache_root.to_s
+		prepare_ffmpeg_cache(cache_root)
 		system_electron = prepare_build_manifests
 		build_jobs = [ENV.make_jobs.to_i, 1].max
 		child_jobs = [Math.sqrt(build_jobs).floor, 1].max
@@ -54,7 +57,10 @@ class TheiaIde < Formula
 		end
 
 		system 'yarn', 'electron', 'build:prod'
+		plugin_cache = plugin_cache_path(cache_root)
+		restore_plugin_cache(plugin_cache)
 		system 'yarn', 'download:plugins'
+		store_plugin_cache(plugin_cache)
 		system 'yarn', 'electron', 'package:preview'
 
 		app_dir = buildpath.glob('applications/electron/dist/linux*-unpacked').find(&:directory?)
@@ -74,6 +80,42 @@ class TheiaIde < Formula
 	end
 
 	private
+
+	def prepare_ffmpeg_cache(cache_root)
+		cache = cache_root/'theia-cli-cache'
+		cache.mkpath
+		tmp_root = Pathname(ENV.fetch('TMPDIR'))/'theia-cli'
+		tmp_root.mkpath
+		link = tmp_root/'cache'
+		rm_rf link if link.exist? || link.symlink?
+		ln_s cache, link
+	end
+
+	def plugin_cache_path(cache_root)
+		package = JSON.parse((buildpath/'package.json').read)
+		fingerprint = Digest::SHA256.hexdigest(JSON.generate({
+			plugins: package['theiaPlugins'],
+			excluded: package['theiaPluginsExcludeIds'],
+		}))
+		cache_root/'plugins'/version.to_s/fingerprint
+	end
+
+	def restore_plugin_cache(cache)
+		return unless cache.directory?
+
+		plugins = buildpath/'plugins'
+		plugins.mkpath
+		system 'cp', '-a', '--reflink=auto', "#{cache}/.", plugins
+	end
+
+	def store_plugin_cache(cache)
+		plugins = buildpath/'plugins'
+		return unless plugins.directory?
+
+		rm_rf cache
+		cache.mkpath
+		system 'cp', '-a', '--reflink=auto', "#{plugins}/.", cache
+	end
 
 	def prepare_build_manifests
 		root_package_path = buildpath/'package.json'

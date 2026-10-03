@@ -1,4 +1,8 @@
+require_relative '../lib/ensure_deps'
+
 class TheiaIde < Formula
+	extend EnsureDeps
+
 	desc 'Cloud and desktop IDE based on the Eclipse Theia platform'
 	homepage 'https://theia-ide.org/'
 	url 'https://github.com/eclipse-theia/theia-ide.git',
@@ -13,21 +17,16 @@ class TheiaIde < Formula
 	end
 
 	depends_on :linux
+	ensure_build_dep 'node@24', command: 'node', minimum_version: '24'
+	ensure_build_dep 'yarn', command: 'yarn', minimum_version: '1.7', version_below: '2'
+	ensure_build_dep 'python@3.14', command: 'python3'
+	ensure_build_dep 'make', command: 'make'
+	ensure_build_dep 'pkgconf', command: 'pkg-config'
 
 	allow_network_access! :build
 	env :std
 
 	def install
-		required_commands = %w[node yarn python3 make pkg-config]
-		missing_commands = required_commands.reject { |command| which(command) }
-		odie "Missing build tools: #{missing_commands.join(', ')}" if missing_commands.any?
-
-		node_version = Version.new(shell_output('node --version').strip.delete_prefix('v'))
-		odie 'Node.js 24 or newer is required' if node_version < Version.new('24')
-
-		yarn_version = Version.new(shell_output('yarn --version').strip)
-		odie 'Yarn 1.7 or newer from the 1.x series is required' if yarn_version < Version.new('1.7') || yarn_version >= Version.new('2')
-
 		system 'yarn', 'install', '--frozen-lockfile'
 		system 'yarn', 'build:extensions'
 		system 'yarn', 'electron', 'build:prod'

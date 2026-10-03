@@ -1,7 +1,10 @@
 import fs from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 
-export const supportedTheiaVersion = '1.75.0';
+export const baselineTheiaVersion = '1.75.0';
+
+const require = createRequire(import.meta.url);
 
 const originalCall = 'context: findVscodeContext(e.composedPath(), 0)';
 const fixedCall = 'context: findVscodeContext(e.composedPath())';
@@ -27,16 +30,74 @@ const fixedFunction = `        function findVscodeContext(nodes) {
             }, {});
         }`;
 
+const originalHostFunction = `    handleContextMenu(event: { clientX: number, clientY: number, context: any }): void {
+        const domRect = this.node.getBoundingClientRect();
+        this.contextKeyService.with(this.parent instanceof PluginViewWidget ?
+            { webviewId: this.parent.options.viewId, ...event.context } : {},
+            () => {
+                this.contextMenuRenderer.render({
+                    menuPath: WEBVIEW_CONTEXT_MENU,
+                    args: [event.context],
+                    anchor: {
+                        x: domRect.x + event.clientX, y: domRect.y + event.clientY
+                    },
+                    context: this.node
+                });
+            });
+    }`;
+
+function countOccurrences(source, needle) {
+	let count = 0;
+	let offset = 0;
+
+	while ((offset = source.indexOf(needle, offset)) !== -1) {
+		count += 1;
+		offset += needle.length;
+	}
+
+	return count;
+}
+
+function buildError(error) {
+	return {
+		errors: [{
+			text: error instanceof Error ? error.message : String(error)
+		}]
+	};
+}
+
+export function verifyHostWebviewSource(source) {
+	const count = countOccurrences(source, originalHostFunction);
+	if (count !== 1) {
+		throw new Error(`Unsupported @theia/plugin-ext WebviewWidget.handleContextMenu implementation. Expected exactly one copy of the implementation verified against Theia ${baselineTheiaVersion}, found ${count}.`);
+	}
+}
+
 export function patchWebviewPreloadSource(source) {
-	if (source.includes(fixedCall) && source.includes(fixedFunction)) {
+	const originalCallCount = countOccurrences(source, originalCall);
+	const originalFunctionCount = countOccurrences(source, originalFunction);
+	const fixedCallCount = countOccurrences(source, fixedCall);
+	const fixedFunctionCount = countOccurrences(source, fixedFunction);
+
+	if (
+		originalCallCount === 0
+		&& originalFunctionCount === 0
+		&& fixedCallCount === 1
+		&& fixedFunctionCount === 1
+	) {
 		return {
 			changed: false,
 			source
 		};
 	}
 
-	if (!source.includes(originalCall) || !source.includes(originalFunction)) {
-		throw new Error(`Unsupported @theia/plugin-ext webview preload. This fix is written for Theia ${supportedTheiaVersion}.`);
+	if (
+		originalCallCount !== 1
+		|| originalFunctionCount !== 1
+		|| fixedCallCount !== 0
+		|| fixedFunctionCount !== 0
+	) {
+		throw new Error(`Unsupported @theia/plugin-ext webview preload implementation. Expected exactly one unpatched implementation verified against Theia ${baselineTheiaVersion}.`);
 	}
 
 	return {
@@ -45,12 +106,27 @@ export function patchWebviewPreloadSource(source) {
 	};
 }
 
+function resolveHostSourcePath() {
+	const packageJsonPath = require.resolve('@theia/plugin-ext/package.json');
+	return path.join(path.dirname(packageJsonPath), 'src/main/browser/webview/webview.ts');
+}
+
 export function webviewContextFixPlugin(options = {}) {
 	const preloadPath = options.preloadPath ?? path.resolve(process.cwd(), 'lib/webview/pre/main.js');
+	const hostSourcePath = options.hostSourcePath ?? resolveHostSourcePath();
 
 	return {
 		name: 'theia-webview-context-fix',
 		setup(build) {
+			build.onStart(async () => {
+				try {
+					const source = await fs.readFile(hostSourcePath, 'utf8');
+					verifyHostWebviewSource(source);
+				} catch (error) {
+					return buildError(error);
+				}
+			});
+
 			build.onEnd(async result => {
 				if (result.errors.length > 0) {
 					return;
@@ -63,11 +139,7 @@ export function webviewContextFixPlugin(options = {}) {
 						await fs.writeFile(preloadPath, patched.source);
 					}
 				} catch (error) {
-					return {
-						errors: [{
-							text: error instanceof Error ? error.message : String(error)
-						}]
-					};
+					return buildError(error);
 				}
 			});
 		}

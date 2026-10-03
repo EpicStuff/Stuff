@@ -1,28 +1,28 @@
-import { Disposable, generateUuid } from '@theia/core';
+import { Disposable } from '@theia/core';
 import { Message, Navigatable, SplitWidget, Widget } from '@theia/core/lib/browser';
 import { TabBarDelegator } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 
+/**
+ * One top level tab holding a primary (source) pane and a secondary (companion) pane side by side.
+ * It is created through the WidgetManager so that ShellLayoutRestorer can store it and recreate its panes.
+ */
 export class GroupTabsWidget extends SplitWidget implements TabBarDelegator {
+	static readonly FACTORY_ID = 'group-tabs';
+
 	protected closing = false;
 	protected lastRelativeSizes = [0.5, 0.5];
 	protected focusedPane?: Widget;
+	protected titleSource?: Widget;
+	// Panes left out of the stored layout, e.g. previews of a server that does not survive a reload.
+	protected readonly transientPanes = new WeakSet<Widget>();
 
-	constructor(
-		readonly primary: Widget,
-		readonly secondary: Widget
-	) {
-		super({
-			orientation: 'horizontal',
-			navigatable: Navigatable.is(primary) ? primary : undefined
-		});
+	constructor(options: GroupTabsWidget.Options) {
+		super({ orientation: 'horizontal' });
 
-		this.id = `group-tabs:${generateUuid()}`;
+		this.id = `${GroupTabsWidget.FACTORY_ID}:${options.id}`;
 		this.addClass('theia-group-tabs-widget');
 		this.title.closable = true;
-		this.syncTitle();
-
-		primary.title.changed.connect(this.syncTitle, this);
-		this.toDispose.push(Disposable.create(() => primary.title.changed.disconnect(this.syncTitle, this)));
+		this.toDispose.push(Disposable.create(() => this.titleSource?.title.changed.disconnect(this.syncTitle, this)));
 
 		const onHandleMoved = (): void => {
 			this.lastRelativeSizes = this.relativeSizes();
@@ -36,16 +36,40 @@ export class GroupTabsWidget extends SplitWidget implements TabBarDelegator {
 		});
 	}
 
+	get primary(): Widget | undefined {
+		return this.panes[0];
+	}
+
 	getTabBarDelegate(): Widget {
-		return this.primary;
+		return this.primary ?? this;
 	}
 
 	get isClosing(): boolean {
 		return this.closing;
 	}
 
+	markTransient(pane: Widget): void {
+		this.transientPanes.add(pane);
+	}
+
 	restoreRelativeSizes(): void {
 		this.setRelativeSizes(this.lastRelativeSizes);
+	}
+
+	override storeState(): SplitWidget.State {
+		const widgets = this.panes.filter(pane => !this.transientPanes.has(pane));
+		return {
+			orientation: this.orientation,
+			widgets,
+			relativeSizes: widgets.length === this.panes.length ? this.relativeSizes() : undefined
+		};
+	}
+
+	override restoreState(oldState: SplitWidget.State): void {
+		super.restoreState(oldState);
+		if (oldState.relativeSizes?.length === this.panes.length) {
+			this.lastRelativeSizes = oldState.relativeSizes;
+		}
 	}
 
 	override getTrackableWidgets(): Widget[] {
@@ -54,10 +78,33 @@ export class GroupTabsWidget extends SplitWidget implements TabBarDelegator {
 		return super.getTrackableWidgets().filter(pane => !pane.isDisposed);
 	}
 
+	override addPane(pane: Widget): void {
+		super.addPane(pane);
+		this.updatePrimary();
+	}
+
+	override insertPane(index: number, pane: Widget): void {
+		super.insertPane(index, pane);
+		this.updatePrimary();
+	}
+
 	protected override onPaneAdded(pane: Widget): void {
 		// Dock layouts hide widgets they remove and background tabs are hidden, and a split panel keeps that state.
 		pane.show();
 		super.onPaneAdded(pane);
+	}
+
+	// Runs after insertion: Lumino sends child-added before the split layout lists the new pane.
+	protected updatePrimary(): void {
+		const primary = this.primary;
+		if (!primary || primary === this.titleSource) {
+			return;
+		}
+		this.titleSource?.title.changed.disconnect(this.syncTitle, this);
+		this.titleSource = primary;
+		primary.title.changed.connect(this.syncTitle, this);
+		this.navigatable = Navigatable.is(primary) ? primary : undefined;
+		this.syncTitle();
 	}
 
 	activateWidget(id: string): Widget | undefined {
@@ -79,7 +126,11 @@ export class GroupTabsWidget extends SplitWidget implements TabBarDelegator {
 	protected override onActivateRequest(msg: Message): void {
 		// SplitWidget only focuses its own panel node, which leaves every pane without focus.
 		const pane = this.focusedPane && this.panes.includes(this.focusedPane) && !this.focusedPane.isDisposed ? this.focusedPane : this.primary;
-		pane.activate();
+		if (pane) {
+			pane.activate();
+		} else {
+			super.onActivateRequest(msg);
+		}
 	}
 
 	override dispose(): void {
@@ -97,8 +148,16 @@ export class GroupTabsWidget extends SplitWidget implements TabBarDelegator {
 	}
 
 	protected syncTitle(): void {
-		this.title.label = this.primary.title.label;
-		this.title.caption = this.primary.title.caption;
-		this.title.iconClass = this.primary.title.iconClass;
+		if (this.titleSource) {
+			this.title.label = this.titleSource.title.label;
+			this.title.caption = this.titleSource.title.caption;
+			this.title.iconClass = this.titleSource.title.iconClass;
+		}
+	}
+}
+
+export namespace GroupTabsWidget {
+	export interface Options {
+		id: string;
 	}
 }

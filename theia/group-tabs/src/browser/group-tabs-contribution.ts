@@ -53,6 +53,10 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 		});
 	}
 
+	async onDidInitializeLayout(): Promise<void> {
+		await this.groupTabsService.adoptRestored();
+	}
+
 	registerCommands(commands: CommandRegistry): void {
 		commands.registerCommand(GroupTabsCommands.CLOSE_SECONDARY, {
 			execute: (widget?: Widget) => this.groupTabsService.closeSecondary(widget ?? this.shell.activeWidget),
@@ -88,7 +92,10 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 		}
 
 		// Same props as MiniBrowserOpenHandler.openPreview, which always opens in (and widens) the right side panel.
-		const preview = await this.miniBrowserOpenHandler.open(MiniBrowserOpenHandler.PREVIEW_URI, {
+		// Mini Browser widgets are keyed by URI and every preview shares PREVIEW_URI, so a per source query keeps
+		// this preview from taking over Open URL's widget or another group's preview.
+		const previewUri = MiniBrowserOpenHandler.PREVIEW_URI.withQuery(`group-tabs=${active.id}`);
+		const preview = await this.miniBrowserOpenHandler.open(previewUri, {
 			name: nls.localize(MiniBrowserCommands.PREVIEW_CATEGORY_KEY, MiniBrowserCommands.PREVIEW_CATEGORY),
 			startPage: await this.locationMapperService.map(url),
 			toolbar: 'read-only',
@@ -98,7 +105,8 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 			mode: 'reveal',
 			widgetOptions: { area: 'main', ref: active, mode: 'tab-after' }
 		});
-		await this.groupTabsService.pair(active, preview);
+		// The preview server does not survive a reload, so a restored group falls back to the source.
+		await this.groupTabsService.pair(active, preview, { restoreSecondary: false });
 	}
 
 	protected findMarkdownPrimary(): Widget | undefined {

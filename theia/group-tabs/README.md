@@ -12,6 +12,8 @@ Current integrations:
 
 Closing the outer tab closes both contained widgets. The outer toolbar also exposes a Close Preview action. Closing the companion by any other route unwraps the source and restores it as a normal main area tab.
 
+A group has one companion. Pairing a source that is already grouped with a different companion replaces the old companion; VS Code Markdown does this on every Preview to Side because it cannot match a grouped preview's view column. If Theia moves a grouped widget back into the dock (webviews revealed in an explicit view column), the group adopts it again.
+
 The grouped tab delegates its tab toolbar to the source widget, so normal source editor toolbar actions continue to appear.
 
 The grouping service is generic and exported from `theia-group-tabs/lib/browser/group-tabs-service`. The current integrations only create two pane source and preview groups.

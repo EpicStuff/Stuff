@@ -1,6 +1,6 @@
 {
 	"name": "theia-group-tabs",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Generic paired tab support for Eclipse Theia previews.",
 	"license": "MIT",
 	"engines": {

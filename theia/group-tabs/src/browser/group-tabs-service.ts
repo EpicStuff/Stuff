@@ -7,7 +7,7 @@ interface GroupTabsRecord {
 	primary: Widget;
 	secondary: Widget;
 	toDispose: DisposableCollection;
-	unpairing: boolean;
+	unwrapping?: Promise<void>;
 }
 
 @injectable()
@@ -47,7 +47,17 @@ export class GroupTabsService {
 				await this.shell.activateWidget(primary.id);
 				return existingPrimaryPair;
 			}
-			throw new Error('The primary widget is already grouped with another widget');
+			// A group has one companion, so a new one replaces it. VS Code Markdown does this on every
+			// Preview to Side: it cannot match the grouped preview's view column, so it creates a new
+			// preview and disposes the old one, in either order relative to this call.
+			const previous = existingPrimaryPair.secondary;
+			await this.unwrap(existingPrimaryPair);
+			if (!previous.isDisposed) {
+				previous.dispose();
+			}
+			if (primary.isDisposed || secondary.isDisposed) {
+				throw new Error('Cannot group a disposed widget');
+			}
 		}
 
 		const existingSecondaryPair = this.getPair(secondary);
@@ -91,8 +101,7 @@ export class GroupTabsService {
 		const record: GroupTabsRecord = {
 			primary: pair.primary,
 			secondary: pair.secondary,
-			toDispose,
-			unpairing: false
+			toDispose
 		};
 		this.records.set(pair, record);
 		this.pairByChild.set(pair.primary, pair);
@@ -104,7 +113,7 @@ export class GroupTabsService {
 			}
 		};
 		const onSecondaryDisposed = (): void => {
-			if (!pair.isClosing && !pair.isDisposed && !record.unpairing) {
+			if (!pair.isClosing && !pair.isDisposed && !record.unwrapping) {
 				void this.unwrap(pair);
 			}
 		};
@@ -117,33 +126,55 @@ export class GroupTabsService {
 		toDispose.pushAll([
 			Disposable.create(() => pair.primary.disposed.disconnect(onPrimaryDisposed)),
 			Disposable.create(() => pair.secondary.disposed.disconnect(onSecondaryDisposed)),
-			Disposable.create(() => pair.disposed.disconnect(onPairDisposed))
+			Disposable.create(() => pair.disposed.disconnect(onPairDisposed)),
+			// Theia may move a grouped child back into the dock, e.g. webviews-main reattaches a webview whenever
+			// an extension reveals it in an explicit view column, because grouped children have no column of their own.
+			this.shell.onDidAddWidget(widget => {
+				if (widget === record.primary || widget === record.secondary) {
+					setTimeout(() => this.readopt(pair, widget), 0);
+				}
+			})
 		]);
 	}
 
-	protected async unwrap(pair: GroupTabsWidget): Promise<void> {
+	protected readopt(pair: GroupTabsWidget, widget: Widget): void {
 		const record = this.records.get(pair);
-		if (!record || record.unpairing || pair.isDisposed) {
+		if (!record || record.unwrapping || pair.isDisposed || widget.isDisposed || pair.panes.includes(widget)) {
 			return;
 		}
-		record.unpairing = true;
 
-		const primary = record.primary;
-		if (primary.isDisposed) {
+		const activate = this.shell.activeWidget === widget;
+		pair.insertPane(widget === record.primary ? 0 : pair.panes.length, widget);
+		pair.restoreRelativeSizes();
+		void (activate ? this.shell.activateWidget(widget.id) : this.shell.revealWidget(widget.id));
+	}
+
+	protected unwrap(pair: GroupTabsWidget): Promise<void> {
+		const record = this.records.get(pair);
+		if (!record || pair.isDisposed) {
+			return Promise.resolve();
+		}
+		// Concurrent callers (a disposed companion and a replacing pair()) wait for the same unwrap.
+		record.unwrapping ??= (async () => {
+			const primary = record.primary;
+			if (primary.isDisposed) {
+				pair.dispose();
+				return;
+			}
+
+			// Detach without disposing; the dock layout then adopts it next to the outer tab.
+			primary.parent = null;
+			await this.shell.addWidget(primary, {
+				area: 'main',
+				ref: pair,
+				mode: 'tab-after'
+			});
+
+			this.clearPair(pair);
 			pair.dispose();
-			return;
-		}
-
-		primary.parent = null;
-		await this.shell.addWidget(primary, {
-			area: 'main',
-			ref: pair,
-			mode: 'tab-after'
-		});
-
-		this.clearPair(pair);
-		pair.dispose();
-		await this.shell.activateWidget(primary.id);
+			await this.shell.activateWidget(primary.id);
+		})();
+		return record.unwrapping;
 	}
 
 	protected clearPair(pair: GroupTabsWidget): void {

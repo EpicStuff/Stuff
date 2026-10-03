@@ -6,7 +6,7 @@ class XdgDataLoader < Formula
 	url 'https://raw.githubusercontent.com/Homebrew/brew/34c40c18ffa2029b611b61c73273e32c003d0842/Library/Homebrew/.ruby-version', using: :nounzip
 	sha256 '2e9fe584010a41f374317eb891684ccaab818403e8fa8eb7b2053c1810a8c00a'
 	license 'MIT'
-	version '1.0.2'
+	version '1.0.3'
 
 	livecheck do
 		skip 'No upstream'
@@ -34,6 +34,17 @@ class XdgDataLoader < Formula
 			homebrew_share='#{HOMEBREW_PREFIX}/share'
 			restart_plasma=false
 			status=0
+
+			uid="$(id -u)"
+			if [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/$uid" ]; then
+				XDG_RUNTIME_DIR="/run/user/$uid"
+				export XDG_RUNTIME_DIR
+			fi
+
+			if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "${XDG_RUNTIME_DIR:-}/bus" ]; then
+				DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+				export DBUS_SESSION_BUS_ADDRESS
+			fi
 
 			if command -v systemctl >/dev/null 2>&1; then
 				systemd_xdg_data_dirs="$(systemctl --user show-environment 2>/dev/null | sed -n 's/^XDG_DATA_DIRS=//p')"
@@ -83,6 +94,8 @@ class XdgDataLoader < Formula
 		assert_predicate refresh, :executable?
 		assert_match 'kbuildsycoca6', refresh.read
 		assert_match 'import-environment XDG_DATA_DIRS', refresh.read
+		assert_match '/run/user/$uid', refresh.read
+		assert_match 'DBUS_SESSION_BUS_ADDRESS', refresh.read
 		assert_match 'plasma-plasmashell.service', refresh.read
 	end
 

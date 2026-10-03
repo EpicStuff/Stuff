@@ -1,7 +1,7 @@
 {
 	"name": "theia-webview-context-fix",
-	"version": "0.1.2",
-	"description": "Native Eclipse Theia extension and build integration that fixes inherited VS Code webview context menus in Theia 1.75.0.",
+	"version": "0.1.3",
+	"description": "Native Eclipse Theia extension and build integration that fixes inherited VS Code webview context menus, with compatibility guards for future Theia updates.",
 	"license": "MIT",
 	"engines": {
 		"node": ">=24"
@@ -22,9 +22,9 @@
 		"clean": "rm -rf lib",
 		"test": "node --test test/*.test.mjs"
 	},
-	"dependencies": {
-		"@theia/core": "1.75.0",
-		"@theia/plugin-ext": "1.75.0"
+	"peerDependencies": {
+		"@theia/core": ">=1.75.0 <2.0.0",
+		"@theia/plugin-ext": ">=1.75.0 <2.0.0"
 	},
 	"devDependencies": {
 		"typescript": "~5.9.3"

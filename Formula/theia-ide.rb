@@ -30,12 +30,13 @@ class TheiaIde < Formula
 
 	def install
 		ENV.prepend_path 'PKG_CONFIG_PATH', '/usr/share/pkgconfig'
+		ENV['CHILD_CONCURRENCY'] = [ENV.make_jobs.to_i, 8].min.to_s
 		extensions = prepare_native_extensions
 
 		if extensions.empty?
-			system 'yarn', 'install', '--frozen-lockfile'
+			system 'yarn', 'install', '--frozen-lockfile', '--verbose'
 		else
-			system 'yarn', 'install'
+			system 'yarn', 'install', '--verbose'
 		end
 
 		system 'yarn', 'build:extensions'

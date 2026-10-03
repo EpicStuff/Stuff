@@ -7,6 +7,8 @@ import { NotebookCellActionContribution } from '@theia/notebook/lib/browser/cont
 import { NotebookEditorWidget } from '@theia/notebook/lib/browser/notebook-editor-widget';
 import { NotebookEditorWidgetService } from '@theia/notebook/lib/browser/service/notebook-editor-widget-service';
 import { NotebookCodeCellRenderer } from '@theia/notebook/lib/browser/view/notebook-code-cell-view';
+import { NotebookCellToolbarProps } from '@theia/notebook/lib/browser/view/notebook-cell-toolbar';
+import { NotebookCellToolbarFactory } from '@theia/notebook/lib/browser/view/notebook-cell-toolbar-factory';
 import { observeCellHeight } from '@theia/notebook/lib/browser/view/notebook-cell-list-view';
 import { NotebookCellModel } from '@theia/notebook/lib/browser/view-model/notebook-cell-model';
 import { NotebookModel } from '@theia/notebook/lib/browser/view-model/notebook-model';
@@ -94,6 +96,90 @@ class CollapsibleCodeCellInput extends React.Component<CollapsibleCodeCellInputP
 			)
 		);
 	}
+}
+
+interface DynamicCellToolbarProps {
+	cell: NotebookCellModel;
+	renderToolbar: () => React.ReactNode;
+}
+
+interface DynamicCellToolbarState {
+	collapsed: boolean;
+}
+
+class DynamicCellToolbar extends React.Component<DynamicCellToolbarProps, DynamicCellToolbarState> {
+	protected stateSubscription?: Disposable;
+
+	constructor(props: DynamicCellToolbarProps) {
+		super(props);
+		this.state = { collapsed: isInputCollapsed(props.cell) };
+	}
+
+	override componentDidMount(): void {
+		this.stateSubscription = inputCollapseStateChangedEmitter.event(cell => {
+			if (cell === this.props.cell) {
+				this.setState({ collapsed: isInputCollapsed(cell) });
+			}
+		});
+	}
+
+	override componentWillUnmount(): void {
+		this.stateSubscription?.dispose();
+	}
+
+	override render(): React.ReactNode {
+		const toolbar = this.props.renderToolbar();
+		if (!React.isValidElement<NotebookCellToolbarProps>(toolbar)) {
+			return toolbar;
+		}
+
+		return React.cloneElement(toolbar, {
+			key: this.state.collapsed ? 'collapsed' : 'expanded'
+		});
+	}
+}
+
+let toolbarPatched = false;
+
+export function patchNotebookCellToolbarInputCollapseIcon(): void {
+	if (toolbarPatched) {
+		return;
+	}
+	toolbarPatched = true;
+
+	const originalRenderCellToolbar = NotebookCellToolbarFactory.prototype.renderCellToolbar;
+	NotebookCellToolbarFactory.prototype.renderCellToolbar = function (
+		this: NotebookCellToolbarFactory,
+		menuPath: string[],
+		cell: NotebookCellModel,
+		itemOptions
+	): React.ReactNode {
+		return React.createElement(DynamicCellToolbar, {
+			cell,
+			renderToolbar: () => {
+				const toolbar = originalRenderCellToolbar.call(this, menuPath, cell, itemOptions);
+				if (!React.isValidElement<NotebookCellToolbarProps>(toolbar)) {
+					return toolbar;
+				}
+
+				const getMenuItems = toolbar.props.getMenuItems;
+				return React.cloneElement(toolbar, {
+					getMenuItems: () => getMenuItems().map(item => {
+						if (item.id !== NotebookCellInputCollapseCommands.TOGGLE.id) {
+							return item;
+						}
+
+						const collapsed = isInputCollapsed(cell);
+						return {
+							...item,
+							icon: codicon(collapsed ? 'unfold' : 'fold'),
+							label: collapsed ? 'Expand Cell Input' : 'Collapse Cell Input'
+						};
+					})
+				});
+			}
+		});
+	};
 }
 
 let rendererPatched = false;

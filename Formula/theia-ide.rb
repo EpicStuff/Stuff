@@ -12,7 +12,7 @@ class TheiaIde < Formula
 		tag: 'v1.75.0',
 		revision: '9145abe093659217ef2967cc2955abdc37c16408'
 	license 'MIT'
-	revision 3
+	revision 4
 
 	livecheck do
 		url :stable
@@ -21,6 +21,7 @@ class TheiaIde < Formula
 	end
 
 	depends_on :linux
+	depends_on 'epic/stuff/xdg-data-loader'
 	ensure_build_dep 'node@24', command: 'node', minimum_version: '24'
 	ensure_build_dep 'yarn', command: 'yarn', minimum_version: '1.7', version_below: '2'
 	ensure_build_dep 'python@3.14', command: 'python3'

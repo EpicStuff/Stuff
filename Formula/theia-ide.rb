@@ -12,7 +12,7 @@ class TheiaIde < Formula
 		tag: 'v1.75.0',
 		revision: '9145abe093659217ef2967cc2955abdc37c16408'
 	license 'MIT'
-	revision 2
+	revision 3
 
 	livecheck do
 		url :stable
@@ -108,6 +108,9 @@ class TheiaIde < Formula
 						linux: ['deb'],
 						prepackaged,
 						publish: 'never',
+						config: {
+							afterPack: null
+						},
 						effectiveOptionComputed: async value => {
 							const [args, desktopFilePath] = value;
 							const mapping = args.find(arg => typeof arg === 'string' && arg.includes('=/usr/share/applications/'));

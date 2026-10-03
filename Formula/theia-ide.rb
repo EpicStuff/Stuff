@@ -29,6 +29,7 @@ class TheiaIde < Formula
 	env :std
 
 	def install
+		ENV.prepend_path 'PKG_CONFIG_PATH', '/usr/share/pkgconfig'
 		extensions = prepare_native_extensions
 
 		if extensions.empty?

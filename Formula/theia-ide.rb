@@ -12,6 +12,7 @@ class TheiaIde < Formula
 		tag: 'v1.75.0',
 		revision: '9145abe093659217ef2967cc2955abdc37c16408'
 	license 'MIT'
+	revision 1
 
 	livecheck do
 		url :stable
@@ -72,6 +73,7 @@ class TheiaIde < Formula
 		libexec.install app_dir.children
 		bin.write_exec_script libexec/'theia-ide-electron-app'
 		mv bin/'theia-ide-electron-app', bin/'theia'
+		install_desktop_entry
 	end
 
 	test do
@@ -80,6 +82,86 @@ class TheiaIde < Formula
 	end
 
 	private
+
+	def install_desktop_entry
+		desktop_dir = buildpath/'desktop-entry'
+		desktop_dir.mkpath
+		script = buildpath/'generate-desktop-entry.cjs'
+		script.write <<~JS
+			const fs = require('fs/promises');
+			const os = require('os');
+			const path = require('path');
+			const { build } = require('electron-builder');
+
+			async function main() {
+				const projectDir = process.argv[2];
+				const outputDir = process.argv[3];
+				const prepackaged = await fs.mkdtemp(path.join(os.tmpdir(), 'theia-desktop-'));
+
+				try {
+					await fs.mkdir(path.join(prepackaged, 'resources'), { recursive: true });
+					let generated = false;
+
+					await build({
+						projectDir,
+						linux: ['deb'],
+						prepackaged,
+						publish: 'never',
+						effectiveOptionComputed: async value => {
+							const [args, desktopFilePath] = value;
+							const mapping = args.find(arg => typeof arg === 'string' && arg.includes('=/usr/share/applications/'));
+							const match = mapping?.match(/=\\/usr\\/share\\/applications\\/([^/]+\\.desktop)$/);
+							if (!match || typeof desktopFilePath !== 'string') {
+								throw new Error('Electron Builder did not expose the generated desktop entry');
+							}
+
+							await fs.copyFile(desktopFilePath, path.join(outputDir, match[1]));
+							generated = true;
+							return true;
+						}
+					});
+
+					if (!generated) {
+						throw new Error('Electron Builder did not generate a desktop entry');
+					}
+				} finally {
+					await fs.rm(prepackaged, { recursive: true, force: true });
+				}
+			}
+
+			main().catch(error => {
+				console.error(error);
+				process.exitCode = 1;
+			});
+		JS
+
+		begin
+			system 'node', script, buildpath/'applications/electron', desktop_dir
+			desktop_files = desktop_dir.glob('*.desktop')
+			raise 'Electron Builder generated an unexpected number of desktop entries' unless desktop_files.length == 1
+
+			desktop_file = desktop_files.first
+			contents = desktop_file.read
+			exec_lines = contents.lines.count { |line| line.start_with?('Exec=') }
+			raise 'Generated desktop entry does not contain exactly one Exec entry' unless exec_lines == 1
+
+			exec_path = (opt_bin/'theia').to_s
+			exec_path = %("#{exec_path.gsub('\\', '\\\\').gsub('"', '\\"')}") unless exec_path.match?(/\A[\/0-9A-Za-z._-]+\z/)
+			contents = contents.sub(/^Exec=(?:"(?:[^"\\]|\\.)*"|\S+)(.*)$/, "Exec=#{exec_path}\\1")
+			desktop_file.atomic_write(contents)
+			(share/'applications').install desktop_file
+
+			icon_name = contents[/^Icon=(.+)$/, 1]&.strip
+			icon_source = buildpath/'applications/electron/resources/icons/LinuxLauncherIcons/512x512.png'
+			if icon_name&.match?(/\A[A-Za-z0-9._-]+\z/) && icon_source.file?
+				(share/'icons/hicolor/512x512/apps').install icon_source => "#{icon_name}.png"
+			else
+				opoo 'Theia desktop entry was installed, but its icon could not be installed'
+			end
+		rescue StandardError => e
+			opoo "Could not generate Theia desktop entry with Electron Builder; continuing without desktop integration: #{e.message}"
+		end
+	end
 
 	def prepare_ffmpeg_cache(cache_root)
 		cache = cache_root/'theia-cli-cache'

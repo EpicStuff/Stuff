@@ -6,7 +6,7 @@ class XdgDataLoader < Formula
 	url 'https://raw.githubusercontent.com/Homebrew/brew/34c40c18ffa2029b611b61c73273e32c003d0842/Library/Homebrew/.ruby-version', using: :nounzip
 	sha256 '2e9fe584010a41f374317eb891684ccaab818403e8fa8eb7b2053c1810a8c00a'
 	license 'MIT'
-	version '1.0.1'
+	version '1.0.2'
 
 	livecheck do
 		skip 'No upstream'
@@ -31,9 +31,33 @@ class XdgDataLoader < Formula
 			#!/bin/sh
 			. '#{opt_prefix}/xdg-data-dirs.sh'
 
-			if command -v kbuildsycoca6 >/dev/null 2>&1; then
-				exec kbuildsycoca6 "$@"
+			homebrew_share='#{HOMEBREW_PREFIX}/share'
+			restart_plasma=false
+			status=0
+
+			if command -v systemctl >/dev/null 2>&1; then
+				systemd_xdg_data_dirs="$(systemctl --user show-environment 2>/dev/null | sed -n 's/^XDG_DATA_DIRS=//p')"
+				case ":$systemd_xdg_data_dirs:" in
+					*":$homebrew_share:"*) ;;
+					*) restart_plasma=true ;;
+				esac
+
+				systemctl --user import-environment XDG_DATA_DIRS || status=1
 			fi
+
+			if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+				dbus-update-activation-environment --systemd XDG_DATA_DIRS || status=1
+			fi
+
+			if command -v kbuildsycoca6 >/dev/null 2>&1; then
+				kbuildsycoca6 "$@" || status=1
+			fi
+
+			if [ "$restart_plasma" = true ] && command -v systemctl >/dev/null 2>&1 && systemctl --user is-active --quiet plasma-plasmashell.service; then
+				systemctl --user restart plasma-plasmashell.service || status=1
+			fi
+
+			exit "$status"
 		SH
 		chmod 0755, refresh
 
@@ -58,6 +82,8 @@ class XdgDataLoader < Formula
 		refresh = bin/'xdg-data-refresh'
 		assert_predicate refresh, :executable?
 		assert_match 'kbuildsycoca6', refresh.read
+		assert_match 'import-environment XDG_DATA_DIRS', refresh.read
+		assert_match 'plasma-plasmashell.service', refresh.read
 	end
 
 	private

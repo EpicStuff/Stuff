@@ -1,3 +1,4 @@
+require 'json'
 require_relative '../lib/ensure_deps'
 
 class TheiaIde < Formula
@@ -27,8 +28,21 @@ class TheiaIde < Formula
 	env :std
 
 	def install
-		system 'yarn', 'install', '--frozen-lockfile'
+		extensions = prepare_native_extensions
+
+		if extensions.empty?
+			system 'yarn', 'install', '--frozen-lockfile'
+		else
+			system 'yarn', 'install'
+		end
+
 		system 'yarn', 'build:extensions'
+		extensions.each do |extension|
+			next if extension[:built_by_default] || !extension[:has_build_script]
+
+			system 'yarn', 'workspace', extension[:name], 'build'
+		end
+
 		system 'yarn', 'electron', 'build:prod'
 		system 'yarn', 'download:plugins'
 		system 'yarn', 'electron', 'package:preview'
@@ -46,5 +60,51 @@ class TheiaIde < Formula
 	test do
 		assert_match version.to_s, shell_output("#{bin}/theia --version")
 		assert_predicate libexec/'theia-ide-electron-app.bin', :executable?
+	end
+
+	private
+
+	def prepare_native_extensions
+		extensions_path = ENV['HOMEBREW_THEIA_EXTENSIONS']
+		return [] if extensions_path.to_s.empty?
+
+		root = Pathname(extensions_path).expand_path
+		odie "Native extension path does not exist: #{root}" unless root.directory?
+
+		extension_paths = if (root/'package.json').file?
+			[root]
+		else
+			root.children.select { |path| path.directory? && (path/'package.json').file? }
+		end
+		odie "No native Theia extensions found in #{root}" if extension_paths.empty?
+
+		electron_package_path = buildpath/'applications/electron/package.json'
+		electron_package = JSON.parse(electron_package_path.read)
+		dependencies = electron_package.fetch('dependencies')
+
+		extensions = extension_paths.sort.map.with_index do |path, index|
+			manifest = JSON.parse((path/'package.json').read)
+			name = manifest['name']
+			version = manifest['version']
+
+			odie "Native extension is missing a package name: #{path}" if name.to_s.empty?
+			odie "Native extension is missing a package version: #{path}" if version.to_s.empty?
+			odie "Package is not a native Theia extension: #{path}" unless manifest['theiaExtensions']
+
+			workspace_path = buildpath/'theia-extensions'/"local-#{index}-#{path.basename}"
+			odie "Native extension workspace already exists: #{workspace_path}" if workspace_path.exist? || workspace_path.symlink?
+
+			ln_s path.realpath, workspace_path
+			dependencies[name] = version
+
+			{
+				name:,
+				built_by_default: name.match?(/\Atheia-ide.*ext\z/),
+				has_build_script: manifest.dig('scripts', 'build').to_s.length.positive?,
+			}
+		end
+
+		electron_package_path.write(JSON.pretty_generate(electron_package) + "\n")
+		extensions
 	end
 end

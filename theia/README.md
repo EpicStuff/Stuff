@@ -1,8 +1,12 @@
-# Theia native extensions
+# Theia customizations
 
-Each child directory is an independent native Eclipse Theia extension package.
+Native Eclipse Theia extensions are direct child packages:
 
 - `webview-context-fix` fixes inherited VS Code webview context menus.
 - `notebook-fixes` adds notebook compatibility fixes and code cell input folding.
 
-The Homebrew `theia-ide` formula can point `HOMEBREW_THEIA_EXTENSIONS` at this directory and will discover both packages automatically.
+VS Code compatibility extensions live under `vscode-extensions`:
+
+- `tinymist-theia-preview` keeps Tinymist's existing preview command but renders it in Theia's Mini Browser.
+
+The Homebrew `theia-ide` formula can point `HOMEBREW_THEIA_EXTENSIONS` at this directory. It discovers the native extension packages directly and bundles unpacked VS Code extensions from `vscode-extensions`.

@@ -9,3 +9,4 @@
 *.nim
 zellij detach others/target/
 zellij detach others/Cargo.lock
+theia/vscode-extensions/tinymist-theia-preview/*.vsix

@@ -1,5 +1,6 @@
 require 'json'
 require_relative '../lib/ensure_deps'
+require_relative '../lib/theia_extension_sandbox'
 
 class TheiaIde < Formula
 	extend EnsureDeps
@@ -104,7 +105,7 @@ class TheiaIde < Formula
 			}
 		end
 
-		electron_package_path.write(JSON.pretty_generate(electron_package) + "\n")
+		electron_package_path.atomic_write(JSON.pretty_generate(electron_package) + "\n")
 		extensions
 	end
 end

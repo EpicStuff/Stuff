@@ -23,6 +23,7 @@ const inputCollapseState = new WeakMap<NotebookCellModel, boolean>();
 const inputCollapseStateTouched = new WeakSet<NotebookCellModel>();
 const notebookByCell = new WeakMap<NotebookCellModel, NotebookModel>();
 const trackedNotebooks = new WeakSet<NotebookModel>();
+const notebooksReloadingFromDisk = new WeakSet<NotebookModel>();
 const inputCollapseStateChangedEmitter = new Emitter<NotebookCellModel>();
 
 let inputCollapseStorageService: StorageService | undefined;
@@ -48,7 +49,9 @@ function trackNotebook(notebook: NotebookModel): void {
 		for (const cell of notebook.cells) {
 			notebookByCell.set(cell, notebook);
 		}
-		void inputCollapseStorageReady.then(() => persistNotebookInputCollapseState(notebook));
+		if (!notebooksReloadingFromDisk.has(notebook)) {
+			void inputCollapseStorageReady.then(() => persistNotebookInputCollapseState(notebook));
+		}
 	});
 }
 
@@ -122,6 +125,27 @@ export function readNotebookCellInputCollapseState(cell: NotebookCellModel): boo
 }
 
 const isInputCollapsed = readNotebookCellInputCollapseState;
+
+export async function reloadNotebookPreservingInputCollapseState(notebook: NotebookModel): Promise<void> {
+	const collapsedIndices = new Set(notebook.cells.flatMap((cell, index) =>
+		cell.cellKind === CellKind.Code && isInputCollapsed(cell) ? [index] : []
+	));
+
+	notebooksReloadingFromDisk.add(notebook);
+	try {
+		await notebook.revert();
+		notebook.cells.forEach((cell, index) => {
+			notebookByCell.set(cell, notebook);
+			if (cell.cellKind === CellKind.Code) {
+				setInputCollapsed(cell, collapsedIndices.has(index), false);
+			}
+		});
+		await inputCollapseStorageReady;
+		await persistNotebookInputCollapseState(notebook);
+	} finally {
+		notebooksReloadingFromDisk.delete(notebook);
+	}
+}
 
 function setInputCollapsed(cell: NotebookCellModel, collapsed: boolean, persist: boolean = true): void {
 	inputCollapseStateTouched.add(cell);

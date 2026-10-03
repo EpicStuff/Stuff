@@ -22,7 +22,8 @@
 	"peerDependencies": {
 		"@theia/core": ">=1.75.0 <2.0.0",
 		"@theia/notebook": ">=1.75.0 <2.0.0",
-		"@theia/plugin-ext": ">=1.75.0 <2.0.0"
+		"@theia/plugin-ext": ">=1.75.0 <2.0.0",
+		"@theia/filesystem": ">=1.75.0 <2.0.0"
 	},
 	"devDependencies": {
 		"typescript": "~5.9.3"

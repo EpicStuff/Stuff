@@ -30,6 +30,7 @@ class TheiaIde < Formula
 
 	def install
 		ENV.prepend_path 'PKG_CONFIG_PATH', '/usr/share/pkgconfig'
+		ENV['PUPPETEER_SKIP_DOWNLOAD'] = 'true'
 		build_jobs = [ENV.make_jobs.to_i, 1].max
 		child_jobs = [Math.sqrt(build_jobs).floor, 1].max
 		ENV['CHILD_CONCURRENCY'] = child_jobs.to_s

@@ -332,6 +332,12 @@ export namespace NotebookCellInputCollapseCommands {
 		label: 'Fold All Code Cells',
 		category: 'Notebook'
 	};
+
+	export const RESTART_KERNEL: Command = {
+		id: 'notebook.restartKernel',
+		label: 'Restart Kernel',
+		category: 'Notebook'
+	};
 }
 
 @injectable()
@@ -420,6 +426,12 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 				void inputCollapseStorageReady.then(() => persistNotebookInputCollapseState(notebook));
 			}
 		});
+
+		commands.registerCommand(NotebookCellInputCollapseCommands.RESTART_KERNEL, {
+			isEnabled: () => !!this.resolveNotebook() && !!commands.getCommand('jupyter.restartkernel'),
+			isVisible: () => !!this.resolveNotebook(),
+			execute: () => commands.executeCommand('jupyter.restartkernel')
+		});
 	}
 
 	registerMenus(menus: MenuModelRegistry): void {
@@ -428,6 +440,12 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 			label: 'Toggle Cell Input',
 			icon: codicon('fold'),
 			order: '25'
+		});
+		menus.registerMenuAction(NotebookMenus.NOTEBOOK_MAIN_TOOLBAR_EXECUTION_GROUP, {
+			commandId: NotebookCellInputCollapseCommands.RESTART_KERNEL.id,
+			label: 'Restart Kernel',
+			icon: codicon('refresh'),
+			order: '15'
 		});
 		menus.registerMenuAction(NotebookMenus.NOTEBOOK_MAIN_TOOLBAR_EXECUTION_GROUP, {
 			commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_CODE_INPUTS.id,

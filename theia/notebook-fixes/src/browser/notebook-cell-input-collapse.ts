@@ -184,18 +184,26 @@ class CollapsibleCodeCellInput extends React.Component<CollapsibleCodeCellInputP
 				'div',
 				{
 					className: 'theia-notebook-cell-editor-container',
-					title: 'Expand Cell Input',
-					onClick: () => setInputCollapsed(this.props.cell, false),
+					title: 'Double-click to Expand Cell Input',
+					onDoubleClick: () => setInputCollapsed(this.props.cell, false),
 					style: {
 						alignItems: 'center',
-						cursor: 'pointer',
+						cursor: 'default',
 						display: 'flex',
 						minHeight: '24px',
 						opacity: 0.7,
 						padding: '0 10px'
 					}
 				},
-				React.createElement('span', { className: codicon('chevron-right'), style: { marginRight: '6px' } }),
+				React.createElement('span', {
+					className: codicon('chevron-right'),
+					onClick: (event: React.MouseEvent<HTMLSpanElement>) => {
+						event.stopPropagation();
+						setInputCollapsed(this.props.cell, false);
+					},
+					style: { cursor: 'pointer', marginRight: '6px' },
+					title: 'Expand Cell Input'
+				}),
 				React.createElement('span', undefined, 'Cell input is collapsed')
 			)
 		);

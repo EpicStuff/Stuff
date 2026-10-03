@@ -97,12 +97,16 @@ function initializeInputCollapsePersistence(storageService: StorageService, note
 	inputCollapseStorageReady = storageService.getData<PersistedInputCollapseState>(INPUT_COLLAPSE_STORAGE_KEY, {}).then(state => {
 		persistedInputCollapseState = state ?? {};
 		for (const editor of notebookEditorWidgetService.getNotebookEditors()) {
-			trackNotebook(editor.model);
+			if (editor.model) {
+				trackNotebook(editor.model);
+			}
 		}
 	});
 
 	notebookEditorWidgetService.onDidAddNotebookEditor(editor => {
-		trackNotebook(editor.model);
+		if (editor.model) {
+			trackNotebook(editor.model);
+		}
 	});
 }
 

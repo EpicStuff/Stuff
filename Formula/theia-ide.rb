@@ -61,7 +61,8 @@ class TheiaIde < Formula
 		odie 'Could not find the packaged Theia IDE launcher' unless launcher.executable?
 
 		libexec.install app_dir.children
-		bin.install_symlink libexec/'theia-ide-electron-app' => 'theia'
+		bin.write_exec_script libexec/'theia-ide-electron-app'
+		mv bin/'theia-ide-electron-app', bin/'theia'
 	end
 
 	test do

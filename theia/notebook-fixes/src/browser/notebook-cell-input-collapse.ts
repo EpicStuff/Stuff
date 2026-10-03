@@ -190,16 +190,11 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 	}
 
 	registerMenus(menus: MenuModelRegistry): void {
-		for (const menu of [
-			NotebookCellActionContribution.ADDITIONAL_ACTION_MENU,
-			NotebookCellActionContribution.ADDITIONAL_OUTPUT_SIDEBAR_MENU
-		]) {
-			menus.registerMenuAction(menu, {
-				commandId: NotebookCellInputCollapseCommands.TOGGLE.id,
-				label: 'Toggle Cell Input',
-				icon: codicon('fold')
-			});
-		}
+		menus.registerMenuAction(NotebookCellActionContribution.ADDITIONAL_ACTION_MENU, {
+			commandId: NotebookCellInputCollapseCommands.TOGGLE.id,
+			label: 'Toggle Cell Input',
+			icon: codicon('fold')
+		});
 	}
 
 	protected resolveCell(first?: NotebookModel | NotebookCellModel, second?: NotebookCellModel): NotebookCellModel | undefined {

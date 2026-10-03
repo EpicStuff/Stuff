@@ -318,7 +318,21 @@ export function patchNotebookCellToolbarInputCollapseIcon(): void {
 	};
 }
 
+const codeFoldingEnabledCells = new WeakSet<NotebookCellModel>();
 let rendererPatched = false;
+
+function enableCodeFolding(cell: NotebookCellModel): void {
+	if (codeFoldingEnabledCells.has(cell)) {
+		return;
+	}
+	codeFoldingEnabledCells.add(cell);
+
+	cell.editorOptions = {
+		...cell.editorOptions,
+		folding: true,
+		showFoldingControls: 'always'
+	};
+}
 
 export function patchNotebookCodeCellInputCollapse(): void {
 	if (rendererPatched) {
@@ -335,6 +349,7 @@ export function patchNotebookCodeCellInputCollapse(): void {
 	): React.ReactNode {
 		trackNotebook(notebookModel);
 		notebookByCell.set(cell, notebookModel);
+		enableCodeFolding(cell);
 		return React.createElement(CollapsibleCodeCellInput, {
 			cell,
 			renderExpanded: () => originalRender.call(this, notebookModel, cell, handle)

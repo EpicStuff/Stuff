@@ -31,7 +31,7 @@ class TheiaIde < Formula
 	def install
 		ENV.prepend_path 'PKG_CONFIG_PATH', '/usr/share/pkgconfig'
 		build_jobs = [ENV.make_jobs.to_i, 1].max
-		child_jobs = [build_jobs, 4].min
+		child_jobs = [Math.sqrt(build_jobs).floor, 1].max
 		ENV['CHILD_CONCURRENCY'] = child_jobs.to_s
 		ENV['JOBS'] = [(build_jobs.to_f/child_jobs).ceil, 1].max.to_s
 		extensions = prepare_native_extensions

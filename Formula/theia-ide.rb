@@ -135,6 +135,7 @@ class TheiaIde < Formula
 			webdriverio
 		]
 		test_dependencies.each { |dependency| electron_package.fetch('devDependencies').delete(dependency) }
+		electron_package.fetch('dependencies').delete('@theia/test')
 
 		system_electron = find_system_electron(electron_package.dig('devDependencies', 'electron'))
 		if system_electron

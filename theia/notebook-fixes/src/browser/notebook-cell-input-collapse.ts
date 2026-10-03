@@ -38,6 +38,7 @@ function trackNotebook(notebook: NotebookModel): void {
 		notebookByCell.set(cell, notebook);
 	}
 
+	void inputCollapseStorageReady.then(() => restoreNotebookInputCollapseState(notebook));
 	if (trackedNotebooks.has(notebook)) {
 		return;
 	}
@@ -49,8 +50,6 @@ function trackNotebook(notebook: NotebookModel): void {
 		}
 		void inputCollapseStorageReady.then(() => persistNotebookInputCollapseState(notebook));
 	});
-
-	void inputCollapseStorageReady.then(() => restoreNotebookInputCollapseState(notebook));
 }
 
 function restoreNotebookInputCollapseState(notebook: NotebookModel): void {

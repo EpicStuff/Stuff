@@ -12,7 +12,7 @@ class TheiaIde < Formula
 		tag: 'v1.75.0',
 		revision: '9145abe093659217ef2967cc2955abdc37c16408'
 	license 'MIT'
-	revision 4
+	revision 5
 
 	livecheck do
 		url :stable
@@ -291,6 +291,7 @@ class TheiaIde < Formula
 		]
 		test_dependencies.each { |dependency| electron_package.fetch('devDependencies').delete(dependency) }
 		electron_package.fetch('dependencies').delete('@theia/test')
+		disable_ai_extensions(electron_package) if ENV['HOMEBREW_THEIA_NO_AI'] == '1'
 
 		system_electron = find_system_electron(electron_package.dig('devDependencies', 'electron'))
 		if system_electron
@@ -299,6 +300,33 @@ class TheiaIde < Formula
 		end
 		electron_package_path.atomic_write(JSON.pretty_generate(electron_package) + "\n")
 		system_electron
+	end
+
+	def disable_ai_extensions(electron_package)
+		electron_package.fetch('dependencies').delete_if { |name, _version| name.start_with?('@theia/ai-') }
+
+		product_package_path = buildpath/'theia-extensions/product/package.json'
+		product_package = JSON.parse(product_package_path.read)
+		product_package.fetch('dependencies').delete_if { |name, _version| name.start_with?('@theia/ai-') }
+		product_package_path.atomic_write(JSON.pretty_generate(product_package) + "\n")
+
+		frontend_module_path = buildpath/'theia-extensions/product/src/browser/theia-ide-frontend-module.ts'
+		frontend_module = frontend_module_path.read
+		frontend_module.sub!("import { AIRegistryConfiguration } from '@theia/ai-registry/lib/common/ai-registry-configuration';\n", '')
+		frontend_module.sub!("import { TheiaIDEAIRegistryConfiguration } from './theia-ide-ai-registry-configuration';\n", '')
+
+		ai_binding = <<~TS
+			    if (isBound(AIRegistryConfiguration)) {
+			        rebind(AIRegistryConfiguration).to(TheiaIDEAIRegistryConfiguration).inSingletonScope();
+			    } else {
+			        bind(AIRegistryConfiguration).to(TheiaIDEAIRegistryConfiguration).inSingletonScope();
+			    }
+		TS
+		odie 'Could not remove Theia IDE AI registry binding' unless frontend_module.include?(ai_binding)
+
+		frontend_module.sub!(ai_binding, '')
+		frontend_module_path.atomic_write(frontend_module)
+		rm_f buildpath/'theia-extensions/product/src/browser/theia-ide-ai-registry-configuration.ts'
 	end
 
 	def find_system_electron(required_version)

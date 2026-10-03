@@ -1,6 +1,11 @@
 require 'formula_installer'
 
 module FormulaSandboxAccess
+	def finish
+		super
+		refresh_xdg_data if formula.name == 'xdg-data-loader' || formula.deps.any? { |dependency| dependency.name == 'xdg-data-loader' }
+	end
+
 	def add_build_sandbox_rules(sandbox, formula_path, log_name:)
 		super
 		return unless log_name == 'build'
@@ -16,6 +21,14 @@ module FormulaSandboxAccess
 	end
 
 	private
+
+	def refresh_xdg_data
+		refresh = HOMEBREW_PREFIX/'opt/xdg-data-loader/bin/xdg-data-refresh'
+		return unless refresh.executable?
+
+		success = system refresh.to_s
+		opoo 'Could not refresh the KDE application cache; continuing without an immediate desktop refresh' unless success
+	end
 
 	def allow_theia_extension_path(sandbox)
 		extensions_path = ENV['HOMEBREW_THEIA_EXTENSIONS']

@@ -6,7 +6,7 @@ class XdgDataLoader < Formula
 	url 'https://raw.githubusercontent.com/Homebrew/brew/34c40c18ffa2029b611b61c73273e32c003d0842/Library/Homebrew/.ruby-version', using: :nounzip
 	sha256 '2e9fe584010a41f374317eb891684ccaab818403e8fa8eb7b2053c1810a8c00a'
 	license 'MIT'
-	version '1.0.0'
+	version '1.0.1'
 
 	livecheck do
 		skip 'No upstream'
@@ -26,6 +26,17 @@ class XdgDataLoader < Formula
 			unset homebrew_share xdg_data_dirs
 		SH
 
+		refresh = bin/'xdg-data-refresh'
+		refresh.write <<~SH
+			#!/bin/sh
+			. '#{opt_prefix}/xdg-data-dirs.sh'
+
+			if command -v kbuildsycoca6 >/dev/null 2>&1; then
+				exec kbuildsycoca6 "$@"
+			fi
+		SH
+		chmod 0755, refresh
+
 		install_loader_link
 	end
 
@@ -38,8 +49,9 @@ class XdgDataLoader < Formula
 			It adds:
 			  #{HOMEBREW_PREFIX}/share
 
-			to XDG_DATA_DIRS for new Plasma sessions. Log out and back in for Plasma
-			to use the updated search path.
+			to XDG_DATA_DIRS for new Plasma sessions. Formulae that depend on this
+			loader refresh KDE's application cache after they are linked, so new
+			.desktop entries can appear without logging out.
 
 			Remove the loader symlink before uninstalling xdg-data-loader.
 		EOS
@@ -52,6 +64,10 @@ class XdgDataLoader < Formula
 		assert_match "#{HOMEBREW_PREFIX}/share", loader.read
 		assert_match 'XDG_DATA_DIRS', loader.read
 		assert_match '/usr/local/share:/usr/share', loader.read
+
+		refresh = bin/'xdg-data-refresh'
+		assert_predicate refresh, :executable?
+		assert_match 'kbuildsycoca6', refresh.read
 	end
 
 	private

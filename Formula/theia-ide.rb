@@ -1,6 +1,6 @@
 require 'json'
 require_relative '../lib/ensure_deps'
-require_relative '../lib/theia_extension_sandbox'
+require_relative '../lib/formula_sandbox_access'
 
 class TheiaIde < Formula
 	extend EnsureDeps
@@ -106,6 +106,25 @@ class TheiaIde < Formula
 		end
 
 		electron_package_path.atomic_write(JSON.pretty_generate(electron_package) + "\n")
+		integrate_webview_context_fix if extensions.any? { |extension| extension[:name] == 'theia-webview-context-fix' }
 		extensions
+	end
+
+	def integrate_webview_context_fix
+		esbuild_path = buildpath/'applications/electron/esbuild.mjs'
+		source = esbuild_path.read
+		import_line = "import { webviewContextFixPlugin } from 'theia-webview-context-fix/esbuild';"
+		plugin_line = 'browserOptions.plugins.push(webviewContextFixPlugin());'
+
+		return if source.include?(import_line) && source.include?(plugin_line)
+		odie 'Theia webview context fix is only partially integrated' if source.include?(import_line) || source.include?(plugin_line)
+
+		import_anchor = "import esbuild from 'esbuild';"
+		plugin_anchor = 'nodeOptions.plugins.unshift(asarRipgrepPlugin);'
+		odie 'Unsupported Theia esbuild layout for webview context fix' unless source.include?(import_anchor) && source.include?(plugin_anchor)
+
+		source = source.sub(import_anchor, "#{import_anchor}\n#{import_line}")
+		source = source.sub(plugin_anchor, "#{plugin_anchor}\n#{plugin_line}")
+		esbuild_path.atomic_write(source)
 	end
 end

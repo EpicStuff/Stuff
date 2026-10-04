@@ -1,23 +1,25 @@
-import { Command, CommandContribution, CommandRegistry, nls } from '@theia/core';
-import URI from '@theia/core/lib/common/uri';
+import { Command, CommandContribution, CommandRegistry } from '@theia/core';
 import { ApplicationShell, FrontendApplicationContribution, NavigatableWidget, Widget, codicon } from '@theia/core/lib/browser';
+import { QuickInputService, QuickPickItem } from '@theia/core/lib/common/quick-pick-service';
 import { TabBarToolbarContribution, TabBarToolbarRegistry } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 import { inject, injectable } from '@theia/core/shared/inversify';
-import { LocationMapperService } from '@theia/mini-browser/lib/browser/location-mapper-service';
-import { MiniBrowserCommands, MiniBrowserOpenHandler } from '@theia/mini-browser/lib/browser/mini-browser-open-handler';
-import { WebviewWidget } from '@theia/plugin-ext/lib/main/browser/webview/webview';
+import { MiniBrowserOpenHandler } from '@theia/mini-browser/lib/browser/mini-browser-open-handler';
 import { GroupTabsService } from './group-tabs-service';
 
 export namespace GroupTabsCommands {
-	export const CLOSE_SECONDARY: Command = {
-		id: 'group-tabs.closeSecondary',
-		label: 'Close Preview'
+	export const GROUP: Command = {
+		id: 'group-tabs.group',
+		label: 'Group Tabs'
 	};
 
-	export const OPEN_PREVIEW_URL: Command = {
-		id: 'group-tabs.openPreviewUrl',
-		label: 'Open Grouped Preview URL'
+	export const CLOSE_SECONDARY: Command = {
+		id: 'group-tabs.closeSecondary',
+		label: 'Close Grouped Pane'
 	};
+}
+
+interface WidgetPick extends QuickPickItem {
+	widget: Widget;
 }
 
 @injectable()
@@ -31,27 +33,12 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 	@inject(MiniBrowserOpenHandler)
 	protected readonly miniBrowserOpenHandler!: MiniBrowserOpenHandler;
 
-	@inject(LocationMapperService)
-	protected readonly locationMapperService!: LocationMapperService;
+	@inject(QuickInputService)
+	protected readonly quickInputService!: QuickInputService;
 
-	onStart(): void {
-		this.shell.onDidAddWidget(widget => {
-			// A preview that is already grouped is being moved by Theia; the service puts it back.
-			if (!this.isMarkdownPreview(widget) || this.groupTabsService.getPair(widget)) {
-				return;
-			}
-
-			const primary = this.findMarkdownPrimary();
-			if (!primary) {
-				return;
-			}
-
-			setTimeout(() => {
-				if (!primary.isDisposed && !widget.isDisposed) {
-					void this.groupTabsService.pair(primary, widget).catch(error => console.error('Failed to group Markdown preview', error));
-				}
-			}, 0);
-		});
+	async onStart(): Promise<void> {
+		await this.groupTabsService.start();
+		this.patchMiniBrowserUrlPreview();
 	}
 
 	async onDidInitializeLayout(): Promise<void> {
@@ -59,15 +46,18 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 	}
 
 	registerCommands(commands: CommandRegistry): void {
-		commands.registerCommand(GroupTabsCommands.CLOSE_SECONDARY, {
-			execute: (widget?: Widget) => this.groupTabsService.closeSecondary(widget ?? this.shell.activeWidget),
-			isEnabled: (widget?: Widget) => !!this.groupTabsService.getPair(widget ?? this.shell.activeWidget),
-			isVisible: (widget?: Widget) => !!this.groupTabsService.getPair(widget ?? this.shell.activeWidget)
+		commands.registerCommand(GroupTabsCommands.GROUP, {
+			execute: () => this.groupTabs(),
+			isEnabled: () => {
+				const primary = this.groupTabsService.resolveSource(this.shell.activeWidget ?? this.shell.currentWidget);
+				return !!primary && this.groupTabsService.getGroupableWidgets(primary).length > 0;
+			}
 		});
 
-		commands.registerCommand(GroupTabsCommands.OPEN_PREVIEW_URL, {
-			execute: async (url: string, sourceUri?: string) => this.openGroupedPreviewUrl(url, sourceUri),
-			isEnabled: (url: string) => typeof url === 'string' && url.length > 0
+		commands.registerCommand(GroupTabsCommands.CLOSE_SECONDARY, {
+			execute: (widget?: Widget) => this.groupTabsService.closeSecondary(widget ?? this.shell.activeWidget),
+			isEnabled: (widget?: Widget) => (this.groupTabsService.getMembers(widget ?? this.shell.activeWidget).length ?? 0) > 1,
+			isVisible: (widget?: Widget) => (this.groupTabsService.getMembers(widget ?? this.shell.activeWidget).length ?? 0) > 1
 		});
 	}
 
@@ -76,75 +66,49 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 			id: GroupTabsCommands.CLOSE_SECONDARY.id,
 			command: GroupTabsCommands.CLOSE_SECONDARY.id,
 			icon: codicon('close'),
-			tooltip: 'Close Preview',
+			tooltip: 'Close Grouped Pane',
 			priority: 100,
-			isVisible: widget => !!this.groupTabsService.getPair(widget)
+			isVisible: widget => this.groupTabsService.getMembers(widget).length > 1
 		});
 	}
 
-	protected async openGroupedPreviewUrl(url: string, sourceUri?: string): Promise<void> {
-		if (typeof url !== 'string' || url.length === 0) {
+	protected async groupTabs(): Promise<void> {
+		const primary = this.groupTabsService.resolveSource(this.shell.activeWidget ?? this.shell.currentWidget);
+		if (!primary || primary.isDisposed) {
 			return;
 		}
 
-		const active = this.findPrimary(sourceUri);
-		if (!active || active.isDisposed) {
-			throw new Error(sourceUri ? `No open source widget matches ${sourceUri}` : 'No source widget is active for the preview');
+		const candidates = this.groupTabsService.getGroupableWidgets(primary);
+		if (candidates.length === 0) {
+			return;
 		}
 
-		// Same props as MiniBrowserOpenHandler.openPreview, which always opens in (and widens) the right side panel.
-		// Mini Browser widgets are keyed by URI and every preview shares PREVIEW_URI, so a per source query keeps
-		// this preview from taking over Open URL's widget or another group's preview.
-		const previewUri = MiniBrowserOpenHandler.PREVIEW_URI.withQuery(`group-tabs=${active.id}`);
-		const preview = await this.miniBrowserOpenHandler.open(previewUri, {
-			name: nls.localize(MiniBrowserCommands.PREVIEW_CATEGORY_KEY, MiniBrowserCommands.PREVIEW_CATEGORY),
-			startPage: await this.locationMapperService.map(url),
-			toolbar: 'read-only',
-			resetBackground: true,
-			iconClass: codicon('preview'),
-			openFor: 'preview',
-			mode: 'reveal',
-			widgetOptions: { area: 'main', ref: active, mode: 'tab-after' }
+		const picks: WidgetPick[] = candidates.map(widget => {
+			const uri = NavigatableWidget.getUri(widget);
+			return {
+				label: widget.title.label || widget.id,
+				description: uri?.toString(),
+				widget
+			};
 		});
-		// The preview server does not survive a reload, so a restored group falls back to the source.
-		await this.groupTabsService.pair(active, preview, { restoreSecondary: false });
-	}
-
-	protected findPrimary(sourceUri?: string): Widget | undefined {
-		if (!sourceUri) {
-			return this.groupTabsService.getPrimary(this.shell.activeWidget ?? this.shell.currentWidget);
+		const selected = await this.quickInputService.pick(picks, {
+			canPickMany: true,
+			placeHolder: 'Select tabs to group'
+		});
+		if (!selected?.length) {
+			return;
 		}
 
-		const requestedUri = new URI(sourceUri);
-		const seen = new Set<Widget>();
-		for (const candidate of [this.shell.activeWidget, this.shell.currentWidget, ...this.shell.getWidgets('main')]) {
-			const primary = this.groupTabsService.getPrimary(candidate);
-			if (!primary || seen.has(primary)) {
-				continue;
-			}
-			seen.add(primary);
-
-			const uri = NavigatableWidget.getUri(primary);
-			if (uri?.isEqual(requestedUri)) {
-				return primary;
-			}
-		}
-		return undefined;
+		await this.groupTabsService.groupManual(primary, selected.map(item => item.widget));
 	}
 
-	protected findMarkdownPrimary(): Widget | undefined {
-		for (const candidate of [this.shell.activeWidget, this.shell.currentWidget]) {
-			const primary = this.groupTabsService.getPrimary(candidate);
-			const uri = NavigatableWidget.getUri(primary);
-			if (primary && uri && (uri.path.ext === '.md' || uri.path.ext === '.markdown')) {
-				return primary;
-			}
-		}
-		return undefined;
-	}
-
-	protected isMarkdownPreview(widget: Widget): widget is WebviewWidget {
-		return widget instanceof WebviewWidget
-			&& (widget.viewType === 'markdown.preview' || widget.viewType === 'vscode.markdown.preview.editor');
+	protected patchMiniBrowserUrlPreview(): void {
+		const original = this.miniBrowserOpenHandler.openPreview.bind(this.miniBrowserOpenHandler);
+		this.miniBrowserOpenHandler.openPreview = async startPage => {
+			const source = this.groupTabsService.resolveSource(this.shell.activeWidget ?? this.shell.currentWidget);
+			const preview = await original(startPage);
+			this.groupTabsService.noteMiniBrowserUrlPreview(preview, source);
+			return preview;
+		};
 	}
 }

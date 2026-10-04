@@ -301,7 +301,7 @@ export class GroupTabsService {
 	}
 
 	protected async maybeAutoGroup(widget: Widget): Promise<void> {
-		if (!this.rememberGroupsEnabled() || widget.isDisposed) {
+		if (!this.rememberGroupsEnabled() || widget.isDisposed || this.shell.getAreaFor(widget) !== 'main') {
 			return;
 		}
 		const placement = this.provenance.get(widget);
@@ -367,7 +367,7 @@ export class GroupTabsService {
 		return `widget:${widget.constructor.name}`;
 	}
 
-	isMiniBrowserUrlPreview(widget: Widget): widget is MiniBrowser {
+	protected isMiniBrowserUrlPreview(widget: Widget): widget is MiniBrowser {
 		if (!(widget instanceof MiniBrowser)) {
 			return false;
 		}

@@ -2,7 +2,7 @@
 
 A native Eclipse Theia extension that groups related widgets into one top level tab.
 
-The extension is generic. It does not contain Markdown or Typst matching. The first time a relationship is used, open the widgets normally, run `Group Tabs`, and select the other widgets that belong with the current one.
+The extension is generic. It does not contain Markdown or Typst matching. The first time a relationship is used, open the widgets normally and run `Group Tabs`. The command automatically groups the tabs that are currently visible in the main editor splits. A visible Mini Browser URL Preview in the right panel is included as a special case, so it does not need to be dragged into the editor area first.
 
 When `groupTabs.rememberGroups` is enabled, which is the default, the extension remembers the creation relationship rather than the displayed title or file name. A remembered relationship uses the source widget type, companion widget type, and how the companion was opened relative to its source. Opening the same kind of relationship for another file can therefore group automatically.
 

@@ -50,8 +50,6 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	protected dragOverKey: string | undefined;
 	protected dragOverPosition: 'before' | 'after' | undefined;
 	protected selectedAddKey: string | undefined;
-	protected separatorCounter = 0;
-	protected submenuCounter = 0;
 	protected renamingKey: string | undefined;
 	protected renameValue = '';
 	protected applyStatus = '';
@@ -791,6 +789,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 			const entry: EditableMenuItem = {
 				type: 'item',
 				key: `custom:${command.id}`,
+				storageKey: command.id,
 				label: defaultLabel,
 				commandId: command.id,
 				icon: command.iconClass,
@@ -1048,11 +1047,33 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		};
 	}
 
+	protected nextCustomStorageKey(prefix: string): string {
+		const used = new Set<string>();
+		const collect = (entries: EditableMenuEntry[]): void => {
+			for (const entry of entries) {
+				used.add(entry.storageKey);
+				if (entry.type === 'item' && entry.children) {
+					collect(entry.children);
+				}
+			}
+		};
+		collect(this.ensureDraft(this.activeTargetId));
+
+		let index = 1;
+		while (used.has(`${prefix}${index}`)) {
+			index++;
+		}
+		return `${prefix}${index}`;
+	}
+
 	protected addSeparator = (): void => {
 		const destination = this.getInsertionLocation();
+		const storageKey = this.nextCustomStorageKey('sep');
 		const separator = {
 			type: 'separator' as const,
-			key: `custom-separator:${Date.now()}:${this.separatorCounter++}`
+			key: `custom-separator:${storageKey}`,
+			storageKey,
+			custom: true
 		};
 		destination.parent.splice(destination.index, 0, separator);
 		this.selectedKey = separator.key;
@@ -1062,14 +1083,17 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 
 	protected addSubmenu = (): void => {
 		const destination = this.getInsertionLocation();
+		const storageKey = this.nextCustomStorageKey('submenu');
 		const submenu: EditableMenuItem = {
 			type: 'item',
-			key: `custom-submenu:${Date.now()}:${this.submenuCounter++}`,
+			key: `custom-submenu:${storageKey}`,
+			storageKey,
 			label: 'New Submenu',
 			custom: true,
 			submenu: true,
 			customSubmenu: true,
-			children: []
+			children: [],
+			defaultLabel: 'New Submenu'
 		};
 		destination.parent.splice(destination.index, 0, submenu);
 		this.selectedKey = submenu.key;

@@ -5,7 +5,6 @@ Native Eclipse Theia Electron startup extension verified against Theia 1.75.0.
 It adds these command line flags:
 
 - `--keep-warm` keeps one Electron main process and its Theia backend alive after the last window closes. Starting with only this flag opens no workspace and no visible window.
-- `--keepwarm` is an alias for `--keep-warm`.
 - `--daemon` relaunches the requested invocation as a detached process with standard input and output disconnected from the terminal.
 - `--quit` asks the resident keep warm instance to quit.
 

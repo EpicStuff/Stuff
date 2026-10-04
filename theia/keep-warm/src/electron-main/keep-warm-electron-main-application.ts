@@ -268,7 +268,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 
 		if (target.isWorkspace) {
 			if (cliArgs.newWindow) {
-				if (!this.getActiveVisibleWindow() && this.warmRenderer && !this.warmRenderer.isDestroyed()) {
+				if (!this.getActiveVisibleWindow() && (this.warmRenderer && !this.warmRenderer.isDestroyed() || this.initialWindow && !this.initialWindow.isDestroyed())) {
 					await this.openWindowWithWorkspace(target.path);
 				} else {
 					await this.openNewWindowWithWorkspace(target.path);

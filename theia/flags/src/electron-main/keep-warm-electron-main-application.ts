@@ -231,11 +231,20 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		return window;
 	}
 
+	override requestStop(): void {
+		this.quitting = true;
+		super.requestStop();
+	}
+
 	protected override onWindowAllClosed(event: ElectronEvent): void {
+		if (this.quitting) {
+			super.onWindowAllClosed(event);
+			return;
+		}
 		if (this.installOnly) {
 			return;
 		}
-		if (this.keepWarmer && !this.quitting) {
+		if (this.keepWarmer) {
 			void this.ensureWarmRenderer();
 			return;
 		}

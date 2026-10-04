@@ -7,8 +7,8 @@ module FormulaSandboxAccess
 		super
 		return unless uses_xdg_data_loader?
 
-		link_created = ensure_xdg_data_loader_link
-		refresh_xdg_data(restart_dolphin: formula.name == 'xdg-data-loader' || link_created)
+		ensure_xdg_data_loader_link
+		refresh_xdg_data(restart_dolphin: true)
 	end
 
 	def add_build_sandbox_rules(sandbox, formula_path, log_name:)

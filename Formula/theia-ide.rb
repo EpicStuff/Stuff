@@ -12,7 +12,7 @@ class TheiaIde < Formula
 		tag: 'v1.75.0',
 		revision: '9145abe093659217ef2967cc2955abdc37c16408'
 	license 'MIT'
-	revision 6
+	revision 7
 
 	livecheck do
 		url :stable
@@ -153,16 +153,22 @@ class TheiaIde < Formula
 			exec_path = (opt_bin/'theia').to_s
 			exec_path = %("#{exec_path.gsub('\\', '\\\\').gsub('"', '\\"')}") unless exec_path.match?(/\A[\/0-9A-Za-z._-]+\z/)
 			contents = contents.sub(/^Exec=(?:"(?:[^"\\]|\\.)*"|\S+)(.*)$/, "Exec=#{exec_path}\\1")
-			desktop_file.atomic_write(contents)
-			(share/'applications').install desktop_file
 
+			icon_lines = contents.lines.count { |line| line.start_with?('Icon=') }
+			raise 'Generated desktop entry does not contain exactly one Icon entry' unless icon_lines == 1
 			icon_name = contents[/^Icon=(.+)$/, 1]&.strip
+			raise 'Generated desktop entry contains an invalid Icon entry' unless icon_name&.match?(/\A[A-Za-z0-9._-]+\z/)
+
 			icon_source = buildpath/'applications/electron/resources/icons/LinuxLauncherIcons/512x512.png'
-			if icon_name&.match?(/\A[A-Za-z0-9._-]+\z/) && icon_source.file?
-				(share/'icons/hicolor/512x512/apps').install icon_source => "#{icon_name}.png"
-			else
-				opoo 'Theia desktop entry was installed, but its icon could not be installed'
-			end
+			raise 'Could not find the Theia launcher icon' unless icon_source.file?
+
+			icon_file = "#{icon_name}.png"
+			icon_path = opt_share/'icons'/icon_file
+			contents = contents.sub(/^Icon=.*$/, "Icon=#{icon_path}")
+			desktop_file.atomic_write(contents)
+
+			(share/'icons').install icon_source => icon_file
+			(share/'applications').install desktop_file
 		rescue StandardError => e
 			opoo "Could not generate Theia desktop entry with Electron Builder; continuing without desktop integration: #{e.message}"
 		end

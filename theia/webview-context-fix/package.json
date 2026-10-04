@@ -1,7 +1,7 @@
 {
 	"name": "theia-webview-context-fix",
-	"version": "0.2.0",
-	"description": "Native Eclipse Theia fix for inherited VS Code webview context menus.",
+	"version": "0.3.0",
+	"description": "Native Eclipse Theia fixes for VS Code compatible webview context menus and focus handling.",
 	"license": "MIT",
 	"engines": {
 		"node": ">=24"

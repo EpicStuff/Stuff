@@ -8,11 +8,13 @@ When `groupTabs.rememberGroups` is enabled, which is the default, the extension 
 
 For example, group `1.md` with the preview that was opened from it once. Later, opening the same preview type from `2.md` can group automatically without a rule for the `2.md` path.
 
-Editor splits are remembered the same way. A pane created with Split Editor Right or Split Editor Down keeps that source relationship. Groups can contain more than two panes, and mixed horizontal and vertical split relationships are represented with nested split layouts.
+Editor splits are remembered the same way. A pane created with Split Editor Right or Split Editor Down keeps that source relationship. Groups can contain more than two panes. The Group Tabs command snapshots the actual visible main area dock tree, so mixed horizontal and vertical layouts keep the same nesting instead of being reconstructed from split history.
 
 Theia Mini Browser URL Preview is the one special case for remembering provenance. The built in `mini-browser.openUrl` command uses a shared preview widget in the right panel and does not expose a source reference, so Group Tabs records the source that was active when URL Preview was opened. The preview is never grouped while it remains in a side panel. It must be moved into the main editor area before it can be grouped, either manually or by a remembered relationship after the move. There is no Typst specific code in this path.
 
 The grouped layout is stored through Theia's normal shell layout restoration when all panes can be restored. Mini Browser URL Preview panes are treated as transient because a local preview server might not survive a restart. The source layout still restores normally, and the remembered relationship is applied again the next time URL Preview opens.
+
+Run `Ungroup Tabs` on a grouped tab to restore the main area layout that existed immediately before that group was created. Ungrouping also removes the remembered rules represented by that group so the same relationship is not immediately grouped again.
 
 The setting is:
 

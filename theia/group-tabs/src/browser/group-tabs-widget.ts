@@ -1,5 +1,5 @@
 import { Disposable } from '@theia/core';
-import { Message, Navigatable, SplitWidget, Widget } from '@theia/core/lib/browser';
+import { DockPanel, Message, Navigatable, SplitWidget, Widget } from '@theia/core/lib/browser';
 import { TabBarDelegator } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 
 type Orientation = 'horizontal' | 'vertical';
@@ -17,6 +17,7 @@ export class GroupTabsWidget extends SplitWidget implements TabBarDelegator {
 	protected focusedPane?: Widget;
 	protected titleSource?: Widget;
 	protected readonly transientPanes = new WeakSet<Widget>();
+	protected ungroupLayout?: DockPanel.ILayoutConfig;
 
 	constructor(options: GroupTabsWidget.Options) {
 		super({ orientation: 'horizontal' });
@@ -45,6 +46,14 @@ export class GroupTabsWidget extends SplitWidget implements TabBarDelegator {
 
 	markTransient(pane: Widget): void {
 		this.transientPanes.add(pane);
+	}
+
+	setUngroupLayout(layout: DockPanel.ILayoutConfig): void {
+		this.ungroupLayout = layout;
+	}
+
+	getUngroupLayout(): DockPanel.ILayoutConfig | undefined {
+		return this.ungroupLayout;
 	}
 
 	containsPane(pane: Widget): boolean {
@@ -128,12 +137,14 @@ export class GroupTabsWidget extends SplitWidget implements TabBarDelegator {
 	override storeState(): GroupTabsWidget.State {
 		return {
 			widgets: [],
-			layout: this.serializeNode(this)
+			layout: this.serializeNode(this),
+			ungroupLayout: this.ungroupLayout
 		};
 	}
 
 	override restoreState(oldState: SplitWidget.State): void {
 		const state = oldState as GroupTabsWidget.State;
+		this.ungroupLayout = state.ungroupLayout;
 		if (!state.layout) {
 			super.restoreState(oldState);
 			this.afterLayoutChanged();
@@ -379,5 +390,6 @@ export namespace GroupTabsWidget {
 
 	export interface State extends SplitWidget.State {
 		layout?: LayoutNodeState;
+		ungroupLayout?: DockPanel.ILayoutConfig;
 	}
 }

@@ -8,6 +8,11 @@ Current features:
 - Explorer right click
 - Settings gear menu
 - Webview right click menus, including GitLens Commit Graph and other `webview/context` contributions
+- Terminal right click
+- Extension tree view item right click, including `view/item/context` contributions
+- SCM history commit row right click
+- SCM history ref badge right click
+- Timeline item right click
 - Hiding menu items
 - Drag reordering with before and after drop positions
 - Move Up and Move Down controls
@@ -28,6 +33,8 @@ The popup includes a VS Code style `Open in Tab` icon in its title bar. It trans
 Explicit `Custom Context Menu: Configure in Dialog` and `Custom Context Menu: Configure in Tab` commands are also available.
 
 Webview customization uses Theia's normal `WEBVIEW_CONTEXT_MENU`, which is the target for VS Code `webview/context` contributions. GitLens Commit Graph, Inspect, Rebase, and other GitLens webviews therefore use the same customization path while their original context based `when` clauses continue to decide which items are visible for the clicked row or ref.
+
+The additional targets use the same renderer interception for Theia's terminal context menu, VS Code `view/item/context`, `scm/historyItem/context`, `scm/historyItemRef/context`, and `timeline/item/context` contribution points. Their original context keys and command argument adapters are preserved.
 
 The extension leaves Theia's `MenuModelRegistry` untouched. It applies the saved layout to a temporary menu model immediately before `ContextMenuRenderer` renders it. Original command behavior and extension supplied conditions remain active unless a condition is explicitly overridden.
 

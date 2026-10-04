@@ -9,6 +9,7 @@ import { ReactDialog } from '@theia/core/lib/browser/dialogs/react-dialog';
 import { QuickCommandService } from '@theia/core/lib/browser/quick-input/quick-command-service';
 import { inject, injectable, interfaces, postConstruct } from '@theia/core/shared/inversify';
 import * as React from '@theia/core/shared/react';
+import { ToolbarIconDialogFactory } from '@theia/toolbar/lib/browser/toolbar-icon-selector-dialog';
 import { ContextMenuConfigEditor } from './custom-context-menu-editor';
 import { CustomContextMenuService } from './custom-context-menu-service';
 import { ContextMenuConfigurationChanges } from './custom-context-menu-types';
@@ -26,6 +27,9 @@ export class ContextMenuConfigDialog extends ReactDialog<ContextMenuConfiguratio
 
 	@inject(QuickCommandService)
 	protected readonly quickCommandService!: QuickCommandService;
+
+	@inject(ToolbarIconDialogFactory)
+	protected readonly iconDialogFactory!: ToolbarIconDialogFactory;
 
 	@inject(WidgetManager)
 	protected readonly widgetManager!: WidgetManager;
@@ -76,6 +80,7 @@ export class ContextMenuConfigDialog extends ReactDialog<ContextMenuConfiguratio
 				}}
 				service={this.service}
 				quickCommandService={this.quickCommandService}
+				iconDialogFactory={this.iconDialogFactory}
 				height='520px'
 			/>
 		);

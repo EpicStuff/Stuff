@@ -13,6 +13,7 @@ import {
 	Widget
 } from '@theia/core/lib/browser';
 import { CompositeSaveable } from '@theia/core/lib/browser/saveable';
+import { toArray } from '@theia/core/shared/@lumino/algorithm';
 import { TabBarDelegator } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 
 export class GroupTabsWidget extends BaseWidget implements ApplicationShell.TrackableWidgetProvider, SaveableSource, Navigatable, StatefulWidget, TabBarDelegator {
@@ -159,7 +160,7 @@ export class GroupTabsWidget extends BaseWidget implements ApplicationShell.Trac
 	}
 
 	getTrackableWidgets(): Widget[] {
-		return Array.from(this.dockPanel.widgets());
+		return toArray(this.dockPanel.widgets());
 	}
 
 	activateWidget(id: string): Widget | undefined {
@@ -211,7 +212,7 @@ export class GroupTabsWidget extends BaseWidget implements ApplicationShell.Trac
 	}
 
 	protected hideInnerTabBars(): void {
-		for (const tabBar of this.dockPanel.tabBars()) {
+		for (const tabBar of toArray(this.dockPanel.tabBars())) {
 			tabBar.hide();
 		}
 	}

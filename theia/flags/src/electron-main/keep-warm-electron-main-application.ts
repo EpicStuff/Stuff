@@ -19,7 +19,7 @@ const INSTALL_EXTENSION_FLAG = '--install-extension';
 @injectable()
 export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	@inject(KeepWarmExtensionInstallerServiceImpl)
-	protected readonly extensionInstaller: KeepWarmExtensionInstallerServiceImpl;
+	protected readonly extensionInstaller!: KeepWarmExtensionInstallerServiceImpl;
 
 	protected keepWarm = false;
 	protected keepWarmer = false;

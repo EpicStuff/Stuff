@@ -6,7 +6,7 @@ import { KeepWarmExtensionInstallerClient, KeepWarmExtensionInstallerService } f
 @injectable()
 export class KeepWarmExtensionInstallerClientImpl implements KeepWarmExtensionInstallerClient {
 	@inject(PluginServer)
-	protected readonly pluginServer: PluginServer;
+	protected readonly pluginServer!: PluginServer;
 
 	async installExtension(extensionPath: string): Promise<void> {
 		await this.pluginServer.install(`local-file:${extensionPath}`);
@@ -16,7 +16,7 @@ export class KeepWarmExtensionInstallerClientImpl implements KeepWarmExtensionIn
 @injectable()
 export class KeepWarmExtensionInstallerFrontendContribution implements FrontendApplicationContribution {
 	@inject(KeepWarmExtensionInstallerService)
-	protected readonly installerService: KeepWarmExtensionInstallerService;
+	protected readonly installerService!: KeepWarmExtensionInstallerService;
 
 	onStart(): void {
 		void this.installerService;

@@ -38,7 +38,7 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 					windowWaiter(client);
 				}
 			}
-		});
+		}).catch(() => undefined);
 	}
 
 	disconnectClient(client: KeepWarmExtensionInstallerClient): void {

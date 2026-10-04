@@ -99,7 +99,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		let ownsSingleInstanceLock = true;
 
 		if (useSingleInstanceLock) {
-			ownsSingleInstanceLock = app.requestSingleInstanceLock();
+			ownsSingleInstanceLock = app.requestSingleInstanceLock(process.argv as unknown as Record<string, unknown>);
 		}
 
 		if (!ownsSingleInstanceLock) {
@@ -150,6 +150,12 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 
 		const window = await super.createWindow(options);
 		const windowId = window.webContents.id;
+
+		if (this.cliOnly) {
+			window.setSkipTaskbar(true);
+			window.on('show', () => window.hide());
+			window.hide();
+		}
 
 		window.once('closed', () => {
 			setTimeout(() => {
@@ -312,10 +318,9 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			return false;
 		}
 
-		await this.openWindowWithWorkspace(workspaces[0]);
-		for (const workspacePath of workspaces.slice(1)) {
-			await this.openNewWindowWithWorkspace(workspacePath);
-		}
+		await Promise.all(workspaces.map((workspacePath, index) =>
+			index === 0 ? this.openWindowWithWorkspace(workspacePath) : this.openNewWindowWithWorkspace(workspacePath)
+		));
 		return true;
 	}
 

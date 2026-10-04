@@ -6,4 +6,4 @@ Theia reports window focus from the top window's `focus` and `blur` events. Clic
 
 The frontend module patches `WindowStateMain.onFocusChanged`. After a top window blur it waits for focus to settle and checks `document.hasFocus()`. If a child iframe still owns focus, the false blur is suppressed. While the iframe owns focus, a 50 ms monitor tracks `document.hasFocus()` so switching to another application still reports `focused = false`, and returning directly to the iframe reports `focused = true`.
 
-The implementation is verified against Theia 1.75.x. Because it patches a private `WindowStateMain` method, the package intentionally limits its peer dependency to that minor release and fails immediately if the method is missing.
+Like `webview-context-fix`, the package verifies the upstream private implementation it patches instead of pinning compatibility to one Theia minor release. Its build fails if the expected `WindowStateMain` focus listener or `onFocusChanged` implementation changes, so a future Theia update cannot silently apply the patch to an unknown implementation.

@@ -91,11 +91,6 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 			add(tabBar.currentTitle?.owner);
 		}
 
-		const right = this.shell.getCurrentWidget('right');
-		if (right?.isVisible && this.groupTabsService.isMiniBrowserUrlPreview(right)) {
-			add(right);
-		}
-
 		return result;
 	}
 

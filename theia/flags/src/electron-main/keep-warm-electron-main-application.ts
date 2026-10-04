@@ -1,16 +1,23 @@
 import { spawn } from 'child_process';
-import { app, Event as ElectronEvent } from '@theia/core/electron-shared/electron';
+import { app, BrowserWindow, Event as ElectronEvent } from '@theia/core/electron-shared/electron';
+import { DEFAULT_WINDOW_HASH } from '@theia/core/lib/common/window';
+import { MaybePromise } from '@theia/core/lib/common/types';
 import { ElectronMainApplication, ElectronMainCommandOptions } from '@theia/core/lib/electron-main/electron-main-application';
+import { TheiaBrowserWindowOptions } from '@theia/core/lib/electron-main/theia-electron-window';
 import { injectable } from '@theia/core/shared/inversify';
 
 const KEEP_WARM_FLAG = '--keep-warm';
+const KEEP_WARMER_FLAG = '--keep-warmer';
 const DAEMON_FLAG = '--daemon';
 const QUIT_FLAG = '--quit';
 
 @injectable()
 export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	protected keepWarm = false;
+	protected keepWarmer = false;
 	protected suppressInitialEmptyWindow = false;
+	protected warmRenderer: BrowserWindow | undefined;
+	protected quitting = false;
 
 	override async start(config: Parameters<ElectronMainApplication['start']>[0]): Promise<void> {
 		const applicationArgs = this.processArgv.getProcessArgvWithoutBin(process.argv);
@@ -21,7 +28,8 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			return;
 		}
 
-		const wantsKeepWarm = applicationArgs.includes(KEEP_WARM_FLAG);
+		const wantsKeepWarmer = applicationArgs.includes(KEEP_WARMER_FLAG);
+		const wantsKeepWarm = wantsKeepWarmer || applicationArgs.includes(KEEP_WARM_FLAG);
 		const wantsQuit = applicationArgs.includes(QUIT_FLAG);
 		const ownsSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -37,10 +45,14 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		}
 
 		this.keepWarm = wantsKeepWarm;
+		this.keepWarmer = wantsKeepWarmer;
 		this.suppressInitialEmptyWindow = wantsKeepWarm;
 
 		if (this.keepWarm) {
 			process.once('SIGINT', () => this.requestStop());
+			app.once('before-quit', () => {
+				this.quitting = true;
+			});
 		}
 
 		if (!this.keepWarm) {
@@ -62,7 +74,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	}
 
 	protected removeControlFlags(args: readonly string[]): string[] {
-		return args.filter(arg => arg !== KEEP_WARM_FLAG && arg !== DAEMON_FLAG && arg !== QUIT_FLAG);
+		return args.filter(arg => arg !== KEEP_WARM_FLAG && arg !== KEEP_WARMER_FLAG && arg !== DAEMON_FLAG && arg !== QUIT_FLAG);
 	}
 
 	protected replaceProcessApplicationArgs(oldArgs: readonly string[], newArgs: readonly string[]): void {
@@ -86,6 +98,9 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		if (this.suppressInitialEmptyWindow && !options.secondInstance) {
 			this.suppressInitialEmptyWindow = false;
 			if (options.file === undefined) {
+				if (this.keepWarmer) {
+					await this.ensureWarmRenderer();
+				}
 				return;
 			}
 		}
@@ -93,7 +108,45 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		await super.handleMainCommand(options);
 	}
 
+	protected async ensureWarmRenderer(): Promise<void> {
+		if (!this.keepWarmer || this.quitting || this.warmRenderer && !this.warmRenderer.isDestroyed()) {
+			return;
+		}
+
+		const options = await this.getLastWindowOptions();
+		const window = await this.createWindow({
+			...options,
+			show: false,
+			preventAutomaticShow: true
+		});
+		const uri = await this.createWindowUri();
+
+		this.warmRenderer = window;
+		this.initialWindow = window;
+		await window.loadURL(uri.withFragment(DEFAULT_WINDOW_HASH).toString(true));
+	}
+
+	protected override async reuseOrCreateWindow(asyncOptions: MaybePromise<TheiaBrowserWindowOptions>): Promise<BrowserWindow> {
+		const warmRenderer = this.warmRenderer;
+		const window = await super.reuseOrCreateWindow(asyncOptions);
+
+		if (warmRenderer && window === warmRenderer) {
+			this.warmRenderer = undefined;
+			window.webContents.once('did-finish-load', () => {
+				if (!window.isDestroyed()) {
+					window.show();
+				}
+			});
+		}
+
+		return window;
+	}
+
 	protected override onWindowAllClosed(event: ElectronEvent): void {
+		if (this.keepWarmer && !this.quitting) {
+			void this.ensureWarmRenderer();
+			return;
+		}
 		if (this.keepWarm) {
 			return;
 		}
@@ -109,17 +162,24 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			return;
 		}
 
-		const wantsKeepWarm = applicationArgs.includes(KEEP_WARM_FLAG);
+		const wantsKeepWarmer = applicationArgs.includes(KEEP_WARMER_FLAG);
+		const wantsKeepWarm = wantsKeepWarmer || applicationArgs.includes(KEEP_WARM_FLAG);
 		if (wantsKeepWarm) {
 			this.keepWarm = true;
+		}
+		if (wantsKeepWarmer) {
+			this.keepWarmer = true;
 		}
 
 		const cleanApplicationArgs = this.removeControlFlags(applicationArgs);
 		if (wantsKeepWarm && cleanApplicationArgs.length === 0) {
+			if (wantsKeepWarmer) {
+				await this.ensureWarmRenderer();
+			}
 			return;
 		}
 
-		if (this.keepWarm && this.windows.size === 0 && cleanApplicationArgs.length === 0) {
+		if (this.keepWarm && cleanApplicationArgs.length === 0 && (this.windows.size === 0 || this.warmRenderer)) {
 			await this.handleMainCommand({
 				cwd,
 				secondInstance: false

@@ -169,7 +169,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 
 	protected failCli(error: unknown): void {
 		const message = error instanceof Error ? error.message : String(error);
-		process.stderr.write(`theia: ${message}\n`);
+		process.stderr.write(`theia: ${message}\n\n${VSCODE_COMPAT_HELP}`);
 		app.exit(1);
 	}
 

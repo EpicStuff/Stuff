@@ -4,9 +4,7 @@ import * as path from 'path';
 import { app, BrowserWindow, Event as ElectronEvent } from '@theia/core/electron-shared/electron';
 import { Deferred } from '@theia/core/lib/common/promise-util';
 import { DEFAULT_WINDOW_HASH } from '@theia/core/lib/common/window';
-import { MaybePromise } from '@theia/core/lib/common/types';
 import { ElectronMainApplication, ElectronMainCommandOptions } from '@theia/core/lib/electron-main/electron-main-application';
-import { TheiaBrowserWindowOptions } from '@theia/core/lib/electron-main/theia-electron-window';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { KeepWarmExtensionInstallerServiceImpl } from './keep-warm-extension-installer-service';
 
@@ -213,24 +211,23 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			return;
 		}
 
-		const window = await this.createHiddenEmptyRenderer();
-		this.warmRenderer = window;
-		this.initialWindow = window;
+		this.warmRenderer = await this.createHiddenEmptyRenderer();
 	}
 
-	protected override async reuseOrCreateWindow(asyncOptions: MaybePromise<TheiaBrowserWindowOptions>): Promise<BrowserWindow> {
-		const warmRenderer = this.warmRenderer;
-		const window = await super.reuseOrCreateWindow(asyncOptions);
-
-		if (warmRenderer && window === warmRenderer) {
-			this.warmRenderer = undefined;
-			window.webContents.once('did-finish-load', () => {
-				if (!window.isDestroyed()) {
-					window.show();
-				}
-			});
+	protected override async openWindowWithWorkspace(workspacePath: string): Promise<BrowserWindow> {
+		const window = this.warmRenderer;
+		if (!window || window.isDestroyed()) {
+			return super.openWindowWithWorkspace(workspacePath);
 		}
 
+		this.warmRenderer = undefined;
+		window.webContents.once('did-finish-load', () => {
+			if (!window.isDestroyed()) {
+				window.show();
+			}
+		});
+
+		await this.extensionInstaller.openWorkspace(workspacePath);
 		return window;
 	}
 

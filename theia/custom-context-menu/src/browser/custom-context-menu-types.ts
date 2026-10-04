@@ -39,7 +39,7 @@ export const CustomContextMenuPreferenceSchema: PreferenceSchema = {
 			default: {},
 			additionalProperties: true,
 			hidden: true,
-			description: 'Saved layouts for the native custom context menu extension.'
+			description: 'Sparse layout customizations for context menus.'
 		},
 		[CUSTOM_CONTEXT_MENU_OPEN_MODE]: {
 			type: 'string',
@@ -54,6 +54,7 @@ export const CustomContextMenuPreferenceSchema: PreferenceSchema = {
 export interface EditableMenuItem {
 	type: 'item';
 	key: string;
+	storageKey: string;
 	label: string;
 	commandId?: string;
 	when?: string;
@@ -65,6 +66,7 @@ export interface EditableMenuItem {
 	defaultLabel?: string;
 	defaultWhen?: string;
 	defaultIcon?: string;
+	defaultGroup?: string;
 	labelOverride?: string;
 	whenOverride?: string;
 	iconOverride?: string;
@@ -73,33 +75,56 @@ export interface EditableMenuItem {
 export interface EditableMenuSeparator {
 	type: 'separator';
 	key: string;
+	storageKey: string;
+	custom: boolean;
+	group?: string;
 }
 
 export type EditableMenuEntry = EditableMenuItem | EditableMenuSeparator;
 
-export interface StoredMenuItem {
-	type: 'item';
-	key: string;
-	commandId?: string;
+export type StoredMenuPosition = 'start' | 'end';
+
+export interface StoredMenuPlacement {
+	parent?: string | null;
+	group?: string;
+	at?: StoredMenuPosition;
+	before?: string;
+	after?: string;
+	beforeGroup?: string;
+	afterGroup?: string;
+}
+
+export interface StoredMenuEdit extends StoredMenuPlacement {
 	label?: string;
-	customSubmenu?: boolean;
-	entries?: StoredMenuEntry[];
-	knownDefaultKeys?: string[];
-	labelOverride?: string;
-	whenOverride?: string;
-	iconOverride?: string;
+	when?: string | null;
+	icon?: string | null;
 }
 
-export interface StoredMenuSeparator {
+export interface StoredCommandAdd extends StoredMenuPlacement {
+	type: 'command';
+	command: string;
+	label?: string;
+	when?: string | null;
+	icon?: string | null;
+}
+
+export interface StoredSubmenuAdd extends StoredMenuPlacement {
+	type: 'submenu';
+	label: string;
+	when?: string | null;
+	icon?: string | null;
+}
+
+export interface StoredSeparatorAdd extends StoredMenuPlacement {
 	type: 'separator';
-	key: string;
 }
 
-export type StoredMenuEntry = StoredMenuItem | StoredMenuSeparator;
+export type StoredMenuAdd = StoredCommandAdd | StoredSubmenuAdd | StoredSeparatorAdd;
 
 export interface StoredMenuLayout {
-	entries: StoredMenuEntry[];
-	knownDefaultKeys: string[];
+	hide?: string[];
+	edit?: Record<string, StoredMenuEdit>;
+	add?: Record<string, StoredMenuAdd>;
 }
 
 export type StoredMenuLayouts = Record<string, StoredMenuLayout>;

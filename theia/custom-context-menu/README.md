@@ -26,12 +26,42 @@ The popup includes an `Open in Tab` button. It applies the current changes, open
 
 Explicit `Custom Context Menu: Configure in Dialog` and `Custom Context Menu: Configure in Tab` commands are also available.
 
-The extension leaves Theia's `MenuModelRegistry` untouched. It applies the saved layout to a temporary menu model immediately before `ContextMenuRenderer` renders it. The original command enablement and `when` conditions therefore remain active unless a user explicitly overrides a condition in the item editor.
+The extension leaves Theia's `MenuModelRegistry` untouched. It applies the saved layout to a temporary menu model immediately before `ContextMenuRenderer` renders it. Original command behavior and extension supplied conditions remain active unless a condition is explicitly overridden.
 
-Configuration is stored in the hidden user preference `customContextMenu.layouts`. The normal user preference `customContextMenu.openMode` controls whether the main Configure command opens as a dialog or tab.
+## Storage
 
-The saved model is hierarchical. Existing extension supplied submenus keep their original nodes while their children can be hidden, reordered, moved, or customized. Custom submenus contain references to the original command nodes when an existing menu command is moved into them, so command behavior is retained.
+Configuration uses the normal Theia user preference `customContextMenu.layouts`, but it stores only differences from the currently contributed menu. Untouched commands are not copied into the setting.
 
-New extension supplied menu entries are appended automatically if they were not present when a customized layout was last saved.
+A lightly customized menu can look like:
 
-The current version intentionally does not add per context layouts or `Configure This Context Menu`. Extension supplied dynamic visibility still works for items whose condition has not been overridden.
+```json
+{
+	"customContextMenu.layouts": {
+		"editor": {
+			"hide": [
+				"some.command"
+			],
+			"edit": {
+				"other.command": {
+					"label": "My Command",
+					"beforeGroup": "navigation"
+				}
+			},
+			"add": {
+				"submenu1": {
+					"type": "submenu",
+					"label": "Tools"
+				}
+			}
+		}
+	}
+}
+```
+
+Existing entries use `edit` for every override, including `label`, `icon`, `when`, `parent`, and placement. Commands moved into a submenu use `parent`. Placement prefers structural menu groups when possible and otherwise uses relative `before` or `after` references.
+
+Custom commands, submenus, and separators are stored under `add`. Removed default entries are listed under `hide`. New extension supplied commands therefore appear normally unless they are explicitly hidden or affected by an existing sparse override.
+
+The previous full tree format containing `entries` and `knownDefaultKeys` is intentionally not migrated by the extension. It is ignored by the new reader. Clear the old `customContextMenu.layouts` value once and recreate the desired changes through the configurator.
+
+`customContextMenu.openMode` remains a normal visible preference and is unchanged.

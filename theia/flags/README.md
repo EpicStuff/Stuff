@@ -93,7 +93,7 @@ An isolated user data environment can be selected with:
 theia --user-data-dir /tmp/theia-test
 ```
 
-This changes both Electron user data and Theia configuration storage. Extension installation locations remain separate, matching VS Code's separation between `--user-data-dir` and `--extensions-dir`.
+This changes both Electron user data and Theia configuration storage. Because Theia derives its user extension directory from the configuration directory, this currently isolates user extensions too.
 
 Hardware acceleration can be disabled for a newly started Theia process with:
 
@@ -109,4 +109,4 @@ To stop a resident instance:
 theia --quit
 ```
 
-Normal Theia launches share one Electron main process for the same user data directory. Additional `theia` invocations are routed into that process and open additional windows there. `--disable-gpu` remains an independent process because hardware acceleration has to be configured before Electron starts.
+Normal Theia launches share one Electron main process for the same user data directory. Additional `theia` invocations are routed into that process using Electron's single instance payload so the original command line is preserved. `--disable-gpu` remains an independent process because hardware acceleration has to be configured before Electron starts.

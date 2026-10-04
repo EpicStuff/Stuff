@@ -74,70 +74,71 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 	}
 
 	protected async groupTabs(): Promise<void> {
-		const mainLayout = this.shell.mainPanel.saveLayout();
-		const layout = this.toGroupLayout(mainLayout.main);
-		if (!layout || this.layoutWidgetCount(layout) < 2) {
+		const layout = this.visibleMainLayout();
+		if (!layout || this.layoutWidgetCount(layout.main) < 2) {
 			return;
 		}
 
-		await this.groupTabsService.groupLayout(layout, mainLayout);
+		await this.groupTabsService.groupLayout(layout);
 	}
 
-	protected toGroupLayout(area: DockLayout.AreaConfig | null | undefined): GroupTabsWidget.LayoutNodeState | undefined {
-		const child = this.toGroupChild(area);
-		if (!child) {
-			return undefined;
-		}
-		if ('widgets' in child) {
-			return {
-				orientation: 'horizontal',
-				children: [child]
-			};
-		}
-		return child;
+	protected visibleMainLayout(): DockPanel.ILayoutConfig | undefined {
+		const saved = this.shell.mainPanel.saveLayout();
+		const main = this.visibleArea(saved.main);
+		return main ? { main } : undefined;
 	}
 
-	protected toGroupChild(area: DockLayout.AreaConfig | null | undefined): GroupTabsWidget.LayoutChildState | undefined {
+	protected visibleArea(area: DockLayout.AreaConfig | null): DockLayout.AreaConfig | null {
 		if (!area) {
-			return undefined;
+			return null;
 		}
 		if (area.type === 'tab-area') {
 			const current = area.widgets[area.currentIndex];
 			if (!current || current.isDisposed) {
-				return undefined;
+				return null;
 			}
 			if (current instanceof GroupTabsWidget) {
-				return current.storeState().layout;
+				return current.getGroupLayout().main;
 			}
-			return { widgets: [current] };
+			return {
+				type: 'tab-area',
+				widgets: [current],
+				currentIndex: 0
+			};
 		}
 
-		const children: GroupTabsWidget.LayoutChildState[] = [];
+		const children: DockLayout.AreaConfig[] = [];
 		const sizes: number[] = [];
 		for (let index = 0; index < area.children.length; index++) {
-			const child = this.toGroupChild(area.children[index]);
+			const child = this.visibleArea(area.children[index]);
 			if (child) {
 				children.push(child);
 				sizes.push(area.sizes[index] ?? 1);
 			}
 		}
 		if (children.length === 0) {
-			return undefined;
+			return null;
+		}
+		if (children.length === 1) {
+			return children[0];
 		}
 		const total = sizes.reduce((sum, size) => sum + size, 0);
 		return {
+			type: 'split-area',
 			orientation: area.orientation,
 			children,
-			relativeSizes: total > 0 ? sizes.map(size => size / total) : undefined
+			sizes: total > 0 ? sizes.map(size => size / total) : sizes
 		};
 	}
 
-	protected layoutWidgetCount(layout: GroupTabsWidget.LayoutNodeState): number {
-		let count = 0;
-		for (const child of layout.children) {
-			count += 'widgets' in child ? child.widgets.length : this.layoutWidgetCount(child);
+	protected layoutWidgetCount(area: DockLayout.AreaConfig | null): number {
+		if (!area) {
+			return 0;
 		}
-		return count;
+		if (area.type === 'tab-area') {
+			return area.widgets.length;
+		}
+		return area.children.reduce((count, child) => count + this.layoutWidgetCount(child), 0);
 	}
 
 	protected getCurrentTabs(): Widget[] {
@@ -158,7 +159,6 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 		for (const tabBar of this.shell.mainPanel.tabBars()) {
 			add(tabBar.currentTitle?.owner);
 		}
-
 		return result;
 	}
 

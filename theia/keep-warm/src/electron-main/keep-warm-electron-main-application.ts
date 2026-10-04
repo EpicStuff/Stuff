@@ -3,7 +3,7 @@ import { app, Event as ElectronEvent } from '@theia/core/electron-shared/electro
 import { ElectronMainApplication, ElectronMainCommandOptions } from '@theia/core/lib/electron-main/electron-main-application';
 import { injectable } from '@theia/core/shared/inversify';
 
-const KEEP_WARM_FLAGS = new Set(['--keep-warm', '--keepwarm']);
+const KEEP_WARM_FLAG = '--keep-warm';
 const DAEMON_FLAG = '--daemon';
 const QUIT_FLAG = '--quit';
 
@@ -21,7 +21,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			return;
 		}
 
-		const wantsKeepWarm = applicationArgs.some(arg => KEEP_WARM_FLAGS.has(arg));
+		const wantsKeepWarm = applicationArgs.includes(KEEP_WARM_FLAG);
 		const wantsQuit = applicationArgs.includes(QUIT_FLAG);
 		const ownsSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -58,7 +58,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	}
 
 	protected removeControlFlags(args: readonly string[]): string[] {
-		return args.filter(arg => !KEEP_WARM_FLAGS.has(arg) && arg !== DAEMON_FLAG && arg !== QUIT_FLAG);
+		return args.filter(arg => arg !== KEEP_WARM_FLAG && arg !== DAEMON_FLAG && arg !== QUIT_FLAG);
 	}
 
 	protected replaceProcessApplicationArgs(oldArgs: readonly string[], newArgs: readonly string[]): void {
@@ -105,7 +105,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			return;
 		}
 
-		const wantsKeepWarm = applicationArgs.some(arg => KEEP_WARM_FLAGS.has(arg));
+		const wantsKeepWarm = applicationArgs.includes(KEEP_WARM_FLAG);
 		if (wantsKeepWarm) {
 			this.keepWarm = true;
 		}

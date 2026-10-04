@@ -14,7 +14,9 @@ Typical use:
 theia --keep-warm
 ```
 
-This stays attached to the terminal. To start the warm process and immediately return to the shell:
+This stays attached to the terminal. Pressing `Ctrl+C` cleanly quits through Electron's normal shutdown path.
+
+To start the warm process and immediately return to the shell:
 
 ```fish
 theia --keep-warm --daemon

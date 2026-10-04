@@ -1,23 +1,33 @@
 import { spawn } from 'child_process';
+import { promises as fs } from 'fs';
+import * as path from 'path';
 import { app, BrowserWindow, Event as ElectronEvent } from '@theia/core/electron-shared/electron';
+import { Deferred } from '@theia/core/lib/common/promise-util';
 import { DEFAULT_WINDOW_HASH } from '@theia/core/lib/common/window';
 import { MaybePromise } from '@theia/core/lib/common/types';
 import { ElectronMainApplication, ElectronMainCommandOptions } from '@theia/core/lib/electron-main/electron-main-application';
 import { TheiaBrowserWindowOptions } from '@theia/core/lib/electron-main/theia-electron-window';
-import { injectable } from '@theia/core/shared/inversify';
+import { inject, injectable } from '@theia/core/shared/inversify';
+import { KeepWarmExtensionInstallerServiceImpl } from './keep-warm-extension-installer-service';
 
 const KEEP_WARM_FLAG = '--keep-warm';
 const KEEP_WARMER_FLAG = '--keep-warmer';
 const DAEMON_FLAG = '--daemon';
 const QUIT_FLAG = '--quit';
+const INSTALL_EXTENSION_FLAG = '--install-extension';
 
 @injectable()
 export class KeepWarmElectronMainApplication extends ElectronMainApplication {
+	@inject(KeepWarmExtensionInstallerServiceImpl)
+	protected readonly extensionInstaller: KeepWarmExtensionInstallerServiceImpl;
+
 	protected keepWarm = false;
 	protected keepWarmer = false;
+	protected installOnly = false;
 	protected suppressInitialEmptyWindow = false;
 	protected warmRenderer: BrowserWindow | undefined;
 	protected quitting = false;
+	protected readonly contributionsStarted = new Deferred<void>();
 
 	override async start(config: Parameters<ElectronMainApplication['start']>[0]): Promise<void> {
 		const applicationArgs = this.processArgv.getProcessArgvWithoutBin(process.argv);
@@ -25,6 +35,28 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		if (applicationArgs.includes(DAEMON_FLAG)) {
 			this.spawnDetached(applicationArgs.filter(arg => arg !== DAEMON_FLAG));
 			app.exit(0);
+			return;
+		}
+
+		const extensionToInstall = this.getInstallExtensionArg(applicationArgs);
+		if (extensionToInstall) {
+			this.installOnly = true;
+			this.suppressInitialEmptyWindow = true;
+			const cleanArgs = this.removeInstallExtensionArgs(this.removeControlFlags(applicationArgs));
+			this.replaceProcessApplicationArgs(applicationArgs, cleanArgs);
+			await super.start(config);
+			await this.contributionsStarted.promise;
+
+			try {
+				const extensionPath = await this.resolveExtensionPath(extensionToInstall, process.cwd());
+				await this.installExtension(extensionPath);
+				process.stdout.write(`Installed extension: ${extensionPath}\n`);
+				this.requestStop();
+			} catch (error) {
+				process.exitCode = 1;
+				console.error(`Failed to install extension '${extensionToInstall}'.`, error);
+				this.requestStop();
+			}
 			return;
 		}
 
@@ -63,6 +95,11 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		await super.start(config);
 	}
 
+	protected override async startContributions(): Promise<void> {
+		await super.startContributions();
+		this.contributionsStarted.resolve();
+	}
+
 	protected spawnDetached(args: string[]): void {
 		const child = spawn(process.execPath, args, {
 			cwd: process.cwd(),
@@ -71,6 +108,33 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			stdio: 'ignore'
 		});
 		child.unref();
+	}
+
+	protected getInstallExtensionArg(args: readonly string[]): string | undefined {
+		const index = args.indexOf(INSTALL_EXTENSION_FLAG);
+		if (index >= 0) {
+			return args[index + 1];
+		}
+
+		const prefix = `${INSTALL_EXTENSION_FLAG}=`;
+		const inlineArg = args.find(arg => arg.startsWith(prefix));
+		return inlineArg?.slice(prefix.length);
+	}
+
+	protected removeInstallExtensionArgs(args: readonly string[]): string[] {
+		const result: string[] = [];
+		for (let index = 0; index < args.length; index++) {
+			const arg = args[index];
+			if (arg === INSTALL_EXTENSION_FLAG) {
+				index++;
+				continue;
+			}
+			if (arg.startsWith(`${INSTALL_EXTENSION_FLAG}=`)) {
+				continue;
+			}
+			result.push(arg);
+		}
+		return result;
 	}
 
 	protected removeControlFlags(args: readonly string[]): string[] {
@@ -88,7 +152,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	}
 
 	protected override showInitialWindow(urlToOpen: string | undefined): void {
-		if (this.keepWarm && !urlToOpen) {
+		if ((this.keepWarm || this.installOnly) && !urlToOpen) {
 			return;
 		}
 		super.showInitialWindow(urlToOpen);
@@ -108,11 +172,31 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		await super.handleMainCommand(options);
 	}
 
-	protected async ensureWarmRenderer(): Promise<void> {
-		if (!this.keepWarmer || this.quitting || this.warmRenderer && !this.warmRenderer.isDestroyed()) {
-			return;
+	protected async resolveExtensionPath(extensionPath: string, cwd: string): Promise<string> {
+		const resolvedPath = path.resolve(cwd, extensionPath);
+		const stat = await fs.stat(resolvedPath);
+		if (!stat.isFile()) {
+			throw new Error('Extension path is not a file');
 		}
+		if (path.extname(resolvedPath).toLowerCase() !== '.vsix') {
+			throw new Error('Extension path must point to a .vsix file');
+		}
+		return resolvedPath;
+	}
 
+	protected async installExtension(extensionPath: string): Promise<void> {
+		const renderer = await this.createHiddenEmptyRenderer();
+		try {
+			await this.extensionInstaller.installExtension(extensionPath);
+		} finally {
+			const wrapper = this.windows.get(renderer.webContents.id);
+			if (wrapper) {
+				await wrapper.close();
+			}
+		}
+	}
+
+	protected async createHiddenEmptyRenderer(): Promise<BrowserWindow> {
 		const options = await this.getLastWindowOptions();
 		const window = await this.createWindow({
 			...options,
@@ -120,10 +204,18 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			preventAutomaticShow: true
 		});
 		const uri = await this.createWindowUri();
+		await window.loadURL(uri.withFragment(DEFAULT_WINDOW_HASH).toString(true));
+		return window;
+	}
 
+	protected async ensureWarmRenderer(): Promise<void> {
+		if (!this.keepWarmer || this.quitting || this.warmRenderer && !this.warmRenderer.isDestroyed()) {
+			return;
+		}
+
+		const window = await this.createHiddenEmptyRenderer();
 		this.warmRenderer = window;
 		this.initialWindow = window;
-		await window.loadURL(uri.withFragment(DEFAULT_WINDOW_HASH).toString(true));
 	}
 
 	protected override async reuseOrCreateWindow(asyncOptions: MaybePromise<TheiaBrowserWindowOptions>): Promise<BrowserWindow> {
@@ -143,6 +235,9 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	}
 
 	protected override onWindowAllClosed(event: ElectronEvent): void {
+		if (this.installOnly) {
+			return;
+		}
 		if (this.keepWarmer && !this.quitting) {
 			void this.ensureWarmRenderer();
 			return;

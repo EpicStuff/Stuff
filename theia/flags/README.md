@@ -8,6 +8,7 @@ It adds these command line flags:
 - `--keep-warmer` includes `--keep-warm` behavior and also keeps one hidden empty Theia frontend renderer preloaded. It still keeps no project workspace open.
 - `--daemon` relaunches the requested invocation as a detached process with standard input and output disconnected from the terminal.
 - `--quit` asks the resident keep warm instance to quit.
+- `--install-extension <file.vsix>` installs a local VSIX without opening a visible Theia window.
 
 Typical use:
 
@@ -40,7 +41,15 @@ theia /path/to/project
 
 A plain `theia` invocation with no visible windows behaves like a fresh launch and restores the previous workspace. Closing the last visible window leaves the backend resident. In warmer mode, a new hidden empty frontend is prepared after the last visible window closes.
 
-To stop it:
+To install a local VSIX from the terminal:
+
+```fish
+theia --install-extension foo.vsix
+```
+
+The installer invocation uses its own short lived backend and a hidden empty renderer, so it also works while a `--keep-warm` or `--keep-warmer` instance owns the Electron single instance lock. It waits for installation to complete, prints the installed path, then exits.
+
+To stop a resident instance:
 
 ```fish
 theia --quit

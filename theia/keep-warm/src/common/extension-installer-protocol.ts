@@ -4,6 +4,7 @@ export const KeepWarmExtensionInstallerPath = '/services/keep-warm-extension-ins
 
 export interface KeepWarmExtensionInstallerClient {
 	getWindowId(): Promise<number>;
+	getWorkspacePath(): Promise<string | undefined>;
 	installExtension(extension: string, local: boolean): Promise<void>;
 	uninstallExtension(extensionId: string): Promise<string>;
 	listExtensions(showVersions: boolean): Promise<string[]>;

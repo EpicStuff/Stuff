@@ -1,6 +1,6 @@
 {
 	"name": "theia-keep-warm",
-	"version": "0.3.0",
+	"version": "0.4.0",
 	"description": "Keeps the Eclipse Theia Electron backend warm between windows.",
 	"engines": {
 		"node": ">=24"
@@ -22,7 +22,8 @@
 	"peerDependencies": {
 		"@theia/core": ">=1.75.0 <2.0.0",
 		"@theia/plugin-ext": ">=1.75.0 <2.0.0",
-		"@theia/plugin-ext-vscode": ">=1.75.0 <2.0.0"
+		"@theia/plugin-ext-vscode": ">=1.75.0 <2.0.0",
+		"@theia/workspace": ">=1.75.0 <2.0.0"
 	},
 	"devDependencies": {
 		"typescript": "~5.9.3"

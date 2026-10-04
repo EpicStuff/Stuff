@@ -57,7 +57,7 @@ theia
 theia /path/to/project
 ```
 
-A plain `theia` invocation with no visible windows behaves like a fresh launch and restores the previous workspace. Closing the last visible window leaves the backend resident. In warmer mode, a new hidden empty frontend is prepared after the last visible window closes.
+A plain `theia` invocation on a fresh process restores all workspace windows from the previous session. The same restoration happens on the first plain `theia` invocation after starting a resident keep warm process. An explicit file, folder, workspace, `--new-window`, `--reuse-window`, `--goto`, or `--diff` suppresses previous session restoration for that process. Closing the last visible window leaves the backend resident in keep warm mode. In warmer mode, a new hidden empty frontend is prepared after the last visible window closes.
 
 Window selection can be made explicit:
 
@@ -85,7 +85,7 @@ theia --install-extension ./foo.vsix
 theia --uninstall-extension eamodio.gitlens
 ```
 
-Extension management uses a short lived backend and hidden empty renderer. It waits for the operation to finish, prints its result, then exits.
+Extension management uses a short lived backend and hidden empty renderer. CLI only windows are forced hidden and omitted from the taskbar. The command waits for the operation to finish, prints its result, then exits.
 
 An isolated user data environment can be selected with:
 

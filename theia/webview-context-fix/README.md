@@ -6,8 +6,10 @@ The implementation is verified against the private Theia implementations it patc
 
 It fixes inherited `data-vscode-context` values by merging the full context chain before menu evaluation. It also fixes focus ordering when a webview context menu command opens host UI such as a VS Code QuickPick.
 
+It also makes `WebviewPanel.active` follow the active main editor tab instead of keyboard focus. In upstream Theia 1.75, clicking a terminal or sidebar changes `ApplicationShell.activeWidget`, which incorrectly makes an otherwise selected webview panel inactive. VS Code keeps the selected editor active when focus moves outside the editor area. The fix uses `mainPanel.currentTitle` for main area webviews while retaining Theia's existing behavior for webviews outside the main area.
+
 For native Electron context menus, Theia previously invoked the selected command while the native popup was still closing. If that command opened a QuickPick, the popup's later focus return to the webview could immediately dismiss it. Webview context menu commands are now deferred until the native popup has closed.
 
 For browser style context menus, Theia restored the previously focused webview iframe before running the selected command. The fix suppresses that iframe restore while the command starts, then restores the webview only if no host UI has claimed focus.
 
-The frontend module patches `WebviewWidget.handleContextMenu`, `ElectronContextMenuRenderer.doRender`, and `DynamicMenuWidget.triggerActiveItem`. The exported esbuild plugin patches the copied webview preload asset and verifies all upstream source shapes used by these patches.
+The frontend module patches `WebviewWidget.handleContextMenu`, `ElectronContextMenuRenderer.doRender`, `DynamicMenuWidget.triggerActiveItem`, and `WebviewsMainImpl.updateViewState`. The exported esbuild plugin patches the copied webview preload asset and verifies all upstream source shapes used by these patches.

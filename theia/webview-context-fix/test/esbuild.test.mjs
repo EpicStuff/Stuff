@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { patchWebviewPreloadSource, verifyHostWebviewSource, verifyMenuFocusSource } from '../build/esbuild.mjs';
+import { patchWebviewPreloadSource, verifyHostWebviewSource, verifyMenuFocusSource, verifyWebviewPanelViewStateSource } from '../build/esbuild.mjs';
 
 const originalPreload = `        host.postMessage('did-context-menu', {
             clientX: e.clientX,
@@ -54,6 +54,24 @@ const browserMenuSource = `    public override open(x: number, y: number, option
                             }
                             node.run(nodePath, ...(this.args || []));
                         },`;
+
+const webviewPanelSource = `    private updateViewState(widget: WebviewWidget, viewColumn?: number | undefined): void {
+        const viewState: Mutable<WebviewPanelViewState> = {
+            active: this.shell.activeWidget === widget,
+            visible: !widget.isHidden,
+            position: viewColumn || 0
+        };
+        if (typeof viewColumn !== 'number') {
+            this.viewColumnService.updateViewColumns();
+            viewState.position = this.viewColumnService.getViewColumn(widget.id) || 0;
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (JSONExt.deepEqual(<any>viewState, <any>widget.viewState)) {
+            return;
+        }
+        widget.viewState = viewState;
+        this.proxy.$onDidChangeWebviewPanelViewState(widget.identifier.id, widget.viewState);
+    }`;
 
 const electronContextMenuSource = `        if (this.useNativeStyle) {
             const contextMenu = this.electronMenuFactory.createElectronContextMenu(params.menuPath, params.menu, params.contextMatcher, params.args, params.context);
@@ -126,4 +144,14 @@ test('rejects changed browser menu command focus handling', () => {
 test('rejects changed native context menu handling', () => {
 	const changed = electronContextMenuSource.replace('window.electronTheiaCore.popup', 'window.electronTheiaCore.otherPopup');
 	assert.throws(() => verifyMenuFocusSource(browserMenuSource, changed), /ElectronContextMenuRenderer native popup/);
+});
+
+
+test('accepts the verified webview panel view state implementation', () => {
+	assert.doesNotThrow(() => verifyWebviewPanelViewStateSource(webviewPanelSource));
+});
+
+test('rejects changed webview panel active state handling', () => {
+	const changed = webviewPanelSource.replace('active: this.shell.activeWidget === widget,', 'active: true,');
+	assert.throws(() => verifyWebviewPanelViewStateSource(changed), /WebviewsMainImpl\.updateViewState/);
 });

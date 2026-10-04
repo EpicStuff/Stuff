@@ -66,6 +66,24 @@ const browserMenuCommandFocus = `                        execute: () => {
                             node.run(nodePath, ...(this.args || []));
                         },`;
 
+const webviewPanelViewStateFunction = `    private updateViewState(widget: WebviewWidget, viewColumn?: number | undefined): void {
+        const viewState: Mutable<WebviewPanelViewState> = {
+            active: this.shell.activeWidget === widget,
+            visible: !widget.isHidden,
+            position: viewColumn || 0
+        };
+        if (typeof viewColumn !== 'number') {
+            this.viewColumnService.updateViewColumns();
+            viewState.position = this.viewColumnService.getViewColumn(widget.id) || 0;
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (JSONExt.deepEqual(<any>viewState, <any>widget.viewState)) {
+            return;
+        }
+        widget.viewState = viewState;
+        this.proxy.$onDidChangeWebviewPanelViewState(widget.identifier.id, widget.viewState);
+    }`;
+
 const electronNativeContextMenu = `        if (this.useNativeStyle) {
             const contextMenu = this.electronMenuFactory.createElectronContextMenu(params.menuPath, params.menu, params.contextMatcher, params.args, params.context);
             const { x, y } = coordinateFromAnchor(params.anchor);
@@ -135,6 +153,14 @@ export function verifyMenuFocusSource(browserMenuSource, electronContextMenuSour
 	);
 }
 
+export function verifyWebviewPanelViewStateSource(source) {
+	requireExactlyOnce(
+		source,
+		webviewPanelViewStateFunction,
+		'Unsupported @theia/plugin-ext WebviewsMainImpl.updateViewState implementation.'
+	);
+}
+
 export function patchWebviewPreloadSource(source) {
 	const originalCallCount = countOccurrences(source, originalCall);
 	const originalFunctionCount = countOccurrences(source, originalFunction);
@@ -178,19 +204,22 @@ export function webviewContextFixPlugin(options = {}) {
 	const hostSourcePath = options.hostSourcePath ?? resolvePackageSourcePath('@theia/plugin-ext', 'src/main/browser/webview/webview.ts');
 	const browserMenuSourcePath = options.browserMenuSourcePath ?? resolvePackageSourcePath('@theia/core', 'src/browser/menu/browser-menu-plugin.ts');
 	const electronContextMenuSourcePath = options.electronContextMenuSourcePath ?? resolvePackageSourcePath('@theia/core', 'src/electron-browser/menu/electron-context-menu-renderer.ts');
+	const webviewsMainSourcePath = options.webviewsMainSourcePath ?? resolvePackageSourcePath('@theia/plugin-ext', 'src/main/browser/webviews-main.ts');
 
 	return {
 		name: 'theia-webview-context-fix',
 		setup(build) {
 			build.onStart(async () => {
 				try {
-					const [hostSource, browserMenuSource, electronContextMenuSource] = await Promise.all([
+					const [hostSource, browserMenuSource, electronContextMenuSource, webviewsMainSource] = await Promise.all([
 						fs.readFile(hostSourcePath, 'utf8'),
 						fs.readFile(browserMenuSourcePath, 'utf8'),
-						fs.readFile(electronContextMenuSourcePath, 'utf8')
+						fs.readFile(electronContextMenuSourcePath, 'utf8'),
+						fs.readFile(webviewsMainSourcePath, 'utf8')
 					]);
 					verifyHostWebviewSource(hostSource);
 					verifyMenuFocusSource(browserMenuSource, electronContextMenuSource);
+					verifyWebviewPanelViewStateSource(webviewsMainSource);
 				} catch (error) {
 					return buildError(error);
 				}

@@ -2,7 +2,6 @@ import { spawn } from 'child_process';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { app, BrowserWindow, Event as ElectronEvent } from '@theia/core/electron-shared/electron';
-import { Deferred } from '@theia/core/lib/common/promise-util';
 import { MaybePromise } from '@theia/core/lib/common/types';
 import { DEFAULT_WINDOW_HASH } from '@theia/core/lib/common/window';
 import { ElectronMainApplication, ElectronMainCommandOptions } from '@theia/core/lib/electron-main/electron-main-application';
@@ -28,14 +27,12 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 
 	protected keepWarm = false;
 	protected keepWarmer = false;
-	protected cliOnly = false;
 	protected suppressInitialEmptyWindow = false;
 	protected warmRenderer: BrowserWindow | undefined;
 	protected quitting = false;
 	protected sessionRestorePending = true;
 	protected startupCliArgs: ParsedVscodeCliArgs | undefined;
 	protected readonly pendingSecondInstanceCliArgs: ParsedVscodeCliArgs[] = [];
-	protected readonly contributionsStarted = new Deferred<void>();
 
 	override async start(config: Parameters<ElectronMainApplication['start']>[0]): Promise<void> {
 		const applicationArgs = this.processArgv.getProcessArgvWithoutBin(process.argv);
@@ -75,22 +72,6 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 
 		this.startupCliArgs = cliArgs;
 
-		if (this.hasCliOnlyAction(cliArgs)) {
-			this.cliOnly = true;
-			this.suppressInitialEmptyWindow = true;
-			this.replaceProcessApplicationArgs(applicationArgs, this.getSuperArgs(cliArgs, true));
-			await super.start(config);
-			await this.contributionsStarted.promise;
-
-			try {
-				await this.runCliOnlyActions(cliArgs, process.cwd());
-			} catch (error) {
-				process.exitCode = 1;
-				console.error(error);
-			}
-			this.requestStop();
-			return;
-		}
 
 		const wantsKeepWarmer = applicationArgs.includes(KEEP_WARMER_FLAG);
 		const wantsKeepWarm = wantsKeepWarmer || applicationArgs.includes(KEEP_WARM_FLAG);
@@ -131,31 +112,10 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		await super.start(config);
 	}
 
-	protected override async startContributions(): Promise<void> {
-		await super.startContributions();
-		this.contributionsStarted.resolve();
-	}
 
 	override async createWindow(asyncOptions?: MaybePromise<TheiaBrowserWindowOptions>): Promise<BrowserWindow> {
-		let options = asyncOptions;
-		if (this.cliOnly) {
-			const resolvedOptions = await (asyncOptions ?? this.getDefaultTheiaWindowOptions());
-			options = {
-				...resolvedOptions,
-				show: false,
-				preventAutomaticShow: true,
-				skipTaskbar: true
-			};
-		}
-
-		const window = await super.createWindow(options);
+		const window = await super.createWindow(asyncOptions);
 		const windowId = window.webContents.id;
-
-		if (this.cliOnly) {
-			window.setSkipTaskbar(true);
-			window.on('show', () => window.hide());
-			window.hide();
-		}
 
 		window.once('closed', () => {
 			setTimeout(() => {
@@ -219,16 +179,13 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		return [...argv.slice(0, start), ...newArgs];
 	}
 
-	protected hasCliOnlyAction(cliArgs: ParsedVscodeCliArgs): boolean {
-		return cliArgs.listExtensions || cliArgs.installExtensions.length > 0 || cliArgs.uninstallExtensions.length > 0;
-	}
 
 	protected hasWindowAction(cliArgs: ParsedVscodeCliArgs): boolean {
 		return cliArgs.newWindow || cliArgs.reuseWindow || cliArgs.gotoTarget !== undefined || cliArgs.diffTargets !== undefined;
 	}
 
 	protected override showInitialWindow(urlToOpen: string | undefined): void {
-		if ((this.keepWarm || this.cliOnly) && !urlToOpen) {
+		if (this.keepWarm && !urlToOpen) {
 			return;
 		}
 		super.showInitialWindow(urlToOpen);
@@ -501,66 +458,6 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		return window;
 	}
 
-	protected async runCliOnlyActions(cliArgs: ParsedVscodeCliArgs, cwd: string, existingRenderer?: BrowserWindow): Promise<void> {
-		const renderer = existingRenderer ?? await this.createHiddenEmptyRenderer();
-		const windowId = renderer.webContents.id;
-		const closeRenderer = existingRenderer === undefined;
-
-		try {
-			for (const extension of cliArgs.installExtensions) {
-				const resolved = await this.resolveExtensionInstallTarget(extension, cwd);
-				await this.extensionInstaller.installExtension(windowId, resolved.value, resolved.local);
-				process.stdout.write(`Installed extension: ${resolved.value}\n`);
-			}
-
-			for (const extensionId of cliArgs.uninstallExtensions) {
-				const removed = await this.extensionInstaller.uninstallExtension(windowId, extensionId);
-				process.stdout.write(`Uninstalled extension: ${removed}\n`);
-			}
-
-			if (cliArgs.listExtensions) {
-				const extensions = await this.extensionInstaller.listExtensions(windowId, cliArgs.showVersions);
-				if (extensions.length > 0) {
-					process.stdout.write(`${extensions.join('\n')}\n`);
-				}
-			}
-		} finally {
-			if (closeRenderer) {
-				const wrapper = this.windows.get(windowId);
-				if (wrapper) {
-					await wrapper.close();
-				}
-			}
-		}
-	}
-
-	protected async resolveExtensionInstallTarget(extension: string, cwd: string): Promise<{ value: string; local: boolean }> {
-		const resolvedPath = path.resolve(cwd, extension);
-
-		try {
-			const stat = await fs.stat(resolvedPath);
-			if (stat.isFile()) {
-				if (path.extname(resolvedPath).toLowerCase() !== '.vsix') {
-					throw new Error(`Local extension path must point to a .vsix file: ${extension}`);
-				}
-				return { value: resolvedPath, local: true };
-			}
-		} catch (error) {
-			const code = (error as NodeJS.ErrnoException).code;
-			if (code !== 'ENOENT') {
-				throw error;
-			}
-		}
-
-		if (extension.toLowerCase().endsWith('.vsix')) {
-			throw new Error(`Extension file does not exist: ${extension}`);
-		}
-		if (!/^[^.\s@]+\.[^\s@]+(?:@[^\s@]+)?$/.test(extension)) {
-			throw new Error(`Invalid extension id '${extension}'. Expected publisher.name[@version] or a .vsix path`);
-		}
-
-		return { value: extension, local: false };
-	}
 
 	protected async createHiddenEmptyRenderer(): Promise<BrowserWindow> {
 		const options = await this.getLastWindowOptions();
@@ -601,9 +498,6 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			super.onWindowAllClosed(event);
 			return;
 		}
-		if (this.cliOnly) {
-			return;
-		}
 		if (this.keepWarmer) {
 			void this.ensureWarmRenderer();
 			return;
@@ -625,15 +519,6 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			return;
 		}
 
-		if (this.hasCliOnlyAction(cliArgs)) {
-			const existingRenderer = this.getActiveVisibleWindow() ?? (this.warmRenderer && !this.warmRenderer.isDestroyed() ? this.warmRenderer : undefined);
-			try {
-				await this.runCliOnlyActions(cliArgs, cwd, existingRenderer);
-			} catch (error) {
-				console.error(error);
-			}
-			return;
-		}
 
 		const wantsQuit = applicationArgs.includes(QUIT_FLAG);
 		if (wantsQuit) {

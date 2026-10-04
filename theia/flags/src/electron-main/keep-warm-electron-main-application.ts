@@ -141,7 +141,18 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	}
 
 	override async createWindow(asyncOptions?: MaybePromise<TheiaBrowserWindowOptions>): Promise<BrowserWindow> {
-		const window = await super.createWindow(asyncOptions);
+		let options = asyncOptions;
+		if (this.cliOnly) {
+			const resolvedOptions = await (asyncOptions ?? this.getDefaultTheiaWindowOptions());
+			options = {
+				...resolvedOptions,
+				show: false,
+				preventAutomaticShow: true,
+				skipTaskbar: true
+			};
+		}
+
+		const window = await super.createWindow(options);
 		const windowId = window.webContents.id;
 
 		window.once('closed', () => {

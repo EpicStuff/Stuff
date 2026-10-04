@@ -39,8 +39,14 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	protected readonly expandedKeys = new Set<string>();
 	protected selectedKey: string | undefined;
 	protected draggedKey: string | undefined;
-	protected mode: 'menu' | 'add' = 'menu';
+	protected mode: 'menu' | 'add' | 'edit' = 'menu';
 	protected addFilter = '';
+	protected editingKey: string | undefined;
+	protected editLabel = '';
+	protected editWhen = '';
+	protected editIcon = '';
+	protected dragOverKey: string | undefined;
+	protected dragOverPosition: 'before' | 'after' | undefined;
 	protected selectedAddKey: string | undefined;
 	protected separatorCounter = 0;
 	protected submenuCounter = 0;
@@ -53,6 +59,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	}
 
 	getChanges(): ContextMenuConfigurationChanges {
+		this.flushPendingItemEdit();
 		const layouts: Record<string, EditableMenuEntry[]> = {};
 		for (const targetId of this.dirtyTargets) {
 			layouts[targetId] = this.cloneEntries(this.ensureDraft(targetId));
@@ -64,7 +71,13 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	}
 
 	render(): React.ReactNode {
-		return this.mode === 'add' ? this.renderAddCommands() : this.renderMenuEditor();
+		if (this.mode === 'add') {
+			return this.renderAddCommands();
+		}
+		if (this.mode === 'edit') {
+			return this.renderItemEditor();
+		}
+		return this.renderMenuEditor();
 	}
 
 	protected renderMenuEditor(): React.ReactNode {
@@ -194,6 +207,11 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	protected renderEntry(entry: EditableMenuEntry, depth: number): React.ReactNode {
 		const selected = entry.key === this.selectedKey;
 		const paddingLeft = 8 + depth * 20;
+		const dragIndicator = this.dragOverKey === entry.key
+			? this.dragOverPosition === 'before'
+				? 'inset 0 2px var(--theia-focusBorder)'
+				: 'inset 0 -2px var(--theia-focusBorder)'
+			: undefined;
 
 		if (entry.type === 'separator') {
 			return (
@@ -202,11 +220,9 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 					draggable={true}
 					onDragStart={event => this.startDrag(event, entry.key)}
 					onDragEnd={this.endDrag}
-					onDragOver={event => {
-						event.preventDefault();
-						event.dataTransfer.dropEffect = 'move';
-					}}
-					onDrop={event => this.dropBefore(event, entry.key)}
+					onDragEnter={event => this.handleDragOver(event, entry.key)}
+					onDragOver={event => this.handleDragOver(event, entry.key)}
+					onDrop={event => this.dropAt(event, entry.key)}
 					onClick={() => this.selectEntry(entry.key)}
 					style={{
 						alignItems: 'center',
@@ -214,6 +230,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 						cursor: 'default',
 						display: 'flex',
 						height: '30px',
+						boxShadow: dragIndicator,
 						padding: `0 8px 0 ${paddingLeft}px`
 					}}
 				>
@@ -233,16 +250,16 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 				draggable={this.renamingKey !== entry.key}
 				onDragStart={event => this.startDrag(event, entry.key)}
 				onDragEnd={this.endDrag}
-				onDragOver={event => {
-					event.preventDefault();
-					event.dataTransfer.dropEffect = 'move';
-				}}
-				onDrop={event => this.dropBefore(event, entry.key)}
+				onDragEnter={event => this.handleDragOver(event, entry.key)}
+				onDragOver={event => this.handleDragOver(event, entry.key)}
+				onDrop={event => this.dropAt(event, entry.key)}
 				onClick={() => this.selectEntry(entry.key)}
+				onDoubleClick={() => this.openItemEditor(entry.key)}
 				style={{
 					alignItems: 'center',
 					background: selected ? 'var(--theia-list-activeSelectionBackground)' : undefined,
 					borderRadius: '2px',
+					boxShadow: dragIndicator,
 					cursor: 'default',
 					display: 'flex',
 					minHeight: '40px',
@@ -412,6 +429,183 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		);
 	}
 
+	protected renderItemEditor(): React.ReactNode {
+		const key = this.editingKey;
+		const location = key ? this.findLocation(this.ensureDraft(this.activeTargetId), key) : undefined;
+		if (!location || location.entry.type !== 'item') {
+			this.mode = 'menu';
+			this.editingKey = undefined;
+			return this.renderMenuEditor();
+		}
+		const entry = location.entry;
+		const inheritedLabel = entry.defaultLabel ?? entry.label;
+		const inheritedWhen = entry.defaultWhen ?? '';
+		const inheritedIcon = entry.defaultIcon ?? '';
+
+		return (
+			<div style={{ display: 'flex', flexDirection: 'column', gap: '14px', height: this.props.height, minHeight: 0 }}>
+				<div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+					<button
+						type='button'
+						className='theia-button secondary'
+						onClick={this.closeItemEditor}
+						style={{ alignItems: 'center', display: 'inline-flex', gap: '6px', justifyContent: 'center' }}
+					>
+						<span className={codicon('arrow-left')} style={{ alignItems: 'center', display: 'inline-flex', lineHeight: 1 }} />
+						<span>Back</span>
+					</button>
+					<strong>Edit Menu Item</strong>
+					<span style={{ opacity: 0.65 }}>{entry.commandId || 'submenu'}</span>
+				</div>
+
+				<div style={{ display: 'grid', gridTemplateColumns: '110px minmax(0, 1fr)', alignItems: 'center', gap: '12px 14px' }}>
+					<label>Name</label>
+					<input
+						autoFocus={true}
+						className='theia-input'
+						value={this.editLabel}
+						onChange={event => {
+							this.editLabel = event.currentTarget.value;
+							this.forceUpdate();
+						}}
+					/>
+
+					<label>Condition</label>
+					<input
+						className='theia-input'
+						placeholder='Always visible'
+						value={this.editWhen}
+						onChange={event => {
+							this.editWhen = event.currentTarget.value;
+							this.forceUpdate();
+						}}
+					/>
+
+					<label>Icon class</label>
+					<div style={{ alignItems: 'center', display: 'flex', gap: '10px' }}>
+						<input
+							className='theia-input'
+							placeholder='No icon'
+							value={this.editIcon}
+							onChange={event => {
+								this.editIcon = event.currentTarget.value;
+								this.forceUpdate();
+							}}
+							style={{ flex: 1 }}
+						/>
+						<span
+							className={this.editIcon}
+							title='Icon preview'
+							style={{
+								alignItems: 'center',
+								display: 'inline-flex',
+								fontSize: '18px',
+								height: '24px',
+								justifyContent: 'center',
+								width: '24px'
+							}}
+						/>
+					</div>
+				</div>
+
+				<div
+					style={{
+						background: 'var(--theia-editorWidget-background)',
+						border: '1px solid var(--theia-panel-border)',
+						padding: '10px 12px'
+					}}
+				>
+					<div><strong>Original name:</strong> {inheritedLabel}</div>
+					<div><strong>Original condition:</strong> {inheritedWhen || 'none'}</div>
+					<div><strong>Original icon:</strong> {inheritedIcon || 'none'}</div>
+					<div style={{ marginTop: '8px', opacity: 0.7 }}>
+						Clearing Condition overrides an existing condition and makes the item unconditional. Clearing Icon class removes the icon.
+					</div>
+				</div>
+
+				<div style={{ flex: 1 }} />
+
+				<div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+					<button type='button' className='theia-button secondary' onClick={() => this.resetItemEditor(entry)}>
+						Use Original Values
+					</button>
+					<button type='button' className='theia-button main' onClick={() => this.saveItemEditor(entry)}>
+						Save Item
+					</button>
+				</div>
+			</div>
+		);
+	}
+
+	protected openItemEditor(key: string): void {
+		const location = this.findLocation(this.ensureDraft(this.activeTargetId), key);
+		if (!location || location.entry.type !== 'item') {
+			return;
+		}
+		const entry = location.entry;
+		this.editingKey = key;
+		this.editLabel = entry.label;
+		this.editWhen = entry.when ?? '';
+		this.editIcon = entry.icon ?? '';
+		this.mode = 'edit';
+		this.forceUpdate();
+	}
+
+	protected closeItemEditor = (): void => {
+		this.mode = 'menu';
+		this.editingKey = undefined;
+		this.forceUpdate();
+	};
+
+	protected resetItemEditor(entry: EditableMenuItem): void {
+		this.editLabel = entry.defaultLabel ?? entry.label;
+		this.editWhen = entry.defaultWhen ?? '';
+		this.editIcon = entry.defaultIcon ?? '';
+		this.forceUpdate();
+	}
+
+	protected saveItemEditor(entry: EditableMenuItem): void {
+		this.applyItemEditorValues(entry);
+		this.mode = 'menu';
+		this.editingKey = undefined;
+		this.forceUpdate();
+	}
+
+	protected flushPendingItemEdit(): void {
+		if (this.mode !== 'edit' || !this.editingKey) {
+			return;
+		}
+		const location = this.findLocation(this.ensureDraft(this.activeTargetId), this.editingKey);
+		if (location?.entry.type === 'item') {
+			this.applyItemEditorValues(location.entry);
+		}
+	}
+
+	protected applyItemEditorValues(entry: EditableMenuItem): void {
+		const label = this.editLabel.trim() || entry.defaultLabel || entry.label;
+		const when = this.editWhen.trim();
+		const icon = this.editIcon.trim();
+
+		if (entry.customSubmenu) {
+			entry.label = label;
+			entry.when = when || undefined;
+			entry.icon = icon || undefined;
+			entry.whenOverride = when;
+			entry.iconOverride = icon;
+		} else {
+			const defaultLabel = entry.defaultLabel ?? entry.label;
+			const defaultWhen = entry.defaultWhen ?? '';
+			const defaultIcon = entry.defaultIcon ?? '';
+			entry.label = label;
+			entry.when = when || undefined;
+			entry.icon = icon || undefined;
+			entry.labelOverride = label === defaultLabel ? undefined : label;
+			entry.whenOverride = when === defaultWhen ? undefined : when;
+			entry.iconOverride = icon === defaultIcon ? undefined : icon;
+		}
+		this.markModified();
+	}
+
 	protected renderAddCommands(): React.ReactNode {
 		const choices = this.getAddChoices();
 		return (
@@ -564,14 +758,18 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 			if (existingCommandIds.has(command.id) || commandIdsAlreadyOffered.has(command.id)) {
 				continue;
 			}
+			const defaultLabel = command.label || command.id;
 			const entry: EditableMenuItem = {
 				type: 'item',
 				key: `custom:${command.id}`,
-				label: command.label || command.id,
+				label: defaultLabel,
 				commandId: command.id,
 				icon: command.iconClass,
 				custom: true,
-				submenu: false
+				submenu: false,
+				defaultLabel,
+				defaultWhen: undefined,
+				defaultIcon: command.iconClass
 			};
 			choices.push({
 				key: entry.key,
@@ -667,19 +865,47 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 
 	protected startDrag(event: React.DragEvent<HTMLElement>, key: string): void {
 		this.draggedKey = key;
+		this.dragOverKey = undefined;
+		this.dragOverPosition = undefined;
 		event.dataTransfer.effectAllowed = 'move';
+		event.dataTransfer.setData('application/x-custom-context-menu-key', key);
 		event.dataTransfer.setData('text/plain', key);
+		event.dataTransfer.setDragImage(event.currentTarget, 12, 12);
 	}
 
 	protected endDrag = (): void => {
 		this.draggedKey = undefined;
+		this.dragOverKey = undefined;
+		this.dragOverPosition = undefined;
+		this.forceUpdate();
 	};
 
-	protected dropBefore(event: React.DragEvent<HTMLElement>, targetKey: string): void {
+	protected handleDragOver(event: React.DragEvent<HTMLElement>, targetKey: string): void {
 		event.preventDefault();
 		event.stopPropagation();
-		const draggedKey = this.draggedKey;
+		event.dataTransfer.dropEffect = 'move';
+		const bounds = event.currentTarget.getBoundingClientRect();
+		const position: 'before' | 'after' = event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after';
+		if (this.dragOverKey !== targetKey || this.dragOverPosition !== position) {
+			this.dragOverKey = targetKey;
+			this.dragOverPosition = position;
+			this.forceUpdate();
+		}
+	}
+
+	protected getDraggedKey(event: React.DragEvent<HTMLElement>): string | undefined {
+		return this.draggedKey
+			|| event.dataTransfer.getData('application/x-custom-context-menu-key')
+			|| event.dataTransfer.getData('text/plain')
+			|| undefined;
+	}
+
+	protected dropAt(event: React.DragEvent<HTMLElement>, targetKey: string): void {
+		event.preventDefault();
+		event.stopPropagation();
+		const draggedKey = this.getDraggedKey(event);
 		if (!draggedKey || draggedKey === targetKey) {
+			this.endDrag();
 			return;
 		}
 
@@ -687,18 +913,27 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		const source = this.findLocation(root, draggedKey);
 		const target = this.findLocation(root, targetKey);
 		if (!source || !target || this.entryContainsKey(source.entry, targetKey)) {
+			this.endDrag();
 			return;
 		}
 
+		const bounds = event.currentTarget.getBoundingClientRect();
+		const position = this.dragOverKey === targetKey && this.dragOverPosition
+			? this.dragOverPosition
+			: event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after';
 		const [entry] = source.parent.splice(source.index, 1);
 		const refreshedTarget = this.findLocation(root, targetKey);
 		if (!refreshedTarget) {
 			source.parent.splice(source.index, 0, entry);
+			this.endDrag();
 			return;
 		}
-		refreshedTarget.parent.splice(refreshedTarget.index, 0, entry);
+		const insertionIndex = refreshedTarget.index + (position === 'after' ? 1 : 0);
+		refreshedTarget.parent.splice(insertionIndex, 0, entry);
 		this.selectedKey = draggedKey;
 		this.draggedKey = undefined;
+		this.dragOverKey = undefined;
+		this.dragOverPosition = undefined;
 		this.markModified();
 		this.forceUpdate();
 	}
@@ -706,7 +941,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	protected dropIntoSubmenu(event: React.DragEvent<HTMLElement>, submenuKey: string): void {
 		event.preventDefault();
 		event.stopPropagation();
-		const draggedKey = this.draggedKey;
+		const draggedKey = this.getDraggedKey(event);
 		if (!draggedKey || draggedKey === submenuKey) {
 			return;
 		}
@@ -727,6 +962,8 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		this.expandedKeys.add(submenuKey);
 		this.selectedKey = draggedKey;
 		this.draggedKey = undefined;
+		this.dragOverKey = undefined;
+		this.dragOverPosition = undefined;
 		this.markModified();
 		this.forceUpdate();
 	}

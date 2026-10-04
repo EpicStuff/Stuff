@@ -2,6 +2,7 @@ import {
 	CommandMenu,
 	CommandRegistry,
 	CompoundMenuNode,
+	ContextExpressionMatcher,
 	Group,
 	GroupImpl,
 	MenuModelRegistry,
@@ -226,6 +227,7 @@ export class CustomContextMenuService {
 			const defaultEntry = defaultIndex.get(stored.key);
 			if (defaultEntry?.type === 'item') {
 				const editable = this.toEditable(defaultEntry) as EditableMenuItem;
+				this.applyStoredOverridesToEditable(editable, stored);
 				if (editable.submenu && Array.isArray(stored.entries)) {
 					const defaultChildren = defaultEntry.children ?? [];
 					editable.children = this.resolveEditableEntries(
@@ -241,10 +243,13 @@ export class CustomContextMenuService {
 			}
 
 			if (stored.customSubmenu) {
+				const label = stored.label || 'Submenu';
 				result.push({
 					type: 'item',
 					key: stored.key,
-					label: stored.label || 'Submenu',
+					label,
+					when: stored.whenOverride || undefined,
+					icon: stored.iconOverride || undefined,
 					custom: true,
 					submenu: true,
 					customSubmenu: true,
@@ -253,22 +258,34 @@ export class CustomContextMenuService {
 						stored.knownDefaultKeys ?? [],
 						[],
 						defaultIndex
-					)
+					),
+					defaultLabel: label,
+					defaultWhen: undefined,
+					defaultIcon: undefined,
+					whenOverride: stored.whenOverride,
+					iconOverride: stored.iconOverride
 				});
 				continue;
 			}
 
 			if (stored.commandId) {
 				const command = this.commandRegistry.getCommand(stored.commandId);
-				result.push({
+				const defaultLabel = command?.label || stored.commandId;
+				const defaultIcon = command?.iconClass;
+				const editable: EditableMenuItem = {
 					type: 'item',
 					key: stored.key,
-					label: command?.label || stored.commandId,
+					label: defaultLabel,
 					commandId: stored.commandId,
-					icon: command?.iconClass,
+					icon: defaultIcon,
 					custom: true,
-					submenu: false
-				});
+					submenu: false,
+					defaultLabel,
+					defaultWhen: undefined,
+					defaultIcon
+				};
+				this.applyStoredOverridesToEditable(editable, stored);
+				result.push(editable);
 			}
 		}
 
@@ -310,6 +327,7 @@ export class CustomContextMenuService {
 					);
 					node = this.cloneCompoundWithEntries(node, children, stored.key);
 				}
+				node = this.applyStoredOverridesToNode(node, stored);
 				result.push({
 					type: 'item',
 					node
@@ -322,7 +340,10 @@ export class CustomContextMenuService {
 				const submenu = this.menuNodeFactory.createSubmenu(
 					stored.key,
 					stored.label || 'Submenu',
-					undefined
+					undefined,
+					undefined,
+					stored.iconOverride || undefined,
+					stored.whenOverride || undefined
 				);
 				const children = this.resolveRenderedEntries(
 					stored.entries ?? [],
@@ -330,8 +351,7 @@ export class CustomContextMenuService {
 					[],
 					defaultIndex
 				);
-				const groupedChildren = this.groupResolvedEntries(children, stored.key);
-				submenu.children.push(...groupedChildren);
+				submenu.children.push(...this.groupResolvedEntries(children, stored.key));
 				result.push({
 					type: 'item',
 					node: submenu
@@ -340,11 +360,13 @@ export class CustomContextMenuService {
 			}
 
 			if (stored.commandId && this.commandRegistry.getCommand(stored.commandId)) {
+				let node: MenuNode = this.menuNodeFactory.createCommandMenu({
+					commandId: stored.commandId
+				});
+				node = this.applyStoredOverridesToNode(node, stored);
 				result.push({
 					type: 'item',
-					node: this.menuNodeFactory.createCommandMenu({
-						commandId: stored.commandId
-					})
+					node
 				});
 			}
 		}
@@ -367,13 +389,111 @@ export class CustomContextMenuService {
 		return this.sanitizeResolvedSeparators(result);
 	}
 
+	protected applyStoredOverridesToEditable(entry: EditableMenuItem, stored: StoredMenuItem): void {
+		entry.labelOverride = stored.labelOverride;
+		entry.whenOverride = stored.whenOverride;
+		entry.iconOverride = stored.iconOverride;
+
+		if (stored.labelOverride !== undefined) {
+			entry.label = stored.labelOverride;
+		}
+		if (stored.whenOverride !== undefined) {
+			entry.when = stored.whenOverride || undefined;
+		}
+		if (stored.iconOverride !== undefined) {
+			entry.icon = stored.iconOverride || undefined;
+		}
+	}
+
+	protected applyStoredOverridesToNode(node: MenuNode, stored: StoredMenuItem): MenuNode {
+		const hasLabel = stored.labelOverride !== undefined && RenderedMenuNode.is(node);
+		const hasWhen = stored.whenOverride !== undefined;
+		const hasIcon = stored.iconOverride !== undefined && RenderedMenuNode.is(node);
+		if (!hasLabel && !hasWhen && !hasIcon) {
+			return node;
+		}
+
+		const customized = Object.create(node) as MenuNode;
+		if (hasLabel) {
+			Object.defineProperty(customized, 'label', {
+				value: stored.labelOverride,
+				configurable: true,
+				enumerable: true
+			});
+		}
+		if (hasIcon) {
+			Object.defineProperty(customized, 'icon', {
+				value: stored.iconOverride || undefined,
+				configurable: true,
+				enumerable: true
+			});
+		}
+		if (hasWhen) {
+			const overrideWhen = stored.whenOverride ?? '';
+			const originalWhen = node.when;
+			Object.defineProperty(customized, 'when', {
+				value: overrideWhen || undefined,
+				configurable: true,
+				enumerable: true
+			});
+			Object.defineProperty(customized, 'isVisible', {
+				value: <T>(
+					effectiveMenuPath: MenuPath,
+					contextMatcher: ContextExpressionMatcher<T>,
+					context: T | undefined,
+					...args: unknown[]
+				): boolean => {
+					if (overrideWhen && !contextMatcher.match(overrideWhen, context)) {
+						return false;
+					}
+
+					if (CompoundMenuNode.is(node) && !CommandMenu.is(node)) {
+						return true;
+					}
+
+					if (!originalWhen) {
+						return node.isVisible(effectiveMenuPath, contextMatcher, context, ...args);
+					}
+
+					const matcher: ContextExpressionMatcher<T> = {
+						match: (expression, matchContext) => expression === originalWhen
+							? true
+							: contextMatcher.match(expression, matchContext)
+					};
+					return node.isVisible(effectiveMenuPath, matcher, context, ...args);
+				},
+				configurable: true
+			});
+		}
+		return customized;
+	}
+
 	protected cloneCompoundWithEntries(menu: CompoundMenuNode, entries: ResolvedMenuEntry[], key: string): CompoundMenuNode {
 		const customized = Object.create(menu) as CompoundMenuNode;
+		const children = this.groupResolvedEntries(entries, key);
 		Object.defineProperty(customized, 'children', {
-			value: this.groupResolvedEntries(entries, key),
+			value: children,
 			writable: true,
 			configurable: true,
 			enumerable: true
+		});
+		Object.defineProperty(customized, 'isEmpty', {
+			value: <T>(
+				effectiveMenuPath: MenuPath,
+				contextMatcher: ContextExpressionMatcher<T>,
+				context: T | undefined,
+				...args: unknown[]
+			): boolean => {
+				for (const child of children) {
+					if (child.isVisible(effectiveMenuPath, contextMatcher, context, ...args)) {
+						if (!CompoundMenuNode.is(child) || !child.isEmpty(effectiveMenuPath, contextMatcher, context, ...args)) {
+							return false;
+						}
+					}
+				}
+				return true;
+			},
+			configurable: true
 		});
 		return customized;
 	}
@@ -489,7 +609,10 @@ export class CustomContextMenuService {
 			icon: entry.icon,
 			custom: false,
 			submenu: entry.submenu,
-			children: entry.children?.map(child => this.toEditable(child))
+			children: entry.children?.map(child => this.toEditable(child)),
+			defaultLabel: entry.label,
+			defaultWhen: entry.when,
+			defaultIcon: entry.icon
 		};
 	}
 
@@ -516,6 +639,16 @@ export class CustomContextMenuService {
 				stored.label = entry.label;
 			} else if (entry.custom && entry.commandId) {
 				stored.commandId = entry.commandId;
+			}
+
+			if (entry.labelOverride !== undefined) {
+				stored.labelOverride = entry.labelOverride;
+			}
+			if (entry.whenOverride !== undefined) {
+				stored.whenOverride = entry.whenOverride;
+			}
+			if (entry.iconOverride !== undefined) {
+				stored.iconOverride = entry.iconOverride;
 			}
 
 			if (entry.submenu) {

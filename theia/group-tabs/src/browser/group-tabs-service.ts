@@ -90,7 +90,7 @@ export class GroupTabsService {
 		if (widget instanceof GroupTabsWidget) {
 			return this.getPrimary(widget);
 		}
-		return widget;
+		return widget ?? undefined;
 	}
 
 	getMembers(widget: Widget | undefined): Widget[] {

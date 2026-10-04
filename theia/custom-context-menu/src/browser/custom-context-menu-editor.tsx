@@ -33,6 +33,25 @@ export interface ContextMenuConfigEditorProps {
 	showApply?: boolean;
 }
 
+export interface ContextMenuConfigEditorState {
+	activeTargetId: string;
+	drafts: Record<string, EditableMenuEntry[]>;
+	dirtyTargets: string[];
+	resetTargets: string[];
+	expandedKeys: string[];
+	selectedKey?: string;
+	mode: 'menu' | 'add' | 'edit';
+	addFilter: string;
+	editingKey?: string;
+	editLabel: string;
+	editWhen: string;
+	editIcon: string;
+	selectedAddKey?: string;
+	renamingKey?: string;
+	renameValue: string;
+	applyStatus: string;
+}
+
 export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEditorProps> {
 	protected activeTargetId = 'editor';
 	protected readonly drafts = new Map<string, EditableMenuEntry[]>();
@@ -70,6 +89,71 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		};
 	}
 
+	captureState(): ContextMenuConfigEditorState {
+		const drafts: Record<string, EditableMenuEntry[]> = {};
+		for (const [targetId, entries] of this.drafts) {
+			drafts[targetId] = this.cloneEntries(entries);
+		}
+		return {
+			activeTargetId: this.activeTargetId,
+			drafts,
+			dirtyTargets: [...this.dirtyTargets],
+			resetTargets: [...this.resetTargets],
+			expandedKeys: [...this.expandedKeys],
+			selectedKey: this.selectedKey,
+			mode: this.mode,
+			addFilter: this.addFilter,
+			editingKey: this.editingKey,
+			editLabel: this.editLabel,
+			editWhen: this.editWhen,
+			editIcon: this.editIcon,
+			selectedAddKey: this.selectedAddKey,
+			renamingKey: this.renamingKey,
+			renameValue: this.renameValue,
+			applyStatus: this.applyStatus
+		};
+	}
+
+	restoreState(state: ContextMenuConfigEditorState): void {
+		this.activeTargetId = state.activeTargetId;
+		this.drafts.clear();
+		for (const [targetId, entries] of Object.entries(state.drafts)) {
+			this.drafts.set(targetId, this.cloneEntries(entries));
+		}
+
+		this.dirtyTargets.clear();
+		for (const targetId of state.dirtyTargets) {
+			this.dirtyTargets.add(targetId);
+		}
+
+		this.resetTargets.clear();
+		for (const targetId of state.resetTargets) {
+			this.resetTargets.add(targetId);
+		}
+
+		this.expandedKeys.clear();
+		for (const key of state.expandedKeys) {
+			this.expandedKeys.add(key);
+		}
+
+		this.selectedKey = state.selectedKey;
+		this.mode = state.mode;
+		this.addFilter = state.addFilter;
+		this.editingKey = state.editingKey;
+		this.editLabel = state.editLabel;
+		this.editWhen = state.editWhen;
+		this.editIcon = state.editIcon;
+		this.selectedAddKey = state.selectedAddKey;
+		this.renamingKey = state.renamingKey;
+		this.renameValue = state.renameValue;
+		this.applyStatus = state.applyStatus;
+		this.draggedKey = undefined;
+		this.dragOverKey = undefined;
+		this.dragOverPosition = undefined;
+		this.ensureDraft(this.activeTargetId);
+		this.forceUpdate();
+	}
+
 	render(): React.ReactNode {
 		if (this.mode === 'add') {
 			return this.renderAddCommands();
@@ -89,6 +173,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 					<label style={{ minWidth: '52px' }}>Menu:</label>
 					<div style={{ width: '280px' }}>
 						<SelectComponent
+							key={this.activeTargetId}
 							options={targets.map(target => ({ value: target.id, label: target.label }))}
 							defaultValue={this.activeTargetId}
 							onChange={this.handleTargetChange}

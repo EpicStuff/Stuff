@@ -136,8 +136,14 @@ export class ContextMenuConfigDialog extends ReactDialog<ContextMenuConfiguratio
 	}
 
 	protected async openInTab(): Promise<void> {
-		await this.service.applyChanges(this.value);
+		const state = this.editor?.captureState();
 		const widget = await this.widgetManager.getOrCreateWidget(ContextMenuConfigWidget.ID);
+		if (!(widget instanceof ContextMenuConfigWidget)) {
+			return;
+		}
+		if (state) {
+			widget.adoptState(state);
+		}
 		if (!widget.isAttached) {
 			await this.shell.addWidget(widget, {
 				area: 'main'

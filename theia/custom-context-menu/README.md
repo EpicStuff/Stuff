@@ -22,7 +22,7 @@ Current features:
 
 The normal `Custom Context Menu: Configure` command opens according to `customContextMenu.openMode`. The default is `dialog`. Set it to `tab` to make the configurator open in the main area by default.
 
-The popup includes a VS Code style `Open in Tab` icon in its title bar. It applies the current changes, opens the main area configurator, and closes the popup. This makes it easy to switch back to an editor or view and right click the actual menu while the configurator remains open.
+The popup includes a VS Code style `Open in Tab` icon in its title bar. It transfers the live configurator state into the main area tab without saving first, then closes the popup. Draft menu edits, the selected menu, expanded submenus, selection, and an in progress item editor are preserved.
 
 Explicit `Custom Context Menu: Configure in Dialog` and `Custom Context Menu: Configure in Tab` commands are also available.
 

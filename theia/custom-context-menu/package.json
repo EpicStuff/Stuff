@@ -1,6 +1,6 @@
 {
 	"name": "theia-custom-context-menu",
-	"version": "0.7.0",
+	"version": "0.8.0",
 	"description": "Native Eclipse Theia context menu customization.",
 	"engines": {
 		"node": ">=24"
@@ -19,6 +19,9 @@
 		"@theia/editor": ">=1.75.0 <2.0.0",
 		"@theia/navigator": ">=1.75.0 <2.0.0",
 		"@theia/plugin-ext": ">=1.75.0 <2.0.0",
+		"@theia/scm": ">=1.75.0 <2.0.0",
+		"@theia/terminal": ">=1.75.0 <2.0.0",
+		"@theia/timeline": ">=1.75.0 <2.0.0",
 		"@theia/toolbar": ">=1.75.0 <2.0.0"
 	},
 	"devDependencies": {

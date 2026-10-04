@@ -1,7 +1,14 @@
 import { MANAGE_MENU, MenuPath, PreferenceSchema } from '@theia/core';
 import { EDITOR_CONTEXT_MENU } from '@theia/editor/lib/browser/editor-menu';
 import { NAVIGATOR_CONTEXT_MENU } from '@theia/navigator/lib/browser/navigator-contribution';
+import { VIEW_ITEM_CONTEXT_MENU } from '@theia/plugin-ext/lib/main/browser/view/tree-view-widget';
 import { WEBVIEW_CONTEXT_MENU } from '@theia/plugin-ext/lib/main/browser/webview/webview';
+import {
+	SCM_HISTORY_ITEM_CONTEXT_MENU,
+	SCM_HISTORY_ITEM_REF_CONTEXT_MENU
+} from '@theia/scm/lib/browser/scm-history-graph-widget';
+import { TerminalMenus } from '@theia/terminal/lib/browser/terminal-frontend-contribution';
+import { TIMELINE_ITEM_CONTEXT_MENU } from '@theia/timeline/lib/browser/timeline-tree-widget';
 
 export const CUSTOM_CONTEXT_MENU_LAYOUTS = 'customContextMenu.layouts';
 export const CUSTOM_CONTEXT_MENU_OPEN_MODE = 'customContextMenu.openMode';
@@ -34,6 +41,31 @@ export const CONTEXT_MENU_TARGETS: ContextMenuTarget[] = [
 		id: 'webview',
 		label: 'Webview Right Click (GitLens, etc.)',
 		path: WEBVIEW_CONTEXT_MENU
+	},
+	{
+		id: 'terminal',
+		label: 'Terminal Right Click',
+		path: TerminalMenus.TERMINAL_CONTEXT_MENU
+	},
+	{
+		id: 'viewItem',
+		label: 'Extension Tree View Item Right Click',
+		path: VIEW_ITEM_CONTEXT_MENU
+	},
+	{
+		id: 'scmHistoryItem',
+		label: 'SCM History Item Right Click',
+		path: SCM_HISTORY_ITEM_CONTEXT_MENU
+	},
+	{
+		id: 'scmHistoryRef',
+		label: 'SCM History Ref Right Click',
+		path: SCM_HISTORY_ITEM_REF_CONTEXT_MENU
+	},
+	{
+		id: 'timelineItem',
+		label: 'Timeline Item Right Click',
+		path: TIMELINE_ITEM_CONTEXT_MENU
 	}
 ];
 

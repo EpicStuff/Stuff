@@ -39,6 +39,10 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		this.keepWarm = wantsKeepWarm;
 		this.suppressInitialEmptyWindow = wantsKeepWarm;
 
+		if (this.keepWarm) {
+			process.once('SIGINT', () => this.requestStop());
+		}
+
 		if (!this.keepWarm) {
 			app.releaseSingleInstanceLock();
 		}

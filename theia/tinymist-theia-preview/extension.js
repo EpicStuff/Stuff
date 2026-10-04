@@ -19,7 +19,7 @@ function activate() {
 					const url = `http://127.0.0.1:${task.staticServerPort}`;
 
 					if (commands.includes(GROUP_TABS_OPEN_PREVIEW_URL)) {
-						await vscode.commands.executeCommand(GROUP_TABS_OPEN_PREVIEW_URL, url);
+						await vscode.commands.executeCommand(GROUP_TABS_OPEN_PREVIEW_URL, url, task.documentUri);
 						return;
 					}
 					if (!commands.includes(MINI_BROWSER_OPEN_URL)) {

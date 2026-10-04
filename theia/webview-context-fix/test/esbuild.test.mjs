@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { patchWebviewPreloadSource, verifyHostWebviewSource } from '../build/esbuild.mjs';
+import { patchWebviewPreloadSource, verifyHostWebviewSource, verifyMenuFocusSource } from '../build/esbuild.mjs';
 
 const originalPreload = `        host.postMessage('did-context-menu', {
             clientX: e.clientX,
@@ -34,6 +34,42 @@ const originalHost = `    handleContextMenu(event: { clientX: number, clientY: n
                 });
             });
     }`;
+
+const browserMenuSource = `    public override open(x: number, y: number, options?: MenuWidget.IOpenOptions): void {
+        const cb = () => {
+            this.restoreFocusedElement();
+            this.aboutToClose.disconnect(cb);
+        };
+        this.aboutToClose.connect(cb);
+        this.preserveFocusedElement();
+        super.open(x, y, options);
+    }
+
+                        execute: () => {
+                            // Restore focus to the previously focused element before executing
+                            // the command so that focus-dependent commands like clipboard
+                            // operations target the correct element instead of the menu.
+                            if (this.previousFocusedElement) {
+                                this.previousFocusedElement.focus({ preventScroll: true });
+                            }
+                            node.run(nodePath, ...(this.args || []));
+                        },`;
+
+const electronContextMenuSource = `        if (this.useNativeStyle) {
+            const contextMenu = this.electronMenuFactory.createElectronContextMenu(params.menuPath, params.menu, params.contextMatcher, params.args, params.context);
+            const { x, y } = coordinateFromAnchor(params.anchor);
+
+            const windowName = params.context?.ownerDocument.defaultView?.Window.name;
+
+            const menuHandle = window.electronTheiaCore.popup(contextMenu, x, y, () => {
+                if (params.onHide) {
+                    params.onHide();
+                }
+            }, windowName);
+            // native context menu stops the event loop, so there is no keyboard events
+            this.context.resetAltPressed();
+            return new ElectronContextMenuAccess(menuHandle);
+        } else {`;
 
 test('patches the verified webview context collection exactly once', () => {
 	const result = patchWebviewPreloadSource(originalPreload);
@@ -71,4 +107,23 @@ test('rejects a changed host context menu implementation', () => {
 
 test('rejects duplicate host context menu implementations', () => {
 	assert.throws(() => verifyHostWebviewSource(`${originalHost}\n${originalHost}`), /found 2/);
+});
+
+test('accepts the verified browser and native menu focus implementations', () => {
+	assert.doesNotThrow(() => verifyMenuFocusSource(browserMenuSource, electronContextMenuSource));
+});
+
+test('rejects changed browser menu focus restoration', () => {
+	const changed = browserMenuSource.replace('this.restoreFocusedElement();', 'this.node.focus();');
+	assert.throws(() => verifyMenuFocusSource(changed, electronContextMenuSource), /DynamicMenuWidget focus restoration/);
+});
+
+test('rejects changed browser menu command focus handling', () => {
+	const changed = browserMenuSource.replace('this.previousFocusedElement.focus({ preventScroll: true });', 'this.node.focus();');
+	assert.throws(() => verifyMenuFocusSource(changed, electronContextMenuSource), /DynamicMenuWidget command focus/);
+});
+
+test('rejects changed native context menu handling', () => {
+	const changed = electronContextMenuSource.replace('window.electronTheiaCore.popup', 'window.electronTheiaCore.otherPopup');
+	assert.throws(() => verifyMenuFocusSource(browserMenuSource, changed), /ElectronContextMenuRenderer native popup/);
 });

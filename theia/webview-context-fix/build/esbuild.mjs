@@ -46,6 +46,42 @@ const originalHostFunction = `    handleContextMenu(event: { clientX: number, cl
             });
     }`;
 
+const browserMenuFocusRestore = `    public override open(x: number, y: number, options?: MenuWidget.IOpenOptions): void {
+        const cb = () => {
+            this.restoreFocusedElement();
+            this.aboutToClose.disconnect(cb);
+        };
+        this.aboutToClose.connect(cb);
+        this.preserveFocusedElement();
+        super.open(x, y, options);
+    }`;
+
+const browserMenuCommandFocus = `                        execute: () => {
+                            // Restore focus to the previously focused element before executing
+                            // the command so that focus-dependent commands like clipboard
+                            // operations target the correct element instead of the menu.
+                            if (this.previousFocusedElement) {
+                                this.previousFocusedElement.focus({ preventScroll: true });
+                            }
+                            node.run(nodePath, ...(this.args || []));
+                        },`;
+
+const electronNativeContextMenu = `        if (this.useNativeStyle) {
+            const contextMenu = this.electronMenuFactory.createElectronContextMenu(params.menuPath, params.menu, params.contextMatcher, params.args, params.context);
+            const { x, y } = coordinateFromAnchor(params.anchor);
+
+            const windowName = params.context?.ownerDocument.defaultView?.Window.name;
+
+            const menuHandle = window.electronTheiaCore.popup(contextMenu, x, y, () => {
+                if (params.onHide) {
+                    params.onHide();
+                }
+            }, windowName);
+            // native context menu stops the event loop, so there is no keyboard events
+            this.context.resetAltPressed();
+            return new ElectronContextMenuAccess(menuHandle);
+        } else {`;
+
 function countOccurrences(source, needle) {
 	let count = 0;
 	let offset = 0;
@@ -58,6 +94,13 @@ function countOccurrences(source, needle) {
 	return count;
 }
 
+function requireExactlyOnce(source, needle, message) {
+	const count = countOccurrences(source, needle);
+	if (count !== 1) {
+		throw new Error(`${message} Expected exactly one implementation verified against Theia ${baselineTheiaVersion}, found ${count}.`);
+	}
+}
+
 function buildError(error) {
 	return {
 		errors: [{
@@ -67,10 +110,29 @@ function buildError(error) {
 }
 
 export function verifyHostWebviewSource(source) {
-	const count = countOccurrences(source, originalHostFunction);
-	if (count !== 1) {
-		throw new Error(`Unsupported @theia/plugin-ext WebviewWidget.handleContextMenu implementation. Expected exactly one copy of the implementation verified against Theia ${baselineTheiaVersion}, found ${count}.`);
-	}
+	requireExactlyOnce(
+		source,
+		originalHostFunction,
+		'Unsupported @theia/plugin-ext WebviewWidget.handleContextMenu implementation.'
+	);
+}
+
+export function verifyMenuFocusSource(browserMenuSource, electronContextMenuSource) {
+	requireExactlyOnce(
+		browserMenuSource,
+		browserMenuFocusRestore,
+		'Unsupported @theia/core DynamicMenuWidget focus restoration implementation.'
+	);
+	requireExactlyOnce(
+		browserMenuSource,
+		browserMenuCommandFocus,
+		'Unsupported @theia/core DynamicMenuWidget command focus implementation.'
+	);
+	requireExactlyOnce(
+		electronContextMenuSource,
+		electronNativeContextMenu,
+		'Unsupported @theia/core ElectronContextMenuRenderer native popup implementation.'
+	);
 }
 
 export function patchWebviewPreloadSource(source) {
@@ -106,22 +168,29 @@ export function patchWebviewPreloadSource(source) {
 	};
 }
 
-function resolveHostSourcePath() {
-	const packageJsonPath = require.resolve('@theia/plugin-ext/package.json');
-	return path.join(path.dirname(packageJsonPath), 'src/main/browser/webview/webview.ts');
+function resolvePackageSourcePath(packageName, relativePath) {
+	const packageJsonPath = require.resolve(`${packageName}/package.json`);
+	return path.join(path.dirname(packageJsonPath), relativePath);
 }
 
 export function webviewContextFixPlugin(options = {}) {
 	const preloadPath = options.preloadPath ?? path.resolve(process.cwd(), 'lib/webview/pre/main.js');
-	const hostSourcePath = options.hostSourcePath ?? resolveHostSourcePath();
+	const hostSourcePath = options.hostSourcePath ?? resolvePackageSourcePath('@theia/plugin-ext', 'src/main/browser/webview/webview.ts');
+	const browserMenuSourcePath = options.browserMenuSourcePath ?? resolvePackageSourcePath('@theia/core', 'src/browser/menu/browser-menu-plugin.ts');
+	const electronContextMenuSourcePath = options.electronContextMenuSourcePath ?? resolvePackageSourcePath('@theia/core', 'src/electron-browser/menu/electron-context-menu-renderer.ts');
 
 	return {
 		name: 'theia-webview-context-fix',
 		setup(build) {
 			build.onStart(async () => {
 				try {
-					const source = await fs.readFile(hostSourcePath, 'utf8');
-					verifyHostWebviewSource(source);
+					const [hostSource, browserMenuSource, electronContextMenuSource] = await Promise.all([
+						fs.readFile(hostSourcePath, 'utf8'),
+						fs.readFile(browserMenuSourcePath, 'utf8'),
+						fs.readFile(electronContextMenuSourcePath, 'utf8')
+					]);
+					verifyHostWebviewSource(hostSource);
+					verifyMenuFocusSource(browserMenuSource, electronContextMenuSource);
 				} catch (error) {
 					return buildError(error);
 				}

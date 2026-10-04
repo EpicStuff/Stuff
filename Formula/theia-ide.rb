@@ -12,7 +12,7 @@ class TheiaIde < Formula
 		tag: 'v1.75.0',
 		revision: '9145abe093659217ef2967cc2955abdc37c16408'
 	license 'MIT'
-	revision 7
+	revision 8
 
 	livecheck do
 		url :stable
@@ -43,6 +43,7 @@ class TheiaIde < Formula
 		ENV['CHILD_CONCURRENCY'] = child_jobs.to_s
 		ENV['JOBS'] = [(build_jobs.to_f/child_jobs).ceil, 1].max.to_s
 		extensions = prepare_native_extensions
+		integrate_vscode_cli_usage if extensions.any? { |extension| extension[:name] == 'theia-keep-warm' }
 
 		if extensions.empty?
 			system 'yarn', 'install', '--frozen-lockfile'
@@ -405,6 +406,42 @@ class TheiaIde < Formula
 		electron_package_path.atomic_write(JSON.pretty_generate(electron_package) + "\n")
 		integrate_webview_context_fix if extensions.any? { |extension| extension[:name] == 'theia-webview-context-fix' }
 		extensions
+	end
+
+	def integrate_vscode_cli_usage
+		usage_path = buildpath/'applications/electron/scripts/cli-usage.js'
+		source = usage_path.read
+		old_help_condition = "if (hasFlag(['--help'])) {"
+		new_help_condition = "if (hasFlag(['--help', '-h'])) {"
+		old_help_line = '  --help                              Print usage'
+		new_help_block = <<~HELP.chomp
+			  -h, --help                          Print usage
+			  -n, --new-window                    Force a new window
+			  -r, --reuse-window                  Force the last active window to be reused
+			  -g, --goto <file:line[:column]>     Open a file at the given line and column
+			  -d, --diff <file1> <file2>          Compare two files
+			      --list-extensions               List installed user extensions
+			      --show-versions                 Show versions with --list-extensions
+			      --install-extension <id|vsix>   Install or update an extension
+			      --uninstall-extension <id>      Uninstall an extension
+			      --user-data-dir <dir>           Set Electron and Theia user data directories
+			      --disable-gpu                   Disable hardware acceleration
+			      --keep-warm                     Keep the Electron main process and backend resident
+			      --keep-warmer                   Also preload a hidden empty frontend renderer
+			      --daemon                        Detach the requested invocation
+			      --quit                          Stop the resident keep warm instance
+		HELP
+
+		already_patched = source.include?(new_help_condition) && source.include?('  -n, --new-window')
+		return if already_patched
+
+		odie 'Theia CLI usage is only partially patched' if source.include?(new_help_condition) || source.include?('  -n, --new-window')
+		odie 'Unsupported Theia CLI help condition' unless source.include?(old_help_condition)
+		odie 'Unsupported Theia CLI help layout' unless source.include?(old_help_line)
+
+		source = source.sub(old_help_condition, new_help_condition)
+		source = source.sub(old_help_line, new_help_block)
+		usage_path.atomic_write(source)
 	end
 
 	def integrate_webview_context_fix

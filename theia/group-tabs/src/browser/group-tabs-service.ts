@@ -117,19 +117,27 @@ export class GroupTabsService {
 	}
 
 	async groupManual(primaryInput: Widget, widgets: Widget[]): Promise<GroupTabsWidget | undefined> {
-		const primary = this.resolveSource(primaryInput);
-		if (!primary || primary.isDisposed) {
-			return undefined;
+		const existingMembers = this.getMembers(primaryInput);
+		const family = [...new Set([...existingMembers, primaryInput, ...widgets].filter(widget => !widget.isDisposed))];
+		if (family.length < 2) {
+			return this.getPair(primaryInput);
 		}
 
-		const selected = [...new Set(widgets.filter(widget => widget !== primary && !widget.isDisposed))];
-		if (selected.length === 0) {
-			return this.getPair(primary);
-		}
+		const familySet = new Set(family);
+		const preferred = this.getPrimary(primaryInput) ?? primaryInput;
+		const roots = family.filter(widget => {
+			const ref = this.resolveSource(this.provenance.get(widget)?.ref);
+			return !ref || !familySet.has(ref);
+		});
+		const primary = roots.length === 1
+			? roots[0]
+			: roots.includes(preferred)
+				? preferred
+				: roots[0] ?? preferred;
 
 		const resolved = new Set<Widget>(this.getMembers(primary));
 		resolved.add(primary);
-		const pending = [...selected];
+		const pending = family.filter(widget => widget !== primary && !resolved.has(widget));
 		let pair = this.getPair(primary);
 
 		while (pending.length > 0) {

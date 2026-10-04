@@ -11,7 +11,7 @@ class TheiaIde < Formula
 	url 'https://github.com/eclipse-theia/theia-ide.git',
 		tag: 'v1.75.0',
 		revision: '9145abe093659217ef2967cc2955abdc37c16408'
-	revision 9
+	revision 10
 
 	livecheck do
 		url :stable

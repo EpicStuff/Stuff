@@ -13,7 +13,8 @@ Current features:
 - Adding and moving separators
 - Expanding existing submenus and editing their contents
 - Creating custom submenus and dragging commands into or out of them
-- Double click editing for item name, visibility condition, and icon class
+- Double click editing for item name, visibility condition, and icon
+- Theia toolbar icon selector reuse for choosing item icons
 - Adding registered commands
 - Restoring a menu to its contributed default layout
 - Popup and main area tab configuration modes
@@ -27,7 +28,7 @@ Explicit `Custom Context Menu: Configure in Dialog` and `Custom Context Menu: Co
 
 The extension leaves Theia's `MenuModelRegistry` untouched. It applies the saved layout to a temporary menu model immediately before `ContextMenuRenderer` renders it. The original command enablement and `when` conditions therefore remain active unless a user explicitly overrides a condition in the item editor.
 
-Configuration is stored in the hidden user preference `customContextMenu.layouts`.
+Configuration is stored in the hidden user preference `customContextMenu.layouts`. The normal user preference `customContextMenu.openMode` controls whether the main Configure command opens as a dialog or tab.
 
 The saved model is hierarchical. Existing extension supplied submenus keep their original nodes while their children can be hidden, reordered, moved, or customized. Custom submenus contain references to the original command nodes when an existing menu command is moved into them, so command behavior is retained.
 

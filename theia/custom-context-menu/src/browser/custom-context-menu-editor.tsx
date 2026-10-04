@@ -3,6 +3,7 @@ import { codicon } from '@theia/core/lib/browser';
 import { SelectComponent, SelectOption } from '@theia/core/lib/browser/widgets/select-component';
 import { QuickCommandService } from '@theia/core/lib/browser/quick-input/quick-command-service';
 import * as React from '@theia/core/shared/react';
+import { ToolbarIconDialogFactory } from '@theia/toolbar/lib/browser/toolbar-icon-selector-dialog';
 import {
 	ContextMenuConfigurationChanges,
 	EditableMenuEntry,
@@ -27,6 +28,7 @@ interface EntryLocation {
 export interface ContextMenuConfigEditorProps {
 	service: CustomContextMenuService;
 	quickCommandService: QuickCommandService;
+	iconDialogFactory: ToolbarIconDialogFactory;
 	height: string;
 	showApply?: boolean;
 }
@@ -100,6 +102,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 				</div>
 
 				<div
+					key={this.activeTargetId}
 					style={{
 						border: '1px solid var(--theia-panel-border)',
 						flex: 1,
@@ -266,7 +269,6 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 					padding: `2px 8px 2px ${paddingLeft}px`
 				}}
 			>
-				{this.renderRowIcon('grabber', 'Drag to move', 'grab')}
 				{entry.submenu
 					? (
 						<span
@@ -290,7 +292,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 							}}
 						/>
 					)
-					: <span style={{ display: 'inline-block', marginRight: '5px', width: '18px' }} />}
+					: this.renderRowIcon('grabber', 'Drag to move', 'grab')}
 				{entry.icon && (
 					<span
 						className={entry.icon}
@@ -481,30 +483,44 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 						}}
 					/>
 
-					<label>Icon class</label>
+					<label>Icon</label>
 					<div style={{ alignItems: 'center', display: 'flex', gap: '10px' }}>
-						<input
-							className='theia-input'
-							placeholder='No icon'
-							value={this.editIcon}
-							onChange={event => {
-								this.editIcon = event.currentTarget.value;
-								this.forceUpdate();
-							}}
-							style={{ flex: 1 }}
-						/>
-						<span
-							className={this.editIcon}
-							title='Icon preview'
+						<button
+							type='button'
+							className='theia-button secondary'
+							onClick={() => void this.chooseIcon(entry)}
 							style={{
 								alignItems: 'center',
 								display: 'inline-flex',
-								fontSize: '18px',
-								height: '24px',
-								justifyContent: 'center',
-								width: '24px'
+								gap: '8px',
+								justifyContent: 'center'
 							}}
-						/>
+						>
+							<span
+								className={this.editIcon || codicon('symbol-color')}
+								style={{
+									alignItems: 'center',
+									display: 'inline-flex',
+									fontSize: '16px',
+									justifyContent: 'center',
+									lineHeight: 1,
+									width: '18px'
+								}}
+							/>
+							<span>{this.editIcon ? 'Change Icon' : 'Choose Icon'}</span>
+						</button>
+						<button
+							type='button'
+							className='theia-button secondary'
+							disabled={!this.editIcon}
+							onClick={() => {
+								this.editIcon = '';
+								this.forceUpdate();
+							}}
+						>
+							Clear
+						</button>
+						<span style={{ opacity: 0.65 }}>{this.editIcon || 'No icon'}</span>
 					</div>
 				</div>
 
@@ -549,6 +565,19 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		this.editIcon = entry.icon ?? '';
 		this.mode = 'edit';
 		this.forceUpdate();
+	}
+
+	protected async chooseIcon(entry: EditableMenuItem): Promise<void> {
+		const dialog = this.props.iconDialogFactory({
+			id: entry.commandId || entry.key,
+			label: this.editLabel.trim() || entry.label,
+			iconClass: this.editIcon || undefined
+		});
+		const selected = await dialog.open();
+		if (selected !== undefined) {
+			this.editIcon = selected;
+			this.forceUpdate();
+		}
 	}
 
 	protected closeItemEditor = (): void => {

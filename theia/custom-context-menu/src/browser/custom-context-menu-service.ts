@@ -532,6 +532,7 @@ export class CustomContextMenuService {
 
 	protected flattenChildren(children: MenuNode[], parentPath: MenuPath): DefaultMenuEntry[] {
 		const result: DefaultMenuEntry[] = [];
+		const keyOccurrences = new Map<string, number>();
 
 		for (const child of children) {
 			const childPath = [...parentPath, child.id];
@@ -551,9 +552,15 @@ export class CustomContextMenuService {
 			}
 
 			if (CommandMenu.is(child)) {
+				const baseKey = `node:${this.pathKey(childPath)}`;
+				const occurrence = (keyOccurrences.get(baseKey) ?? 0) + 1;
+				keyOccurrences.set(baseKey, occurrence);
+				const key = occurrence === 1
+					? baseKey
+					: `${baseKey}#${occurrence}:${encodeURIComponent(child.when ?? '')}`;
 				result.push({
 					type: 'item',
-					key: `node:${this.pathKey(childPath)}`,
+					key,
 					label: child.label,
 					commandId: child.id,
 					when: child.when,

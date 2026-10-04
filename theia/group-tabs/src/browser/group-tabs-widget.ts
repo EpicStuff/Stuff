@@ -218,7 +218,10 @@ export class GroupTabsWidget extends SplitWidget implements TabBarDelegator {
 
 	protected ownerOf(pane: Widget): SplitWidget | undefined {
 		const owner = pane.parent?.parent;
-		return owner === this || owner instanceof GroupTabsInnerSplitWidget ? owner : undefined;
+		if (owner === this) {
+			return this;
+		}
+		return owner instanceof GroupTabsInnerSplitWidget ? owner : undefined;
 	}
 
 	protected collapse(owner: SplitWidget): void {

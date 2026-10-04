@@ -86,7 +86,7 @@ export class GroupTabsService {
 		return pair ? this.records.get(pair)?.primary ?? pair.primary : widget;
 	}
 
-	resolveSource(widget: Widget | undefined): Widget | undefined {
+	resolveSource(widget: Widget | null | undefined): Widget | undefined {
 		if (widget instanceof GroupTabsWidget) {
 			return this.getPrimary(widget);
 		}

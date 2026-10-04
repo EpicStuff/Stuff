@@ -3,8 +3,10 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import { app, BrowserWindow, Event as ElectronEvent } from '@theia/core/electron-shared/electron';
 import { Deferred } from '@theia/core/lib/common/promise-util';
+import { MaybePromise } from '@theia/core/lib/common/types';
 import { DEFAULT_WINDOW_HASH } from '@theia/core/lib/common/window';
 import { ElectronMainApplication, ElectronMainCommandOptions } from '@theia/core/lib/electron-main/electron-main-application';
+import { TheiaBrowserWindowOptions } from '@theia/core/lib/electron-main/theia-electron-window';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { KeepWarmExtensionInstallerServiceImpl } from './keep-warm-extension-installer-service';
 import { ParsedVscodeCliArgs, VSCODE_COMPAT_HELP, parseGotoTarget, parseVscodeCliArgs } from './vscode-cli';
@@ -30,6 +32,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	protected suppressInitialEmptyWindow = false;
 	protected warmRenderer: BrowserWindow | undefined;
 	protected quitting = false;
+	protected sessionRestorePending = true;
 	protected startupCliArgs: ParsedVscodeCliArgs | undefined;
 	protected readonly pendingSecondInstanceCliArgs: ParsedVscodeCliArgs[] = [];
 	protected readonly contributionsStarted = new Deferred<void>();
@@ -116,11 +119,12 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		this.keepWarmer = wantsKeepWarmer;
 		this.suppressInitialEmptyWindow = wantsKeepWarm;
 
+		app.once('before-quit', () => {
+			this.quitting = true;
+		});
+
 		if (this.keepWarm) {
 			process.once('SIGINT', () => this.requestStop());
-			app.once('before-quit', () => {
-				this.quitting = true;
-			});
 		}
 
 		if (!this.keepWarm && useSingleInstanceLock) {
@@ -134,6 +138,22 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	protected override async startContributions(): Promise<void> {
 		await super.startContributions();
 		this.contributionsStarted.resolve();
+	}
+
+	override async createWindow(asyncOptions?: MaybePromise<TheiaBrowserWindowOptions>): Promise<BrowserWindow> {
+		const window = await super.createWindow(asyncOptions);
+		const windowId = window.webContents.id;
+
+		window.once('closed', () => {
+			setTimeout(() => {
+				if (this.quitting || !this.getActiveVisibleWindow()) {
+					return;
+				}
+				void this.extensionInstaller.forgetWindow(windowId);
+			}, 0);
+		});
+
+		return window;
 	}
 
 	protected failCli(error: unknown): void {
@@ -203,17 +223,32 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 
 	protected override async handleMainCommand(options: ElectronMainCommandOptions): Promise<void> {
 		const cliArgs = options.secondInstance ? this.pendingSecondInstanceCliArgs.shift() : this.startupCliArgs;
-		if (cliArgs && this.hasWindowAction(cliArgs)) {
+		const hasWindowAction = !!cliArgs && this.hasWindowAction(cliArgs);
+		const hasExplicitTarget = hasWindowAction || options.file !== undefined;
+
+		if (this.suppressInitialEmptyWindow && !options.secondInstance) {
+			this.suppressInitialEmptyWindow = false;
+			if (options.file === undefined && !hasWindowAction) {
+				if (this.keepWarmer) {
+					await this.ensureWarmRenderer();
+				}
+				return;
+			}
+		}
+
+		if (this.sessionRestorePending && hasExplicitTarget) {
+			this.sessionRestorePending = false;
+			await this.extensionInstaller.replaceSession([]);
+		}
+
+		if (hasWindowAction && cliArgs) {
 			await this.handleVscodeWindowCommand(cliArgs, options);
 			return;
 		}
 
-		if (this.suppressInitialEmptyWindow && !options.secondInstance) {
-			this.suppressInitialEmptyWindow = false;
-			if (options.file === undefined) {
-				if (this.keepWarmer) {
-					await this.ensureWarmRenderer();
-				}
+		if (this.sessionRestorePending && options.file === undefined && !options.secondInstance) {
+			this.sessionRestorePending = false;
+			if (await this.restoreWindowSession()) {
 				return;
 			}
 		}
@@ -245,6 +280,36 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		if (cliArgs.reuseWindow) {
 			await this.reuseLastWindow();
 		}
+	}
+
+	protected async restoreWindowSession(): Promise<boolean> {
+		const storedWorkspaces = await this.extensionInstaller.getRestorableWorkspaces();
+		const workspaces: string[] = [];
+
+		for (const workspacePath of storedWorkspaces) {
+			try {
+				const stat = await fs.stat(workspacePath);
+				const extension = path.extname(workspacePath).toLowerCase();
+				if (stat.isDirectory() || stat.isFile() && (extension === '.theia-workspace' || extension === '.code-workspace')) {
+					workspaces.push(workspacePath);
+				}
+			} catch {
+				// Ignore workspaces that no longer exist.
+			}
+		}
+
+		if (workspaces.length !== storedWorkspaces.length) {
+			await this.extensionInstaller.replaceSession(workspaces);
+		}
+		if (workspaces.length === 0) {
+			return false;
+		}
+
+		await this.openWindowWithWorkspace(workspaces[0]);
+		for (const workspacePath of workspaces.slice(1)) {
+			await this.openNewWindowWithWorkspace(workspacePath);
+		}
+		return true;
 	}
 
 	protected async openGotoTarget(cliArgs: ParsedVscodeCliArgs, target: string, cwd: string): Promise<void> {

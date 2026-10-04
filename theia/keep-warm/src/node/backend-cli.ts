@@ -1,14 +1,17 @@
+import { promises as fs } from 'fs';
 import * as path from 'path';
 import { BackendApplicationContribution, CliContribution } from '@theia/core/lib/node';
 import { Arguments, Argv } from '@theia/core/shared/yargs';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { PluginDeployerHandler, PluginIdentifiers, PluginServer, PluginType } from '@theia/plugin-ext/lib/common/plugin-protocol';
 import { PluginDeployerContribution } from '@theia/plugin-ext/lib/main/node/plugin-deployer-contribution';
+import { VSXExtensionUri } from '@theia/vsx-registry/lib/common';
 import { VsxCli } from '@theia/vsx-registry/lib/node/vsx-cli';
 
 @injectable()
 export class KeepWarmBackendCliState {
 	readonly active = process.env.THEIA_BACKEND_CLI === '1';
+	installExtensions: string[] = [];
 	uninstallExtensions: string[] = [];
 	listExtensions = false;
 	showVersions = false;
@@ -19,6 +22,7 @@ export class KeepWarmBackendCliState {
 export class KeepWarmBackendCliContribution implements CliContribution {
 	@inject(KeepWarmBackendCliState)
 	protected readonly state!: KeepWarmBackendCliState;
+
 
 	configure(conf: Argv): void {
 		conf.option('uninstall-extension', {
@@ -47,6 +51,14 @@ export class KeepWarmBackendCliContribution implements CliContribution {
 		if (!this.state.active) {
 			return;
 		}
+
+		const installExtensions = args.installPlugin;
+		if (typeof installExtensions === 'string') {
+			this.state.installExtensions = [installExtensions];
+		} else if (Array.isArray(installExtensions)) {
+			this.state.installExtensions = installExtensions.filter((value): value is string => typeof value === 'string');
+		}
+		this.vsxCli.pluginsToInstall = [];
 
 		const uninstallExtensions = args.uninstallExtension;
 		if (typeof uninstallExtensions === 'string') {
@@ -110,6 +122,12 @@ export class KeepWarmBackendCliRunner implements BackendApplicationContribution 
 				throw new Error('--show-versions requires --list-extensions');
 			}
 
+			for (const extension of this.state.installExtensions) {
+				const resolved = await this.resolveExtensionInstallTarget(extension);
+				await this.pluginServer.install(resolved.entry);
+				process.stdout.write(`Installed extension: ${resolved.display}\n`);
+			}
+
 			for (const extensionId of this.state.uninstallExtensions) {
 				const versionedId = await this.resolveInstalledExtension(extensionId);
 				await this.pluginServer.uninstall(versionedId);
@@ -123,10 +141,6 @@ export class KeepWarmBackendCliRunner implements BackendApplicationContribution 
 					process.stdout.write(`${output.join('\n')}\n`);
 				}
 			}
-
-			for (const extension of this.vsxCli.pluginsToInstall) {
-				process.stdout.write(`Installed extension: ${extension}\n`);
-			}
 		} catch (error) {
 			exitCode = 1;
 			const message = error instanceof Error ? error.message : String(error);
@@ -136,6 +150,39 @@ export class KeepWarmBackendCliRunner implements BackendApplicationContribution 
 		await new Promise<never>(() => {
 			setImmediate(() => process.exit(exitCode));
 		});
+	}
+
+	protected async resolveExtensionInstallTarget(extension: string): Promise<{ entry: string; display: string }> {
+		const resolvedPath = path.resolve(process.cwd(), extension);
+
+		try {
+			const stat = await fs.stat(resolvedPath);
+			if (stat.isFile()) {
+				if (path.extname(resolvedPath).toLowerCase() !== '.vsix') {
+					throw new Error(`Local extension path must point to a .vsix file: ${extension}`);
+				}
+				return {
+					entry: `local-file:${resolvedPath}`,
+					display: resolvedPath
+				};
+			}
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+				throw error;
+			}
+		}
+
+		if (extension.toLowerCase().endsWith('.vsix')) {
+			throw new Error(`Extension file does not exist: ${extension}`);
+		}
+		if (!/^[^.\\s@]+\\.[^\\s@]+(?:@[^\\s@]+)?$/.test(extension)) {
+			throw new Error(`Invalid extension id '${extension}'. Expected publisher.name[@version] or a .vsix path`);
+		}
+
+		return {
+			entry: VSXExtensionUri.fromVersionedId(extension).toString(),
+			display: extension
+		};
 	}
 
 	protected async resolveInstalledExtension(extensionId: string): Promise<PluginIdentifiers.VersionedId> {

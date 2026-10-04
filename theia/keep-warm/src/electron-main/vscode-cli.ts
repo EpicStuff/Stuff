@@ -137,6 +137,13 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 	if (parsed.gotoTarget && parsed.diffTargets) {
 		throw new Error('--goto and --diff cannot be used together');
 	}
+	if (parsed.showVersions && !parsed.listExtensions) {
+		throw new Error('--show-versions requires --list-extensions');
+	}
+	if ((parsed.installExtensions.length > 0 || parsed.uninstallExtensions.length > 0 || parsed.listExtensions) &&
+		(parsed.newWindow || parsed.reuseWindow || parsed.gotoTarget || parsed.diffTargets)) {
+		throw new Error('Extension management options cannot be combined with window opening options');
+	}
 
 	return parsed;
 }

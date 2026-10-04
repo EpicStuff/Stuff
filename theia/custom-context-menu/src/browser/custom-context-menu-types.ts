@@ -50,6 +50,8 @@ export interface EditableMenuItem {
 	icon?: string;
 	custom: boolean;
 	submenu: boolean;
+	customSubmenu?: boolean;
+	children?: EditableMenuEntry[];
 }
 
 export interface EditableMenuSeparator {
@@ -63,6 +65,10 @@ export interface StoredMenuItem {
 	type: 'item';
 	key: string;
 	commandId?: string;
+	label?: string;
+	customSubmenu?: boolean;
+	entries?: StoredMenuEntry[];
+	knownDefaultKeys?: string[];
 }
 
 export interface StoredMenuSeparator {

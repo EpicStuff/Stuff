@@ -22,7 +22,14 @@ export class KeepWarmExtensionInstallerClientImpl implements KeepWarmExtensionIn
 	protected readonly windowService!: WindowService;
 
 	async getWindowId(): Promise<number> {
-		return Number(window.electronTheiaCore.WindowMetadata.webcontentId);
+		const electronWindow = window as Window & typeof globalThis & {
+			electronTheiaCore: {
+				WindowMetadata: {
+					webcontentId: string;
+				};
+			};
+		};
+		return Number(electronWindow.electronTheiaCore.WindowMetadata.webcontentId);
 	}
 
 	async installExtension(extension: string, local: boolean): Promise<void> {
@@ -31,7 +38,7 @@ export class KeepWarmExtensionInstallerClientImpl implements KeepWarmExtensionIn
 	}
 
 	async uninstallExtension(extensionId: string): Promise<string> {
-		const installed = await this.getUserExtensions(true);
+		const installed = await this.getUserExtensionVersionedIds();
 		const requested = extensionId.toLowerCase();
 		const versionedId = installed.find(id =>
 			id.toLowerCase() === requested || PluginIdentifiers.toUnversioned(id).toLowerCase() === requested
@@ -41,12 +48,16 @@ export class KeepWarmExtensionInstallerClientImpl implements KeepWarmExtensionIn
 			throw new Error(`Extension '${extensionId}' is not installed`);
 		}
 
-		await this.pluginServer.uninstall(versionedId as PluginIdentifiers.VersionedId);
+		await this.pluginServer.uninstall(versionedId);
 		return versionedId;
 	}
 
 	async listExtensions(showVersions: boolean): Promise<string[]> {
-		return this.getUserExtensions(showVersions);
+		const versionedIds = await this.getUserExtensionVersionedIds();
+		if (showVersions) {
+			return versionedIds;
+		}
+		return versionedIds.map(id => PluginIdentifiers.toUnversioned(id));
 	}
 
 	async openWorkspace(workspacePath: string): Promise<void> {
@@ -69,18 +80,13 @@ export class KeepWarmExtensionInstallerClientImpl implements KeepWarmExtensionIn
 		await open(this.openerService, uri);
 	}
 
-	protected async getUserExtensions(showVersions: boolean): Promise<string[]> {
+	protected async getUserExtensionVersionedIds(): Promise<PluginIdentifiers.VersionedId[]> {
 		const installedIds = await this.hostedPluginServer.getInstalledPluginIds();
 		const installedPlugins = await this.hostedPluginServer.getDeployedPlugins(installedIds);
-		const versionedIds = installedPlugins
+		return installedPlugins
 			.filter(plugin => plugin.type === PluginType.User)
 			.map(plugin => PluginIdentifiers.componentsToVersionedId(plugin.metadata.model))
 			.sort();
-
-		if (showVersions) {
-			return versionedIds;
-		}
-		return versionedIds.map(id => PluginIdentifiers.toUnversioned(id));
 	}
 }
 

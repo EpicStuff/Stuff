@@ -6,5 +6,6 @@ export interface KeepWarmExtensionInstallerClient {
 	installExtension(extensionPath: string): Promise<void>;
 }
 
+export const KeepWarmExtensionInstallerService = Symbol('KeepWarmExtensionInstallerService');
 export interface KeepWarmExtensionInstallerService extends RpcServer<KeepWarmExtensionInstallerClient> {
 }

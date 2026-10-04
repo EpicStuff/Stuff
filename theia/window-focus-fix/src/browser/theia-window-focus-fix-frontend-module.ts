@@ -10,11 +10,13 @@ type FocusMonitor = {
 
 // `onFocusChanged` is private upstream, so it is reached through the untyped prototype.
 const prototype = WindowStateMain.prototype as unknown as { onFocusChanged?: FocusChangedHandler };
-const onFocusChanged = prototype.onFocusChanged;
+const originalOnFocusChanged = prototype.onFocusChanged;
 
-if (typeof onFocusChanged !== 'function') {
+if (typeof originalOnFocusChanged !== 'function') {
 	throw new Error('Unsupported Theia WindowStateMain: onFocusChanged was not found');
 }
+
+const onFocusChanged: FocusChangedHandler = originalOnFocusChanged;
 
 const monitors = new WeakMap<WindowStateMain, FocusMonitor>();
 

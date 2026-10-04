@@ -626,8 +626,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		}
 
 		if (this.hasCliOnlyAction(cliArgs)) {
-			const existingRenderer = this.getActiveVisibleWindow() ??
-				(this.warmRenderer && !this.warmRenderer.isDestroyed() ? this.warmRenderer : undefined);
+			const existingRenderer = this.getActiveVisibleWindow() ?? (this.warmRenderer && !this.warmRenderer.isDestroyed() ? this.warmRenderer : undefined);
 			try {
 				await this.runCliOnlyActions(cliArgs, cwd, existingRenderer);
 			} catch (error) {

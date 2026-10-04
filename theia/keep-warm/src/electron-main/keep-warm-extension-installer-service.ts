@@ -34,6 +34,11 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 		await client.installExtension(extensionPath);
 	}
 
+	async openWorkspace(workspacePath: string): Promise<void> {
+		const client = await this.waitForClient();
+		await client.openWorkspace(workspacePath);
+	}
+
 	dispose(): void {
 		this.clients.clear();
 		this.waiters.splice(0);

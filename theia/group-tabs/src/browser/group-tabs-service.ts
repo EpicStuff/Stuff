@@ -1,6 +1,6 @@
 import { Disposable, DisposableCollection, generateUuid } from '@theia/core';
 import { PreferenceService } from '@theia/core/lib/common/preferences';
-import { ApplicationShell, Widget, WidgetManager } from '@theia/core/lib/browser';
+import { ApplicationShell, DockPanel, Widget, WidgetManager } from '@theia/core/lib/browser';
 import { StorageService } from '@theia/core/lib/browser/storage-service';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { MiniBrowser } from '@theia/mini-browser/lib/browser/mini-browser';
@@ -171,6 +171,119 @@ export class GroupTabsService {
 
 		return pair;
 	}
+
+
+	async groupLayout(layout: GroupTabsWidget.LayoutNodeState, ungroupLayout: DockPanel.ILayoutConfig): Promise<GroupTabsWidget | undefined> {
+		const widgets = this.layoutWidgets(layout).filter(widget => !widget.isDisposed);
+		if (widgets.length < 2) {
+			return widgets[0] ? this.getPair(widgets[0]) : undefined;
+		}
+
+		const existingPair = widgets.map(widget => this.getPair(widget)).find((pair): pair is GroupTabsWidget => !!pair);
+		if (existingPair) {
+			return this.groupManual(widgets[0], widgets.slice(1));
+		}
+
+		const primary = widgets[0];
+		const pair = await this.createGroupContainer(primary);
+		for (const widget of widgets) {
+			if (this.shell.getAreaFor(widget)) {
+				widget.parent = null;
+			}
+		}
+		pair.setUngroupLayout(ungroupLayout);
+		pair.restoreState({ widgets: [], layout });
+		this.registerPair(pair);
+
+		const family = new Set(widgets);
+		for (const widget of widgets) {
+			const placement = this.provenance.get(widget);
+			if (placement) {
+				this.registerMember(pair, widget, placement);
+				const source = this.resolveSource(placement.ref);
+				if (source && family.has(source)) {
+					await this.learnRule(source, widget, placement.relation);
+				}
+			}
+			if (widget !== primary && this.isMiniBrowserUrlPreview(widget)) {
+				pair.markTransient(widget);
+			}
+			this.redeliverWebviewContent(widget);
+		}
+		await this.shell.activateWidget(primary.id);
+		return pair;
+	}
+
+	async ungroup(widget: Widget | undefined): Promise<void> {
+		const pair = this.getPair(widget);
+		const record = pair && this.records.get(pair);
+		if (!pair || !record) {
+			return;
+		}
+
+		await this.forgetRules(record);
+		const layout = pair.getUngroupLayout();
+		const members = [...record.members];
+		for (const member of members) {
+			member.parent = null;
+		}
+		this.clearPair(pair);
+		pair.dispose();
+
+		if (layout) {
+			this.shell.mainPanel.restoreLayout(layout);
+			if (!record.primary.isDisposed) {
+				await this.shell.activateWidget(record.primary.id);
+			}
+			return;
+		}
+
+		const primary = record.primary;
+		if (!primary.isDisposed) {
+			await this.withoutShellCapture(() => this.shell.addWidget(primary, { area: 'main' }));
+		}
+		for (const member of members) {
+			if (member !== primary && !member.isDisposed) {
+				await this.withoutShellCapture(() => this.shell.addWidget(member, {
+					area: 'main',
+					ref: primary,
+					mode: 'split-right'
+				}));
+			}
+		}
+	}
+
+	protected layoutWidgets(layout: GroupTabsWidget.LayoutNodeState): Widget[] {
+		const result: Widget[] = [];
+		for (const child of layout.children) {
+			if ('widgets' in child) {
+				result.push(...child.widgets);
+			} else {
+				result.push(...this.layoutWidgets(child));
+			}
+		}
+		return result;
+	}
+
+	protected async forgetRules(record: GroupTabsRecord): Promise<void> {
+		const members = new Set(record.members);
+		const removed = new Set<string>();
+		for (const [child, placement] of record.placements) {
+			const parent = this.resolveSource(placement.ref);
+			if (!parent || !members.has(parent)) {
+				continue;
+			}
+			removed.add(`${this.widgetKind(parent)}\n${this.widgetKind(child)}\n${placement.relation}`);
+		}
+		if (removed.size === 0) {
+			return;
+		}
+		this.learnedRules = this.learnedRules.filter(rule =>
+			!removed.has(`${rule.parentKind}\n${rule.childKind}\n${rule.relation}`)
+		);
+		await this.storageService.setData(LEARNED_RULES_STORAGE_KEY, this.learnedRules);
+	}
+
 
 	async addRelative(sourceInput: Widget, widget: Widget, placement: GroupTabsPlacement, options: { restoreSecondary?: boolean } = {}): Promise<GroupTabsWidget> {
 		const source = this.resolveSource(sourceInput);
@@ -376,7 +489,16 @@ export class GroupTabsService {
 	}
 
 	protected async createGroup(primary: Widget): Promise<GroupTabsWidget> {
-		const primaryArea = this.shell.getAreaFor(primary);
+		const pair = await this.createGroupContainer(primary);
+		primary.parent = null;
+		pair.addRootPane(primary);
+		this.registerPair(pair);
+		this.redeliverWebviewContent(primary);
+		return pair;
+	}
+
+	protected async createGroupContainer(ref: Widget): Promise<GroupTabsWidget> {
+		const primaryArea = this.shell.getAreaFor(ref);
 		if (primaryArea !== 'main') {
 			throw new Error('Group Tabs requires the source widget to be in the main area');
 		}
@@ -384,14 +506,9 @@ export class GroupTabsService {
 		const pair = await this.widgetManager.getOrCreateWidget<GroupTabsWidget>(GroupTabsWidget.FACTORY_ID, { id: generateUuid() });
 		await this.withoutShellCapture(() => this.shell.addWidget(pair, {
 			area: 'main',
-			ref: primary,
+			ref,
 			mode: 'tab-after'
 		}));
-
-		primary.parent = null;
-		pair.addRootPane(primary);
-		this.registerPair(pair);
-		this.redeliverWebviewContent(primary);
 		return pair;
 	}
 

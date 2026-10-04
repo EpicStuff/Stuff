@@ -133,7 +133,9 @@ export class KeepWarmBackendCliRunner implements BackendApplicationContribution 
 			process.stderr.write(`theia: ${message}\n`);
 		}
 
-		process.exit(exitCode);
+		await new Promise<never>(() => {
+			setImmediate(() => process.exit(exitCode));
+		});
 	}
 
 	protected async resolveInstalledExtension(extensionId: string): Promise<PluginIdentifiers.VersionedId> {

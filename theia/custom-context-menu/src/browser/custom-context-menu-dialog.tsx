@@ -1,4 +1,10 @@
-import { Dialog, DialogProps } from '@theia/core/lib/browser';
+import { Disposable } from '@theia/core';
+import {
+	ApplicationShell,
+	Dialog,
+	DialogProps,
+	WidgetManager
+} from '@theia/core/lib/browser';
 import { ReactDialog } from '@theia/core/lib/browser/dialogs/react-dialog';
 import { QuickCommandService } from '@theia/core/lib/browser/quick-input/quick-command-service';
 import { inject, injectable, interfaces, postConstruct } from '@theia/core/shared/inversify';
@@ -6,6 +12,7 @@ import * as React from '@theia/core/shared/react';
 import { ContextMenuConfigEditor } from './custom-context-menu-editor';
 import { CustomContextMenuService } from './custom-context-menu-service';
 import { ContextMenuConfigurationChanges } from './custom-context-menu-types';
+import { ContextMenuConfigWidget } from './custom-context-menu-widget';
 
 export const ContextMenuConfigDialogFactory = Symbol('ContextMenuConfigDialogFactory');
 export interface ContextMenuConfigDialogFactory {
@@ -19,6 +26,12 @@ export class ContextMenuConfigDialog extends ReactDialog<ContextMenuConfiguratio
 
 	@inject(QuickCommandService)
 	protected readonly quickCommandService!: QuickCommandService;
+
+	@inject(WidgetManager)
+	protected readonly widgetManager!: WidgetManager;
+
+	@inject(ApplicationShell)
+	protected readonly shell!: ApplicationShell;
 
 	protected editor: ContextMenuConfigEditor | undefined;
 
@@ -36,6 +49,14 @@ export class ContextMenuConfigDialog extends ReactDialog<ContextMenuConfiguratio
 		this.contentNode.style.minHeight = '520px';
 		this.contentNode.style.maxHeight = '78vh';
 		this.contentNode.style.overflow = 'hidden';
+
+		const openInTabButton = this.appendButton('Open in Tab', false);
+		const openInTab = () => {
+			void this.openInTab();
+		};
+		openInTabButton.addEventListener('click', openInTab);
+		this.toDispose.push(Disposable.create(() => openInTabButton.removeEventListener('click', openInTab)));
+
 		this.appendCloseButton(Dialog.CANCEL);
 		this.appendAcceptButton('Save');
 	}
@@ -58,6 +79,25 @@ export class ContextMenuConfigDialog extends ReactDialog<ContextMenuConfiguratio
 				height='520px'
 			/>
 		);
+	}
+
+	protected override handleEnter(event: KeyboardEvent): boolean | void {
+		if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+			return false;
+		}
+		return super.handleEnter(event);
+	}
+
+	protected async openInTab(): Promise<void> {
+		await this.service.applyChanges(this.value);
+		const widget = await this.widgetManager.getOrCreateWidget(ContextMenuConfigWidget.ID);
+		if (!widget.isAttached) {
+			await this.shell.addWidget(widget, {
+				area: 'main'
+			});
+		}
+		await this.shell.activateWidget(widget.id);
+		this.close();
 	}
 }
 

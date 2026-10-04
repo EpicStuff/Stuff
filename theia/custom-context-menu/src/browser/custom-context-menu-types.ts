@@ -3,6 +3,9 @@ import { EDITOR_CONTEXT_MENU } from '@theia/editor/lib/browser/editor-menu';
 import { NAVIGATOR_CONTEXT_MENU } from '@theia/navigator/lib/browser/navigator-contribution';
 
 export const CUSTOM_CONTEXT_MENU_LAYOUTS = 'customContextMenu.layouts';
+export const CUSTOM_CONTEXT_MENU_OPEN_MODE = 'customContextMenu.openMode';
+
+export type ContextMenuOpenMode = 'dialog' | 'tab';
 
 export interface ContextMenuTarget {
 	id: string;
@@ -37,6 +40,13 @@ export const CustomContextMenuPreferenceSchema: PreferenceSchema = {
 			additionalProperties: true,
 			hidden: true,
 			description: 'Saved layouts for the native custom context menu extension.'
+		},
+		[CUSTOM_CONTEXT_MENU_OPEN_MODE]: {
+			type: 'string',
+			enum: ['dialog', 'tab'],
+			default: 'dialog',
+			title: 'Open Mode',
+			description: 'Controls whether Custom Context Menu: Configure opens as a popup dialog or a main area tab.'
 		}
 	}
 };
@@ -52,6 +62,12 @@ export interface EditableMenuItem {
 	submenu: boolean;
 	customSubmenu?: boolean;
 	children?: EditableMenuEntry[];
+	defaultLabel?: string;
+	defaultWhen?: string;
+	defaultIcon?: string;
+	labelOverride?: string;
+	whenOverride?: string;
+	iconOverride?: string;
 }
 
 export interface EditableMenuSeparator {
@@ -69,6 +85,9 @@ export interface StoredMenuItem {
 	customSubmenu?: boolean;
 	entries?: StoredMenuEntry[];
 	knownDefaultKeys?: string[];
+	labelOverride?: string;
+	whenOverride?: string;
+	iconOverride?: string;
 }
 
 export interface StoredMenuSeparator {

@@ -2,7 +2,6 @@
 	"name": "theia-notebook-fixes",
 	"version": "0.1.0",
 	"description": "Native Eclipse Theia notebook compatibility fixes and cell input folding.",
-	"license": "MIT",
 	"engines": {
 		"node": ">=24"
 	},

@@ -1,6 +1,6 @@
 {
 	"name": "theia-window-focus-fix",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Native Eclipse Theia fix that keeps the plugin window focused while a webview has focus.",
 	"license": "MIT",
 	"engines": {
@@ -20,8 +20,8 @@
 		"clean": "rm -rf lib"
 	},
 	"peerDependencies": {
-		"@theia/core": ">=1.75.0 <2.0.0",
-		"@theia/plugin-ext": ">=1.75.0 <2.0.0"
+		"@theia/core": ">=1.75.0 <1.76.0",
+		"@theia/plugin-ext": ">=1.75.0 <1.76.0"
 	},
 	"devDependencies": {
 		"typescript": "~5.9.3"

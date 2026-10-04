@@ -58,9 +58,9 @@ A lightly customized menu can look like:
 }
 ```
 
-Existing entries use `edit` for every override, including `label`, `icon`, `when`, `parent`, and placement. Commands moved into a submenu use `parent`. Placement prefers structural menu groups when possible and otherwise uses relative `before` or `after` references.
+Existing entries use `edit` for every override, including `label`, `icon`, `when`, `parent`, and placement. Commands moved into a submenu use `parent`. Placement prefers `group` with `at`, then `beforeGroup` or `afterGroup`, and only falls back to relative `before` or `after` references when the desired position is inside a group.
 
-Custom commands, submenus, and separators are stored under `add`. Removed default entries are listed under `hide`. New extension supplied commands therefore appear normally unless they are explicitly hidden or affected by an existing sparse override.
+Custom commands, submenus, and separators are stored under `add`. Removed default entries are listed under `hide`. Structural separator entries use keys such as `separator:Jupyter3`; that key represents the separator before the group, not the commands in the group. New extension supplied commands therefore appear normally unless they are explicitly hidden or affected by an existing sparse override.
 
 The previous full tree format containing `entries` and `knownDefaultKeys` is intentionally not migrated by the extension. It is ignored by the new reader. Clear the old `customContextMenu.layouts` value once and recreate the desired changes through the configurator.
 

@@ -1167,7 +1167,7 @@ export class CustomContextMenuService {
 
 		for (const entry of all) {
 			const base = entry.type === 'separator'
-				? `group:${entry.group}`
+				? `separator:${entry.group}`
 				: entry.commandId ?? `submenu:${entry.nodeId}`;
 			const bucket = groups.get(base) ?? [];
 			bucket.push(entry);
@@ -1430,7 +1430,7 @@ export class CustomContextMenuService {
 				sequence.push(left[leftIndex]);
 				leftIndex++;
 				rightIndex++;
-			} else if (lengths[leftIndex + 1][rightIndex] >= lengths[leftIndex][rightIndex + 1]) {
+			} else if (lengths[leftIndex + 1][rightIndex] > lengths[leftIndex][rightIndex + 1]) {
 				leftIndex++;
 			} else {
 				rightIndex++;

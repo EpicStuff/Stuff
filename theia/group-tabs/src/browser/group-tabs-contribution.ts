@@ -1,4 +1,5 @@
 import { Command, CommandContribution, CommandRegistry, nls } from '@theia/core';
+import URI from '@theia/core/lib/common/uri';
 import { ApplicationShell, FrontendApplicationContribution, NavigatableWidget, Widget, codicon } from '@theia/core/lib/browser';
 import { TabBarToolbarContribution, TabBarToolbarRegistry } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 import { inject, injectable } from '@theia/core/shared/inversify';
@@ -65,7 +66,7 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 		});
 
 		commands.registerCommand(GroupTabsCommands.OPEN_PREVIEW_URL, {
-			execute: async (url: string) => this.openGroupedPreviewUrl(url),
+			execute: async (url: string, sourceUri?: string) => this.openGroupedPreviewUrl(url, sourceUri),
 			isEnabled: (url: string) => typeof url === 'string' && url.length > 0
 		});
 	}
@@ -81,14 +82,14 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 		});
 	}
 
-	protected async openGroupedPreviewUrl(url: string): Promise<void> {
+	protected async openGroupedPreviewUrl(url: string, sourceUri?: string): Promise<void> {
 		if (typeof url !== 'string' || url.length === 0) {
 			return;
 		}
 
-		const active = this.groupTabsService.getPrimary(this.shell.activeWidget ?? this.shell.currentWidget);
+		const active = this.findPrimary(sourceUri);
 		if (!active || active.isDisposed) {
-			throw new Error('No source widget is active for the preview');
+			throw new Error(sourceUri ? `No open source widget matches ${sourceUri}` : 'No source widget is active for the preview');
 		}
 
 		// Same props as MiniBrowserOpenHandler.openPreview, which always opens in (and widens) the right side panel.
@@ -107,6 +108,28 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 		});
 		// The preview server does not survive a reload, so a restored group falls back to the source.
 		await this.groupTabsService.pair(active, preview, { restoreSecondary: false });
+	}
+
+	protected findPrimary(sourceUri?: string): Widget | undefined {
+		if (!sourceUri) {
+			return this.groupTabsService.getPrimary(this.shell.activeWidget ?? this.shell.currentWidget);
+		}
+
+		const requestedUri = new URI(sourceUri);
+		const seen = new Set<Widget>();
+		for (const candidate of [this.shell.activeWidget, this.shell.currentWidget, ...this.shell.getWidgets('main')]) {
+			const primary = this.groupTabsService.getPrimary(candidate);
+			if (!primary || seen.has(primary)) {
+				continue;
+			}
+			seen.add(primary);
+
+			const uri = NavigatableWidget.getUri(primary);
+			if (uri?.isEqual(requestedUri)) {
+				return primary;
+			}
+		}
+		return undefined;
 	}
 
 	protected findMarkdownPrimary(): Widget | undefined {

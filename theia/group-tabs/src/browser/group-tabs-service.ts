@@ -192,7 +192,7 @@ export class GroupTabsService {
 			}
 		}
 		pair.setUngroupLayout(ungroupLayout);
-		pair.restoreState({ widgets: [], layout });
+		pair.restoreState({ widgets: [], layout } as GroupTabsWidget.State);
 		this.registerPair(pair);
 
 		const family = new Set(widgets);

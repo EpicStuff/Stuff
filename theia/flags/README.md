@@ -109,4 +109,4 @@ To stop a resident instance:
 theia --quit
 ```
 
-The extension only holds the Electron single instance lock while either keep warm mode is active. Normal Theia launches preserve the existing behavior of allowing independent Electron processes except when they are routed into an already running keep warm instance.
+Normal Theia launches share one Electron main process for the same user data directory. Additional `theia` invocations are routed into that process and open additional windows there. `--disable-gpu` remains an independent process because hardware acceleration has to be configured before Electron starts.

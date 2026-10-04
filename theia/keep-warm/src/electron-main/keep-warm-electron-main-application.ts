@@ -501,9 +501,10 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		return window;
 	}
 
-	protected async runCliOnlyActions(cliArgs: ParsedVscodeCliArgs, cwd: string): Promise<void> {
-		const renderer = await this.createHiddenEmptyRenderer();
+	protected async runCliOnlyActions(cliArgs: ParsedVscodeCliArgs, cwd: string, existingRenderer?: BrowserWindow): Promise<void> {
+		const renderer = existingRenderer ?? await this.createHiddenEmptyRenderer();
 		const windowId = renderer.webContents.id;
+		const closeRenderer = existingRenderer === undefined;
 
 		try {
 			for (const extension of cliArgs.installExtensions) {
@@ -524,9 +525,11 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 				}
 			}
 		} finally {
-			const wrapper = this.windows.get(windowId);
-			if (wrapper) {
-				await wrapper.close();
+			if (closeRenderer) {
+				const wrapper = this.windows.get(windowId);
+				if (wrapper) {
+					await wrapper.close();
+				}
 			}
 		}
 	}
@@ -619,6 +622,17 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			cliArgs = parseVscodeCliArgs(applicationArgs);
 		} catch (error) {
 			console.error(error);
+			return;
+		}
+
+		if (this.hasCliOnlyAction(cliArgs)) {
+			const existingRenderer = this.getActiveVisibleWindow() ??
+				(this.warmRenderer && !this.warmRenderer.isDestroyed() ? this.warmRenderer : undefined);
+			try {
+				await this.runCliOnlyActions(cliArgs, cwd, existingRenderer);
+			} catch (error) {
+				console.error(error);
+			}
 			return;
 		}
 

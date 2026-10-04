@@ -24,12 +24,12 @@ export interface ContextMenuTarget {
 export const CONTEXT_MENU_TARGETS: ContextMenuTarget[] = [
 	{
 		id: 'editor',
-		label: 'Editor Right Click',
+		label: 'Editor',
 		path: EDITOR_CONTEXT_MENU
 	},
 	{
 		id: 'explorer',
-		label: 'Explorer Right Click',
+		label: 'Explorer',
 		path: NAVIGATOR_CONTEXT_MENU
 	},
 	{
@@ -39,32 +39,32 @@ export const CONTEXT_MENU_TARGETS: ContextMenuTarget[] = [
 	},
 	{
 		id: 'webview',
-		label: 'Webview Right Click (GitLens, etc.)',
+		label: 'Webview',
 		path: WEBVIEW_CONTEXT_MENU
 	},
 	{
 		id: 'terminal',
-		label: 'Terminal Right Click',
+		label: 'Terminal',
 		path: TerminalMenus.TERMINAL_CONTEXT_MENU
 	},
 	{
 		id: 'viewItem',
-		label: 'Extension Tree View Item Right Click',
+		label: 'Extension Tree View Item',
 		path: VIEW_ITEM_CONTEXT_MENU
 	},
 	{
 		id: 'scmHistoryItem',
-		label: 'SCM History Item Right Click',
+		label: 'SCM History Item',
 		path: SCM_HISTORY_ITEM_CONTEXT_MENU
 	},
 	{
 		id: 'scmHistoryRef',
-		label: 'SCM History Ref Right Click',
+		label: 'SCM History Ref',
 		path: SCM_HISTORY_ITEM_REF_CONTEXT_MENU
 	},
 	{
 		id: 'timelineItem',
-		label: 'Timeline Item Right Click',
+		label: 'Timeline Item',
 		path: TIMELINE_ITEM_CONTEXT_MENU
 	}
 ];

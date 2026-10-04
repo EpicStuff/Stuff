@@ -26,11 +26,21 @@ import {
 	EditableMenuEntry,
 	EditableMenuItem,
 	StoredMenuEntry,
+	StoredMenuItem,
 	StoredMenuLayout,
 	StoredMenuLayouts
 } from './custom-context-menu-types';
 
-interface DefaultMenuItem extends EditableMenuItem {
+interface DefaultMenuItem {
+	type: 'item';
+	key: string;
+	label: string;
+	commandId?: string;
+	when?: string;
+	icon?: string;
+	custom: false;
+	submenu: boolean;
+	children?: DefaultMenuEntry[];
 	node: MenuNode;
 }
 
@@ -134,7 +144,8 @@ export class CustomContextMenuService {
 			return defaults.map(entry => this.toEditable(entry));
 		}
 
-		return this.resolveEditableLayout(layout, defaults);
+		const defaultIndex = this.indexDefaults(defaults);
+		return this.resolveEditableEntries(layout.entries, layout.knownDefaultKeys, defaults, defaultIndex);
 	}
 
 	async applyChanges(changes: ContextMenuConfigurationChanges): Promise<void> {
@@ -151,11 +162,12 @@ export class CustomContextMenuService {
 			const menu = target && this.menuRegistry.getMenu(target.path);
 			if (!target || !menu) {
 				continue;
-		}
+			}
 
 			const defaults = this.flattenMenu(menu, target.path);
+			const defaultIndex = this.indexDefaults(defaults);
 			layouts[targetId] = {
-				entries: entries.map(entry => this.toStored(entry)),
+				entries: this.toStoredEntries(entries, defaults, defaultIndex),
 				knownDefaultKeys: defaults.map(entry => entry.key)
 			};
 		}
@@ -175,8 +187,9 @@ export class CustomContextMenuService {
 		}
 
 		const defaults = this.flattenMenu(menu, target.path);
-		const resolved = this.resolveRenderedLayout(layout, defaults);
-		return this.createMenuRoot(menu, target, resolved);
+		const defaultIndex = this.indexDefaults(defaults);
+		const resolved = this.resolveRenderedEntries(layout.entries, layout.knownDefaultKeys, defaults, defaultIndex);
+		return this.cloneCompoundWithEntries(menu, resolved, `root-${target.id}`);
 	}
 
 	protected readLayouts(): StoredMenuLayouts {
@@ -192,12 +205,16 @@ export class CustomContextMenuService {
 		return layout;
 	}
 
-	protected resolveEditableLayout(layout: StoredMenuLayout, defaults: DefaultMenuEntry[]): EditableMenuEntry[] {
-		const defaultMap = new Map(defaults.map(entry => [entry.key, entry]));
+	protected resolveEditableEntries(
+		storedEntries: StoredMenuEntry[],
+		knownDefaultKeys: string[],
+		defaults: DefaultMenuEntry[],
+		defaultIndex: Map<string, DefaultMenuEntry>
+	): EditableMenuEntry[] {
 		const result: EditableMenuEntry[] = [];
 		const used = new Set<string>();
 
-		for (const stored of layout.entries) {
+		for (const stored of storedEntries) {
 			if (stored.type === 'separator') {
 				result.push({
 					type: 'separator',
@@ -206,10 +223,38 @@ export class CustomContextMenuService {
 				continue;
 			}
 
-			const defaultEntry = defaultMap.get(stored.key);
+			const defaultEntry = defaultIndex.get(stored.key);
 			if (defaultEntry?.type === 'item') {
-				result.push(this.toEditable(defaultEntry));
+				const editable = this.toEditable(defaultEntry) as EditableMenuItem;
+				if (editable.submenu && Array.isArray(stored.entries)) {
+					const defaultChildren = defaultEntry.children ?? [];
+					editable.children = this.resolveEditableEntries(
+						stored.entries,
+						stored.knownDefaultKeys ?? defaultChildren.map(entry => entry.key),
+						defaultChildren,
+						defaultIndex
+					);
+				}
+				result.push(editable);
 				used.add(stored.key);
+				continue;
+			}
+
+			if (stored.customSubmenu) {
+				result.push({
+					type: 'item',
+					key: stored.key,
+					label: stored.label || 'Submenu',
+					custom: true,
+					submenu: true,
+					customSubmenu: true,
+					children: this.resolveEditableEntries(
+						stored.entries ?? [],
+						stored.knownDefaultKeys ?? [],
+						[],
+						defaultIndex
+					)
+				});
 				continue;
 			}
 
@@ -227,34 +272,70 @@ export class CustomContextMenuService {
 			}
 		}
 
-		const knownDefaults = new Set(layout.knownDefaultKeys);
+		const knownDefaults = new Set(knownDefaultKeys);
 		for (const entry of defaults) {
 			if (!knownDefaults.has(entry.key) && !used.has(entry.key)) {
 				result.push(this.toEditable(entry));
 			}
 		}
 
-		return this.sanitizeEditableSeparators(result);
+		return this.sanitizeEditableTree(result);
 	}
 
-	protected resolveRenderedLayout(layout: StoredMenuLayout, defaults: DefaultMenuEntry[]): ResolvedMenuEntry[] {
-		const defaultMap = new Map(defaults.map(entry => [entry.key, entry]));
+	protected resolveRenderedEntries(
+		storedEntries: StoredMenuEntry[],
+		knownDefaultKeys: string[],
+		defaults: DefaultMenuEntry[],
+		defaultIndex: Map<string, DefaultMenuEntry>
+	): ResolvedMenuEntry[] {
 		const result: ResolvedMenuEntry[] = [];
 		const used = new Set<string>();
 
-		for (const stored of layout.entries) {
+		for (const stored of storedEntries) {
 			if (stored.type === 'separator') {
 				result.push({ type: 'separator' });
 				continue;
 			}
 
-			const defaultEntry = defaultMap.get(stored.key);
+			const defaultEntry = defaultIndex.get(stored.key);
 			if (defaultEntry?.type === 'item') {
+				let node = defaultEntry.node;
+				if (defaultEntry.submenu && CompoundMenuNode.is(node) && Array.isArray(stored.entries)) {
+					const defaultChildren = defaultEntry.children ?? [];
+					const children = this.resolveRenderedEntries(
+						stored.entries,
+						stored.knownDefaultKeys ?? defaultChildren.map(entry => entry.key),
+						defaultChildren,
+						defaultIndex
+					);
+					node = this.cloneCompoundWithEntries(node, children, stored.key);
+				}
 				result.push({
 					type: 'item',
-					node: defaultEntry.node
+					node
 				});
 				used.add(stored.key);
+				continue;
+			}
+
+			if (stored.customSubmenu) {
+				const submenu = this.menuNodeFactory.createSubmenu(
+					stored.key,
+					stored.label || 'Submenu',
+					undefined
+				);
+				const children = this.resolveRenderedEntries(
+					stored.entries ?? [],
+					stored.knownDefaultKeys ?? [],
+					[],
+					defaultIndex
+				);
+				const groupedChildren = this.groupResolvedEntries(children, stored.key);
+				submenu.children.push(...groupedChildren);
+				result.push({
+					type: 'item',
+					node: submenu
+				});
 				continue;
 			}
 
@@ -268,7 +349,7 @@ export class CustomContextMenuService {
 			}
 		}
 
-		const knownDefaults = new Set(layout.knownDefaultKeys);
+		const knownDefaults = new Set(knownDefaultKeys);
 		for (const entry of defaults) {
 			if (knownDefaults.has(entry.key) || used.has(entry.key)) {
 				continue;
@@ -286,7 +367,18 @@ export class CustomContextMenuService {
 		return this.sanitizeResolvedSeparators(result);
 	}
 
-	protected createMenuRoot(menu: CompoundMenuNode, target: ContextMenuTarget, entries: ResolvedMenuEntry[]): CompoundMenuNode {
+	protected cloneCompoundWithEntries(menu: CompoundMenuNode, entries: ResolvedMenuEntry[], key: string): CompoundMenuNode {
+		const customized = Object.create(menu) as CompoundMenuNode;
+		Object.defineProperty(customized, 'children', {
+			value: this.groupResolvedEntries(entries, key),
+			writable: true,
+			configurable: true,
+			enumerable: true
+		});
+		return customized;
+	}
+
+	protected groupResolvedEntries(entries: ResolvedMenuEntry[], key: string): MenuNode[] {
 		const groups: GroupImpl[] = [];
 		let current: MenuNode[] = [];
 
@@ -294,7 +386,10 @@ export class CustomContextMenuService {
 			if (!current.length) {
 				return;
 			}
-			const group = new GroupImpl(`custom-context-menu-${target.id}-${groups.length}`, groups.length.toString().padStart(4, '0'));
+			const group = new GroupImpl(
+				`custom-context-menu-${this.safeId(key)}-${groups.length}`,
+				groups.length.toString().padStart(4, '0')
+			);
 			group.children.push(...current);
 			groups.push(group);
 			current = [];
@@ -308,15 +403,7 @@ export class CustomContextMenuService {
 			}
 		}
 		flush();
-
-		const customized = Object.create(menu) as CompoundMenuNode;
-		Object.defineProperty(customized, 'children', {
-			value: groups,
-			writable: true,
-			configurable: true,
-			enumerable: true
-		});
-		return customized;
+		return groups;
 	}
 
 	protected flattenMenu(menu: CompoundMenuNode, menuPath: MenuPath): DefaultMenuEntry[] {
@@ -367,12 +454,23 @@ export class CustomContextMenuService {
 					icon: child.icon,
 					custom: false,
 					submenu: true,
+					children: this.flattenChildren(child.children, childPath),
 					node: child
 				});
 			}
 		}
 
 		return this.sanitizeDefaultSeparators(result);
+	}
+
+	protected indexDefaults(entries: DefaultMenuEntry[], target = new Map<string, DefaultMenuEntry>()): Map<string, DefaultMenuEntry> {
+		for (const entry of entries) {
+			target.set(entry.key, entry);
+			if (entry.type === 'item' && entry.children) {
+				this.indexDefaults(entry.children, target);
+			}
+		}
+		return target;
 	}
 
 	protected toEditable(entry: DefaultMenuEntry): EditableMenuEntry {
@@ -382,29 +480,66 @@ export class CustomContextMenuService {
 				key: entry.key
 			};
 		}
-		const { node: _node, ...editable } = entry;
-		return editable;
-	}
-
-	protected toStored(entry: EditableMenuEntry): StoredMenuEntry {
-		if (entry.type === 'separator') {
-			return {
-				type: 'separator',
-				key: entry.key
-			};
-		}
 		return {
 			type: 'item',
 			key: entry.key,
-			commandId: entry.custom ? entry.commandId : undefined
+			label: entry.label,
+			commandId: entry.commandId,
+			when: entry.when,
+			icon: entry.icon,
+			custom: false,
+			submenu: entry.submenu,
+			children: entry.children?.map(child => this.toEditable(child))
 		};
 	}
 
-	protected sanitizeDefaultSeparators(entries: DefaultMenuEntry[]): DefaultMenuEntry[] {
-		return this.sanitizeSeparators(entries);
+	protected toStoredEntries(
+		entries: EditableMenuEntry[],
+		defaults: DefaultMenuEntry[],
+		defaultIndex: Map<string, DefaultMenuEntry>
+	): StoredMenuEntry[] {
+		return entries.map(entry => {
+			if (entry.type === 'separator') {
+				return {
+					type: 'separator',
+					key: entry.key
+				};
+			}
+
+			const stored: StoredMenuItem = {
+				type: 'item',
+				key: entry.key
+			};
+
+			if (entry.customSubmenu) {
+				stored.customSubmenu = true;
+				stored.label = entry.label;
+			} else if (entry.custom && entry.commandId) {
+				stored.commandId = entry.commandId;
+			}
+
+			if (entry.submenu) {
+				const defaultEntry = defaultIndex.get(entry.key);
+				const defaultChildren = defaultEntry?.type === 'item' ? defaultEntry.children ?? [] : [];
+				stored.entries = this.toStoredEntries(entry.children ?? [], defaultChildren, defaultIndex);
+				stored.knownDefaultKeys = defaultChildren.map(child => child.key);
+			}
+
+			return stored;
+		});
 	}
 
-	protected sanitizeEditableSeparators(entries: EditableMenuEntry[]): EditableMenuEntry[] {
+	protected sanitizeEditableTree(entries: EditableMenuEntry[]): EditableMenuEntry[] {
+		const sanitized = this.sanitizeSeparators(entries);
+		for (const entry of sanitized) {
+			if (entry.type === 'item' && entry.children) {
+				entry.children = this.sanitizeEditableTree(entry.children);
+			}
+		}
+		return sanitized;
+	}
+
+	protected sanitizeDefaultSeparators(entries: DefaultMenuEntry[]): DefaultMenuEntry[] {
 		return this.sanitizeSeparators(entries);
 	}
 
@@ -428,6 +563,10 @@ export class CustomContextMenuService {
 
 	protected pathKey(path: MenuPath): string {
 		return path.map(segment => encodeURIComponent(segment)).join('/');
+	}
+
+	protected safeId(value: string): string {
+		return value.replace(/[^a-zA-Z0-9_.-]/g, '_');
 	}
 
 	protected pathsEqual(left: MenuPath, right: MenuPath): boolean {

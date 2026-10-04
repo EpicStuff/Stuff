@@ -1,3 +1,43 @@
+const THEIA_PASSTHROUGH_OPTIONS = new Set([
+	'--app-project-path',
+	'--attach-container',
+	'--cert',
+	'--certkey',
+	'--dev-json',
+	'--dnsDefaultResultOrder',
+	'--electronUserData',
+	'--extensionTestsPath',
+	'--hostname',
+	'--install-plugin',
+	'--log-config',
+	'--log-file',
+	'--log-level',
+	'--no-cluster',
+	'--no-dev-json',
+	'--no-sandbox',
+	'--open-url',
+	'--ovsx-rate-limit',
+	'--ovsx-router-config',
+	'--plugin-max-session-logs-folders',
+	'--pluginHostStopTimeout',
+	'--pluginHostTerminateTimeout',
+	'--plugins',
+	'--port',
+	'--proxy-authorization',
+	'--proxy-url',
+	'--remote',
+	'--remote-auto-shutdown',
+	'--remote-auto-shutdown-timeout',
+	'--session-preference',
+	'--set-preference',
+	'--ssl',
+	'--strict-ssl',
+	'--uncompressed-plugins-in-place',
+	'--vscode-api-version',
+	'--watcher-verbose',
+	'-p'
+]);
+
 export interface ParsedVscodeCliArgs {
 	remainingArgs: string[];
 	help: boolean;
@@ -66,6 +106,11 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 	for (let index = 0; index < args.length; index++) {
 		const arg = args[index];
 
+		if (arg === '--') {
+			parsed.remainingArgs.push(...args.slice(index));
+			break;
+		}
+
 		switch (arg) {
 			case '-h':
 			case '--help':
@@ -125,6 +170,8 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 					parsed.userDataDir = requireInlineValue(arg, '--user-data-dir');
 				} else if (arg.startsWith('--goto=')) {
 					parsed.gotoTarget = requireInlineValue(arg, '--goto');
+				} else if (arg.startsWith('-') && !isKnownPassthroughOption(arg)) {
+					throw new Error(`Unknown option '${arg}'`);
 				} else {
 					parsed.remainingArgs.push(arg);
 				}
@@ -173,4 +220,10 @@ function requireInlineValue(arg: string, flag: string): string {
 		throw new Error(`${flag} requires a value`);
 	}
 	return value;
+}
+
+function isKnownPassthroughOption(arg: string): boolean {
+	const separator = arg.indexOf('=');
+	const option = separator >= 0 ? arg.slice(0, separator) : arg;
+	return THEIA_PASSTHROUGH_OPTIONS.has(option);
 }

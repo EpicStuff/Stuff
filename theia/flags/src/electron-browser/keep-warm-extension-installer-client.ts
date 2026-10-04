@@ -5,6 +5,7 @@ import { FileUri } from '@theia/core/lib/common/file-uri';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { HostedPluginServer, PluginIdentifiers, PluginServer, PluginType } from '@theia/plugin-ext/lib/common/plugin-protocol';
 import { VSCodeExtensionUri } from '@theia/plugin-ext-vscode/lib/common/plugin-vscode-uri';
+import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { KeepWarmExtensionInstallerClient, KeepWarmExtensionInstallerService } from '../common/extension-installer-protocol';
 
 @injectable()
@@ -21,6 +22,9 @@ export class KeepWarmExtensionInstallerClientImpl implements KeepWarmExtensionIn
 	@inject(WindowService)
 	protected readonly windowService!: WindowService;
 
+	@inject(WorkspaceService)
+	protected readonly workspaceService!: WorkspaceService;
+
 	async getWindowId(): Promise<number> {
 		const electronWindow = window as Window & typeof globalThis & {
 			electronTheiaCore: {
@@ -30,6 +34,10 @@ export class KeepWarmExtensionInstallerClientImpl implements KeepWarmExtensionIn
 			};
 		};
 		return Number(electronWindow.electronTheiaCore.WindowMetadata.webcontentId);
+	}
+
+	async getWorkspacePath(): Promise<string | undefined> {
+		return this.workspaceService.workspace?.resource.path.fsPath();
 	}
 
 	async installExtension(extension: string, local: boolean): Promise<void> {

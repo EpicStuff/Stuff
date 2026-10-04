@@ -1,12 +1,23 @@
+import { promises as fs } from 'fs';
+import * as path from 'path';
+import { app } from '@theia/core/electron-shared/electron';
 import { injectable } from '@theia/core/shared/inversify';
 import { KeepWarmExtensionInstallerClient, KeepWarmExtensionInstallerService } from '../common/extension-installer-protocol';
+
+interface StoredWindowSession {
+	workspaces: string[];
+}
 
 @injectable()
 export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionInstallerService {
 	protected readonly clients = new Set<KeepWarmExtensionInstallerClient>();
 	protected readonly clientsByWindowId = new Map<number, KeepWarmExtensionInstallerClient>();
+	protected readonly workspaceByWindowId = new Map<number, string>();
+	protected readonly sessionWorkspaces = new Set<string>();
 	protected readonly waiters: Array<(client: KeepWarmExtensionInstallerClient) => void> = [];
 	protected readonly windowWaiters = new Map<number, Array<(client: KeepWarmExtensionInstallerClient) => void>>();
+	protected sessionLoaded = false;
+	protected sessionWrite = Promise.resolve();
 
 	setClient(client: KeepWarmExtensionInstallerClient | undefined): void {
 		if (client) {
@@ -26,10 +37,11 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 			waiter = this.waiters.shift();
 		}
 
-		void client.getWindowId().then(windowId => {
+		void client.getWindowId().then(async windowId => {
 			if (!this.clients.has(client)) {
 				return;
 			}
+
 			this.clientsByWindowId.set(windowId, client);
 			const windowWaiters = this.windowWaiters.get(windowId);
 			if (windowWaiters) {
@@ -37,6 +49,11 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 				for (const windowWaiter of windowWaiters) {
 					windowWaiter(client);
 				}
+			}
+
+			const workspacePath = await client.getWorkspacePath();
+			if (this.clients.has(client)) {
+				await this.recordWindowWorkspace(windowId, workspacePath);
 			}
 		}).catch(() => undefined);
 	}
@@ -80,11 +97,102 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 		await client.openDiff(leftPath, rightPath);
 	}
 
+	async getRestorableWorkspaces(): Promise<string[]> {
+		await this.ensureSessionLoaded();
+		return [...this.sessionWorkspaces];
+	}
+
+	async replaceSession(workspaces: readonly string[]): Promise<void> {
+		await this.ensureSessionLoaded();
+		this.sessionWorkspaces.clear();
+		for (const workspacePath of workspaces) {
+			this.sessionWorkspaces.add(workspacePath);
+		}
+		this.workspaceByWindowId.clear();
+		await this.persistSession();
+	}
+
+	async forgetWindow(windowId: number): Promise<void> {
+		await this.ensureSessionLoaded();
+		const workspacePath = this.workspaceByWindowId.get(windowId);
+		this.workspaceByWindowId.delete(windowId);
+		if (!workspacePath) {
+			return;
+		}
+
+		if (![...this.workspaceByWindowId.values()].includes(workspacePath)) {
+			this.sessionWorkspaces.delete(workspacePath);
+			await this.persistSession();
+		}
+	}
+
 	dispose(): void {
 		this.clients.clear();
 		this.clientsByWindowId.clear();
+		this.workspaceByWindowId.clear();
 		this.waiters.splice(0);
 		this.windowWaiters.clear();
+	}
+
+	protected async recordWindowWorkspace(windowId: number, workspacePath: string | undefined): Promise<void> {
+		await this.ensureSessionLoaded();
+		const previousWorkspacePath = this.workspaceByWindowId.get(windowId);
+
+		if (previousWorkspacePath && previousWorkspacePath !== workspacePath &&
+			![...this.workspaceByWindowId.entries()].some(([id, candidate]) => id !== windowId && candidate === previousWorkspacePath)) {
+			this.sessionWorkspaces.delete(previousWorkspacePath);
+		}
+
+		if (workspacePath) {
+			this.workspaceByWindowId.set(windowId, workspacePath);
+			this.sessionWorkspaces.add(workspacePath);
+		} else {
+			this.workspaceByWindowId.delete(windowId);
+		}
+
+		await this.persistSession();
+	}
+
+	protected async ensureSessionLoaded(): Promise<void> {
+		if (this.sessionLoaded) {
+			return;
+		}
+		this.sessionLoaded = true;
+
+		try {
+			const raw = await fs.readFile(this.sessionPath, 'utf8');
+			const parsed = JSON.parse(raw) as Partial<StoredWindowSession>;
+			if (Array.isArray(parsed.workspaces)) {
+				for (const workspacePath of parsed.workspaces) {
+					if (typeof workspacePath === 'string' && workspacePath.length > 0) {
+						this.sessionWorkspaces.add(workspacePath);
+					}
+				}
+			}
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+				console.warn('Could not read Theia window session.', error);
+			}
+		}
+	}
+
+	protected persistSession(): Promise<void> {
+		const snapshot: StoredWindowSession = {
+			workspaces: [...this.sessionWorkspaces]
+		};
+
+		this.sessionWrite = this.sessionWrite.catch(() => undefined).then(async () => {
+			await fs.mkdir(path.dirname(this.sessionPath), { recursive: true });
+			const temporaryPath = `${this.sessionPath}.tmp`;
+			await fs.writeFile(temporaryPath, JSON.stringify(snapshot, undefined, '\t') + '\n', 'utf8');
+			await fs.rename(temporaryPath, this.sessionPath);
+		});
+
+		return this.sessionWrite;
+	}
+
+	protected get sessionPath(): string {
+		return path.join(app.getPath('userData'), 'theia-window-session.json');
 	}
 
 	protected async waitForClient(windowId?: number): Promise<KeepWarmExtensionInstallerClient> {

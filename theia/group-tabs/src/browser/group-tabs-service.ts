@@ -1,6 +1,6 @@
 import { Disposable, DisposableCollection, generateUuid } from '@theia/core';
 import { PreferenceService } from '@theia/core/lib/common/preferences';
-import { ApplicationShell, DockPanel, Widget, WidgetManager } from '@theia/core/lib/browser';
+import { ApplicationShell, DockLayout, DockPanel, Widget, WidgetManager } from '@theia/core/lib/browser';
 import { StorageService } from '@theia/core/lib/browser/storage-service';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { MiniBrowser } from '@theia/mini-browser/lib/browser/mini-browser';
@@ -102,14 +102,12 @@ export class GroupTabsService {
 		const excluded = new Set(this.getMembers(primary));
 		const result: Widget[] = [];
 		const seen = new Set<Widget>();
-		for (const area of ['main', 'right', 'left', 'bottom'] as ApplicationShell.Area[]) {
-			for (const widget of this.shell.getWidgets(area)) {
-				const widgets = widget instanceof GroupTabsWidget ? widget.getTrackableWidgets() : [widget];
-				for (const candidate of widgets) {
-					if (!candidate.isDisposed && !excluded.has(candidate) && !seen.has(candidate)) {
-						seen.add(candidate);
-						result.push(candidate);
-					}
+		for (const widget of this.shell.getWidgets('main')) {
+			const widgets = widget instanceof GroupTabsWidget ? widget.getTrackableWidgets() : [widget];
+			for (const candidate of widgets) {
+				if (!candidate.isDisposed && !excluded.has(candidate) && !seen.has(candidate)) {
+					seen.add(candidate);
+					result.push(candidate);
 				}
 			}
 		}
@@ -168,12 +166,10 @@ export class GroupTabsService {
 			}
 			resolved.add(child);
 		}
-
 		return pair;
 	}
 
-
-	async groupLayout(layout: GroupTabsWidget.LayoutNodeState, ungroupLayout: DockPanel.ILayoutConfig): Promise<GroupTabsWidget | undefined> {
+	async groupLayout(layout: DockPanel.ILayoutConfig): Promise<GroupTabsWidget | undefined> {
 		const widgets = this.layoutWidgets(layout).filter(widget => !widget.isDisposed);
 		if (widgets.length < 2) {
 			return widgets[0] ? this.getPair(widgets[0]) : undefined;
@@ -191,8 +187,9 @@ export class GroupTabsService {
 				widget.parent = null;
 			}
 		}
-		pair.setUngroupLayout(ungroupLayout);
-		pair.restoreState({ widgets: [], layout } as GroupTabsWidget.State);
+
+		pair.setUngroupLayout(layout);
+		pair.setGroupLayout(layout);
 		this.registerPair(pair);
 
 		const family = new Set(widgets);
@@ -222,68 +219,31 @@ export class GroupTabsService {
 		}
 
 		await this.forgetRules(record);
-		const layout = pair.getUngroupLayout();
-		const members = [...record.members];
-		for (const member of members) {
-			member.parent = null;
+		const layout = this.pruneLayout(pair.getUngroupLayout() ?? pair.getGroupLayout());
+		const primary = record.primary;
+		pair.releasePanes();
+
+		const first = this.firstLayoutWidget(layout.main);
+		if (!first) {
+			this.clearPair(pair);
+			pair.dispose();
+			return;
 		}
+
+		await this.withoutShellCapture(() => this.shell.addWidget(first, {
+			area: 'main',
+			ref: pair,
+			mode: 'tab-after'
+		}));
+
 		this.clearPair(pair);
 		pair.dispose();
+		await this.populateLayout(layout.main);
 
-		if (layout) {
-			this.shell.mainPanel.restoreLayout(layout);
-			if (!record.primary.isDisposed) {
-				await this.shell.activateWidget(record.primary.id);
-			}
-			return;
-		}
-
-		const primary = record.primary;
 		if (!primary.isDisposed) {
-			await this.withoutShellCapture(() => this.shell.addWidget(primary, { area: 'main' }));
-		}
-		for (const member of members) {
-			if (member !== primary && !member.isDisposed) {
-				await this.withoutShellCapture(() => this.shell.addWidget(member, {
-					area: 'main',
-					ref: primary,
-					mode: 'split-right'
-				}));
-			}
+			await this.shell.activateWidget(primary.id);
 		}
 	}
-
-	protected layoutWidgets(layout: GroupTabsWidget.LayoutNodeState): Widget[] {
-		const result: Widget[] = [];
-		for (const child of layout.children) {
-			if ('widgets' in child) {
-				result.push(...child.widgets);
-			} else {
-				result.push(...this.layoutWidgets(child));
-			}
-		}
-		return result;
-	}
-
-	protected async forgetRules(record: GroupTabsRecord): Promise<void> {
-		const members = new Set(record.members);
-		const removed = new Set<string>();
-		for (const [child, placement] of record.placements) {
-			const parent = this.resolveSource(placement.ref);
-			if (!parent || !members.has(parent)) {
-				continue;
-			}
-			removed.add(`${this.widgetKind(parent)}\n${this.widgetKind(child)}\n${placement.relation}`);
-		}
-		if (removed.size === 0) {
-			return;
-		}
-		this.learnedRules = this.learnedRules.filter(rule =>
-			!removed.has(`${rule.parentKind}\n${rule.childKind}\n${rule.relation}`)
-		);
-		await this.storageService.setData(LEARNED_RULES_STORAGE_KEY, this.learnedRules);
-	}
-
 
 	async addRelative(sourceInput: Widget, widget: Widget, placement: GroupTabsPlacement, options: { restoreSecondary?: boolean } = {}): Promise<GroupTabsWidget> {
 		const source = this.resolveSource(sourceInput);
@@ -461,6 +421,25 @@ export class GroupTabsService {
 		await this.storageService.setData(LEARNED_RULES_STORAGE_KEY, this.learnedRules);
 	}
 
+	protected async forgetRules(record: GroupTabsRecord): Promise<void> {
+		const members = new Set(record.members);
+		const removed = new Set<string>();
+		for (const [child, placement] of record.placements) {
+			const parent = this.resolveSource(placement.ref);
+			if (!parent || !members.has(parent)) {
+				continue;
+			}
+			removed.add(`${this.widgetKind(parent)}\n${this.widgetKind(child)}\n${placement.relation}`);
+		}
+		if (removed.size === 0) {
+			return;
+		}
+		this.learnedRules = this.learnedRules.filter(rule =>
+			!removed.has(`${rule.parentKind}\n${rule.childKind}\n${rule.relation}`)
+		);
+		await this.storageService.setData(LEARNED_RULES_STORAGE_KEY, this.learnedRules);
+	}
+
 	protected rememberGroupsEnabled(): boolean {
 		return this.preferenceService.get<boolean>(GROUP_TABS_REMEMBER_GROUPS, true);
 	}
@@ -486,6 +465,126 @@ export class GroupTabsService {
 		}
 		const uri = widget.getResourceUri();
 		return uri?.scheme === MiniBrowserOpenHandler.PREVIEW_URI.scheme;
+	}
+
+	protected layoutWidgets(layout: DockPanel.ILayoutConfig): Widget[] {
+		return this.areaWidgets(layout.main);
+	}
+
+	protected areaWidgets(area: DockLayout.AreaConfig | null): Widget[] {
+		if (!area) {
+			return [];
+		}
+		if (area.type === 'tab-area') {
+			return [...area.widgets];
+		}
+		return area.children.flatMap(child => this.areaWidgets(child));
+	}
+
+	protected firstLayoutWidget(area: DockLayout.AreaConfig | null): Widget | undefined {
+		if (!area) {
+			return undefined;
+		}
+		if (area.type === 'tab-area') {
+			return area.widgets.find(widget => !widget.isDisposed);
+		}
+		for (const child of area.children) {
+			const widget = this.firstLayoutWidget(child);
+			if (widget) {
+				return widget;
+			}
+		}
+		return undefined;
+	}
+
+	protected pruneLayout(layout: DockPanel.ILayoutConfig): DockPanel.ILayoutConfig {
+		return {
+			main: this.pruneArea(layout.main)
+		};
+	}
+
+	protected pruneArea(area: DockLayout.AreaConfig | null): DockLayout.AreaConfig | null {
+		if (!area) {
+			return null;
+		}
+		if (area.type === 'tab-area') {
+			const widgets = area.widgets.filter(widget => !widget.isDisposed);
+			if (widgets.length === 0) {
+				return null;
+			}
+			const selected = area.widgets[area.currentIndex];
+			return {
+				type: 'tab-area',
+				widgets,
+				currentIndex: Math.max(0, widgets.indexOf(selected))
+			};
+		}
+
+		const children: DockLayout.AreaConfig[] = [];
+		const sizes: number[] = [];
+		for (let index = 0; index < area.children.length; index++) {
+			const child = this.pruneArea(area.children[index]);
+			if (child) {
+				children.push(child);
+				sizes.push(area.sizes[index] ?? 1);
+			}
+		}
+		if (children.length === 0) {
+			return null;
+		}
+		if (children.length === 1) {
+			return children[0];
+		}
+		const total = sizes.reduce((sum, size) => sum + size, 0);
+		return {
+			type: 'split-area',
+			orientation: area.orientation,
+			children,
+			sizes: total > 0 ? sizes.map(size => size / total) : sizes
+		};
+	}
+
+	protected async populateLayout(area: DockLayout.AreaConfig | null): Promise<void> {
+		if (!area) {
+			return;
+		}
+		if (area.type === 'tab-area') {
+			const anchor = this.firstLayoutWidget(area);
+			if (!anchor) {
+				return;
+			}
+			for (const widget of area.widgets) {
+				if (widget !== anchor && !widget.isDisposed && this.shell.getAreaFor(widget) !== 'main') {
+					await this.withoutShellCapture(() => this.shell.addWidget(widget, {
+						area: 'main',
+						ref: anchor,
+						mode: 'tab-after'
+					}));
+				}
+			}
+			return;
+		}
+
+		const anchors = area.children.map(child => this.firstLayoutWidget(child));
+		let previous = anchors[0];
+		for (let index = 1; index < area.children.length; index++) {
+			const anchor = anchors[index];
+			if (!anchor || !previous) {
+				continue;
+			}
+			if (this.shell.getAreaFor(anchor) !== 'main') {
+				await this.withoutShellCapture(() => this.shell.addWidget(anchor, {
+					area: 'main',
+					ref: previous,
+					mode: area.orientation === 'horizontal' ? 'split-right' : 'split-bottom'
+				}));
+			}
+			previous = anchor;
+		}
+
+		for (const child of area.children) {
+			await this.populateLayout(child);
+		}
 	}
 
 	protected async createGroup(primary: Widget): Promise<GroupTabsWidget> {

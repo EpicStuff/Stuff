@@ -23,6 +23,8 @@ export class KeepWarmBackendCliContribution implements CliContribution {
 	@inject(KeepWarmBackendCliState)
 	protected readonly state!: KeepWarmBackendCliState;
 
+	@inject(VsxCli)
+	protected readonly vsxCli!: VsxCli;
 
 	configure(conf: Argv): void {
 		conf.option('uninstall-extension', {
@@ -99,9 +101,6 @@ export class KeepWarmBackendCliRunner implements BackendApplicationContribution 
 	@inject(KeepWarmBackendCliState)
 	protected readonly state!: KeepWarmBackendCliState;
 
-	@inject(VsxCli)
-	protected readonly vsxCli!: VsxCli;
-
 	@inject(PluginDeployerHandler)
 	protected readonly pluginDeployerHandler!: PluginDeployerHandler;
 
@@ -175,7 +174,7 @@ export class KeepWarmBackendCliRunner implements BackendApplicationContribution 
 		if (extension.toLowerCase().endsWith('.vsix')) {
 			throw new Error(`Extension file does not exist: ${extension}`);
 		}
-		if (!/^[^.\\s@]+\\.[^\\s@]+(?:@[^\\s@]+)?$/.test(extension)) {
+		if (!/^[^.\s@]+\.[^\s@]+(?:@[^\s@]+)?$/.test(extension)) {
 			throw new Error(`Invalid extension id '${extension}'. Expected publisher.name[@version] or a .vsix path`);
 		}
 

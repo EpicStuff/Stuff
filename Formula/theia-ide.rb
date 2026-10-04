@@ -73,8 +73,7 @@ class TheiaIde < Formula
 		odie 'Could not find the packaged Theia IDE launcher' unless launcher.executable?
 
 		libexec.install app_dir.children
-		bin.write_exec_script libexec/'theia-ide-electron-app'
-		mv bin/'theia-ide-electron-app', bin/'theia'
+		install_cli_launcher
 		install_desktop_entry
 	end
 
@@ -84,6 +83,42 @@ class TheiaIde < Formula
 	end
 
 	private
+
+	def install_cli_launcher
+		launcher = libexec/'theia-ide-electron-app'
+		electron_node = libexec/'theia-ide-electron-app.bin'
+		backend_main = libexec/'resources/app.asar/lib/backend/main.js'
+		bundled_plugins = libexec/'resources/app/plugins'
+
+		script = <<~SH
+			#!/bin/sh
+			backend_cli=0
+			for arg do
+				case "$arg" in
+					--install-extension|--install-extension=*|--install-plugin|--install-plugin=*|--uninstall-extension|--uninstall-extension=*|--list-extensions|--show-versions)
+						backend_cli=1
+						;;
+					--)
+						break
+						;;
+				esac
+			done
+
+			if [ "$backend_cli" -eq 1 ]; then
+				export THEIA_BACKEND_CLI=1
+				export ELECTRON_RUN_AS_NODE=1
+				if [ -z "${THEIA_DEFAULT_PLUGINS:-}" ]; then
+					export THEIA_DEFAULT_PLUGINS="local-dir:#{bundled_plugins}"
+				fi
+				exec "#{electron_node}" "#{backend_main}" "$@"
+			fi
+
+			exec "#{launcher}" "$@"
+		SH
+
+		(bin/'theia').write(script)
+		chmod 0755, bin/'theia'
+	end
 
 	def install_desktop_entry
 		desktop_dir = buildpath/'desktop-entry'

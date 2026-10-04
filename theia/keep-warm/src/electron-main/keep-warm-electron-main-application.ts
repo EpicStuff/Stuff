@@ -99,7 +99,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		let ownsSingleInstanceLock = true;
 
 		if (useSingleInstanceLock) {
-			ownsSingleInstanceLock = app.requestSingleInstanceLock(process.argv);
+			ownsSingleInstanceLock = app.requestSingleInstanceLock(process.argv as unknown as Record<string, unknown>);
 		}
 
 		if (!ownsSingleInstanceLock) {
@@ -153,7 +153,6 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 
 		if (this.cliOnly) {
 			window.setSkipTaskbar(true);
-			window.setFocusable(false);
 			window.on('show', () => window.hide());
 			window.hide();
 		}

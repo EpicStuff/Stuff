@@ -56,8 +56,8 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 
 		commands.registerCommand(GroupTabsCommands.CLOSE_SECONDARY, {
 			execute: (widget?: Widget) => this.groupTabsService.closeSecondary(widget ?? this.shell.activeWidget),
-			isEnabled: (widget?: Widget) => (this.groupTabsService.getMembers(widget ?? this.shell.activeWidget).length ?? 0) > 1,
-			isVisible: (widget?: Widget) => (this.groupTabsService.getMembers(widget ?? this.shell.activeWidget).length ?? 0) > 1
+			isEnabled: (widget?: Widget) => this.groupTabsService.getMembers(widget ?? this.shell.activeWidget).length > 1,
+			isVisible: (widget?: Widget) => this.groupTabsService.getMembers(widget ?? this.shell.activeWidget).length > 1
 		});
 	}
 

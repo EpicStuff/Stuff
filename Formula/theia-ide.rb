@@ -12,7 +12,7 @@ class TheiaIde < Formula
 		tag: 'v1.75.0',
 		revision: '9145abe093659217ef2967cc2955abdc37c16408'
 	license 'MIT'
-	revision 5
+	revision 6
 
 	livecheck do
 		url :stable
@@ -315,13 +315,13 @@ class TheiaIde < Formula
 		frontend_module.sub!("import { AIRegistryConfiguration } from '@theia/ai-registry/lib/common/ai-registry-configuration';\n", '')
 		frontend_module.sub!("import { TheiaIDEAIRegistryConfiguration } from './theia-ide-ai-registry-configuration';\n", '')
 
-		ai_binding = <<~TS
-			    if (isBound(AIRegistryConfiguration)) {
-			        rebind(AIRegistryConfiguration).to(TheiaIDEAIRegistryConfiguration).inSingletonScope();
-			    } else {
-			        bind(AIRegistryConfiguration).to(TheiaIDEAIRegistryConfiguration).inSingletonScope();
-			    }
-		TS
+		ai_binding = [
+			'    if (isBound(AIRegistryConfiguration)) {',
+			'        rebind(AIRegistryConfiguration).to(TheiaIDEAIRegistryConfiguration).inSingletonScope();',
+			'    } else {',
+			'        bind(AIRegistryConfiguration).to(TheiaIDEAIRegistryConfiguration).inSingletonScope();',
+			'    }',
+		].join("\n") + "\n"
 		odie 'Could not remove Theia IDE AI registry binding' unless frontend_module.include?(ai_binding)
 
 		frontend_module.sub!(ai_binding, '')

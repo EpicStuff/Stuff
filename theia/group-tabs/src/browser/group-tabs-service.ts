@@ -367,7 +367,7 @@ export class GroupTabsService {
 		return `widget:${widget.constructor.name}`;
 	}
 
-	protected isMiniBrowserUrlPreview(widget: Widget): widget is MiniBrowser {
+	isMiniBrowserUrlPreview(widget: Widget): widget is MiniBrowser {
 		if (!(widget instanceof MiniBrowser)) {
 			return false;
 		}

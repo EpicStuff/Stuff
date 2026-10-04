@@ -2,15 +2,33 @@
 
 Native Eclipse Theia Electron startup extension verified against Theia 1.75.0.
 
-It adds these command line flags:
+It adds resident startup behavior plus a VS Code compatible CLI layer.
+
+Resident process flags:
 
 - `--keep-warm` keeps one Electron main process and its Theia backend alive after the last window closes. Starting with only this flag opens no workspace and no visible window.
 - `--keep-warmer` includes `--keep-warm` behavior and also keeps one hidden empty Theia frontend renderer preloaded. It still keeps no project workspace open.
 - `--daemon` relaunches the requested invocation as a detached process with standard input and output disconnected from the terminal.
 - `--quit` asks the resident keep warm instance to quit.
-- `--install-extension <file.vsix>` installs a local VSIX without opening a visible Theia window.
 
-Typical use:
+VS Code compatible flags:
+
+- `-h`, `--help`
+- `-v`, `--version`
+- `-n`, `--new-window`
+- `-r`, `--reuse-window`
+- `-g`, `--goto <file:line[:column]>`
+- `-d`, `--diff <file1> <file2>`
+- `--list-extensions`
+- `--show-versions`
+- `--install-extension <publisher.name[@version]|file.vsix>`
+- `--uninstall-extension <publisher.name[@version]>`
+- `--user-data-dir <dir>`
+- `--disable-gpu`
+
+The existing Theia `--version` behavior is preserved. `--user-data-dir` sets both Electron's `userData` path and `THEIA_CONFIG_DIR`, while the narrower Theia `--electronUserData` option keeps its original behavior.
+
+Typical resident use:
 
 ```fish
 theia --keep-warm
@@ -41,13 +59,49 @@ theia /path/to/project
 
 A plain `theia` invocation with no visible windows behaves like a fresh launch and restores the previous workspace. Closing the last visible window leaves the backend resident. In warmer mode, a new hidden empty frontend is prepared after the last visible window closes.
 
-To install a local VSIX from the terminal:
+Window selection can be made explicit:
 
 ```fish
-theia --install-extension foo.vsix
+theia --new-window /path/to/project
+theia --reuse-window /path/to/project
 ```
 
-The installer invocation uses its own short lived backend and a hidden empty renderer, so it also works while a `--keep-warm` or `--keep-warmer` instance owns the Electron single instance lock. It waits for installation to complete, prints the installed path, then exits.
+When only the hidden warmer renderer exists, `--new-window` may reuse it because there is no existing visible user window. When another visible window exists, `--new-window` creates an additional window.
+
+Files can be opened at a location or compared:
+
+```fish
+theia --goto src/main.ts:40:8
+theia --diff old.txt new.txt
+```
+
+Extension management is available without opening a visible Theia window:
+
+```fish
+theia --list-extensions
+theia --list-extensions --show-versions
+theia --install-extension eamodio.gitlens
+theia --install-extension ./foo.vsix
+theia --uninstall-extension eamodio.gitlens
+```
+
+Extension management uses a short lived backend and hidden empty renderer. It waits for the operation to finish, prints its result, then exits.
+
+An isolated user data environment can be selected with:
+
+```fish
+theia --user-data-dir /tmp/theia-test
+```
+
+This changes both Electron user data and Theia configuration storage. Extension installation locations remain separate, matching VS Code's separation between `--user-data-dir` and `--extensions-dir`.
+
+Hardware acceleration can be disabled for a newly started Theia process with:
+
+```fish
+theia --disable-gpu
+```
+
+A normal `--disable-gpu` launch bypasses the resident keep warm instance because GPU acceleration has to be configured before Electron starts.
 
 To stop a resident instance:
 
@@ -55,4 +109,4 @@ To stop a resident instance:
 theia --quit
 ```
 
-The extension only holds the Electron single instance lock while either keep warm mode is active. Normal Theia launches release the lock and preserve the existing behavior of allowing independent Electron processes.
+The extension only holds the Electron single instance lock while either keep warm mode is active. Normal Theia launches preserve the existing behavior of allowing independent Electron processes except when they are routed into an already running keep warm instance.

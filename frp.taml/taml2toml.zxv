@@ -1,0 +1,128 @@
+import std/[os, json]
+import docopt, nyml, parsetoml
+import utils
+
+
+let doc = '''
+frp taml2toml
+cuz yaml > toml
+
+Usage:
+	taml2toml <input> [<output>] [-v | --verbose]
+'''
+
+# load args and file
+let args = doc.docopt()
+
+let file = args['<input>'].`$`.read_file()
+let output = args['<output>']
+let verbose = args['-v'] or args['--verbose']
+
+let yaml = file.yaml.toJson()
+let defaults = yaml.get('defaults')
+let taml = yaml.get()
+
+if verbose:
+	if defaults == nil:
+		echo 'defaults: nil'
+	;
+	else:
+		echo 'defaults: ', defaults
+	;
+;
+
+# process rest of taml
+# # make sure the "root" keys are first
+let root = newTTable()
+for key, val in taml:
+	if key notin ['defaults', 'proxies', 'visitors'] and val.kind notin {JArray, JObject, JNull}:
+		root[key] = val.to_toml()
+	;
+;
+
+# # everything else
+if 'visitors' in taml:
+	root['visitors'] = newTArray()
+;
+if 'proxies' in taml:
+	root['proxies'] = newTArray()
+;
+
+for key, val in taml:
+	if key == 'defaults':
+		discard
+	;
+	# # special (custom config format) stuff for visitors and proxies
+	elif key == 'visitors':
+		for type, node in val:
+			assert node.kind == JObject
+			for name, visitor in node:
+				assert visitor.kind == JObject
+				
+				# get type and name
+				visitor['type'] = %type
+				visitor['name'] = %name
+				visitor['serverName'] = %name
+				# load defaults if they exist
+				if defaults != nil and 'visitors' in defaults:
+					if verbose: echo visitor, 'loading defaults'
+					visitor.load_defaults defaults['visitors']
+				;
+				# "rename" port and ip
+				if 'port' in visitor:
+					visitor['bindPort'] = visitor['port']
+					visitor.delete 'port'
+				;
+				if 'ip' in visitor:
+					visitor['bindAddr'] = visitor['ip']
+					visitor.delete 'ip'
+				;
+
+				root['visitors'].add visitor.to_toml()
+			;
+		;
+	;
+	elif key == 'proxies':
+		for type, node in val:
+			assert node.kind == JObject
+			for name, proxy in node:
+				assert proxy.kind == JObject
+				
+				# get type and name
+				proxy['type'] = %type
+				proxy['name'] = %name
+				# load defaults if they exist
+				if defaults != nil and 'proxies' in defaults:
+					if verbose: echo proxy, ' - loading defaults'
+					proxy.load_defaults defaults['proxies'], verbose
+					if verbose: echo proxy
+				;
+				# "rename" port and ip
+				if 'port' in proxy:
+					proxy['localPort'] = proxy['port']
+					proxy.delete 'port'
+				;
+				if 'ip' in proxy:
+					proxy['localIP'] = proxy['ip']
+					proxy.delete 'ip'
+				;
+
+				root['proxies'].add proxy.to_toml()
+			;
+		;
+	;
+	else:
+		root[key] = val.to_toml()
+	;
+;
+
+# save output
+if $output != '':
+	echo 'writing to ', $output
+	writeFile $output, $root
+;
+else:
+	let output = args['<input>'].`$`.change_file_ext('.toml')
+	echo 'writing to ', output
+	writeFile output, $root
+;

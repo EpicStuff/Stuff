@@ -1,0 +1,61 @@
+import std/json
+import parsetoml
+
+proc to_toml*(node: JsonNode): TomlValueRef =
+	case node.kind
+	of JObject:
+		result = newTTable()
+		for key, value in node:
+			if value.kind != JNull:
+				result[key] = value.to_toml()
+			;
+		;
+	;
+	of JArray:
+		result = newTArray()
+		for value in node:
+			if value.kind != JNull:
+				result.add value.to_toml()
+			;
+		;
+	;
+	of JString:
+		result = newTString(node.getStr())
+	;
+	of JInt:
+		result = newTInt(node.getBiggestInt())
+	;
+	of JFloat:
+		result = newTFloat(node.getFloat())
+	;
+	of JBool:
+		result = newTBool(node.getBool())
+	;
+	of JNull:
+		result = newTNull()
+	;
+;
+
+proc load_defaults*(node: JsonNode, defaults: JsonNode, verbose=false) =
+	## load default values from defaults into node if default is not an object.
+	for key, val in defaults:
+		if verbose: echo '\t', key, ': ', val, ' - ', val.kind
+		# if the default is an object and that object exists in the node, call self on it, else, skip
+		if val.kind == JObject:
+			if key in node and node[key].kind == JObject:
+				if verbose: echo '\t\t', 'calling load_defaults'
+				load_defaults(node[key], defaults[key])
+			;
+			else:
+				if verbose: echo '\t\tskipping, key in node: ', key in node, ' node[key].kind: ', if key in node: $node[key].kind else: 'N/A' 
+				continue
+			;
+		;
+
+		# else, default is not object and is not in node, set it
+		if key notin node:
+			if verbose: echo '\t\t', 'adding to node' 
+			node[key] = val
+		;
+	;
+;

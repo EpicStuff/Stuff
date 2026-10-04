@@ -2,22 +2,34 @@
 
 A native Eclipse Theia extension for configuring context menus without patching workbench HTML.
 
-Version 0.1 supports:
+Current features:
 
 - Editor right click
 - Explorer right click
 - Settings gear menu
 - Hiding menu items
-- Reordering menu items
+- Drag reordering
+- Move Up and Move Down controls
 - Adding and moving separators
+- Expanding existing submenus and editing their contents
+- Creating custom submenus and dragging commands into or out of them
+- Renaming custom submenus
 - Adding registered commands
 - Restoring a menu to its contributed default layout
-- A native Theia React dialog for configuration
+- A main area configuration tab for testing menus while the configurator stays open
+- An optional modal dialog configurator
+- Native Theia controls and theme styling
 
-The extension leaves Theia's MenuModelRegistry untouched. It applies the saved layout to a temporary menu model immediately before ContextMenuRenderer renders it. That means the original command enablement and `when` conditions remain active, and the same customization path is used for browser style and native Electron context menus.
+The normal `Custom Context Menu: Configure` command opens the configurator in a main area tab. Apply changes, switch to another editor or view, and right click to inspect the result without closing the configurator.
 
-Configuration is stored in the hidden user preference `customContextMenu.layouts`. The dialog is available from the command palette as `Custom Context Menu: Configure` and from the Settings gear menu.
+`Custom Context Menu: Configure in Dialog` keeps the modal workflow available.
 
-The first version intentionally does not add per context overrides or `Configure This Context Menu`. Extension supplied dynamic visibility still works because the original menu nodes are reused after reordering.
+The extension leaves Theia's `MenuModelRegistry` untouched. It applies the saved layout to a temporary menu model immediately before `ContextMenuRenderer` renders it. The original command enablement and `when` conditions therefore remain active, and the same customization path is used for browser style and native Electron context menus.
 
-Commands manually added through the configurator have no extra `when` expression. Existing commands that were originally contributed to the selected menu keep their original visibility condition when removed and added back.
+Configuration is stored in the hidden user preference `customContextMenu.layouts`.
+
+The saved model is hierarchical. Existing extension supplied submenus keep their original nodes and conditions, while their children can be hidden, reordered, or moved. Custom submenus contain references to the original command nodes when an existing menu command is moved into them, so that command's original visibility condition is retained.
+
+New extension supplied menu entries are appended automatically if they were not present when a customized layout was last saved.
+
+The current version intentionally does not add per context overrides or `Configure This Context Menu`. Extension supplied dynamic visibility still works because the original menu nodes are reused after reordering.

@@ -1,6 +1,7 @@
 import { MANAGE_MENU, MenuPath, PreferenceSchema } from '@theia/core';
 import { EDITOR_CONTEXT_MENU } from '@theia/editor/lib/browser/editor-menu';
 import { NAVIGATOR_CONTEXT_MENU } from '@theia/navigator/lib/browser/navigator-contribution';
+import { WEBVIEW_CONTEXT_MENU } from '@theia/plugin-ext/lib/main/browser/webview/webview';
 
 export const CUSTOM_CONTEXT_MENU_LAYOUTS = 'customContextMenu.layouts';
 export const CUSTOM_CONTEXT_MENU_OPEN_MODE = 'customContextMenu.openMode';
@@ -28,6 +29,11 @@ export const CONTEXT_MENU_TARGETS: ContextMenuTarget[] = [
 		id: 'settings',
 		label: 'Settings Gear Menu',
 		path: MANAGE_MENU
+	},
+	{
+		id: 'webview',
+		label: 'Webview Right Click (GitLens, etc.)',
+		path: WEBVIEW_CONTEXT_MENU
 	}
 ];
 

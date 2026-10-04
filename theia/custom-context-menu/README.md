@@ -7,6 +7,7 @@ Current features:
 - Editor right click
 - Explorer right click
 - Settings gear menu
+- Webview right click menus, including GitLens Commit Graph and other `webview/context` contributions
 - Hiding menu items
 - Drag reordering with before and after drop positions
 - Move Up and Move Down controls
@@ -25,6 +26,8 @@ The normal `Custom Context Menu: Configure` command opens according to `customCo
 The popup includes a VS Code style `Open in Tab` icon in its title bar. It transfers the live configurator state into the main area tab without saving first, then closes the popup. Draft menu edits, the selected menu, expanded submenus, selection, and an in progress item editor are preserved.
 
 Explicit `Custom Context Menu: Configure in Dialog` and `Custom Context Menu: Configure in Tab` commands are also available.
+
+Webview customization uses Theia's normal `WEBVIEW_CONTEXT_MENU`, which is the target for VS Code `webview/context` contributions. GitLens Commit Graph, Inspect, Rebase, and other GitLens webviews therefore use the same customization path while their original context based `when` clauses continue to decide which items are visible for the clicked row or ref.
 
 The extension leaves Theia's `MenuModelRegistry` untouched. It applies the saved layout to a temporary menu model immediately before `ContextMenuRenderer` renders it. Original command behavior and extension supplied conditions remain active unless a condition is explicitly overridden.
 

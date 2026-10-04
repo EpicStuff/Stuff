@@ -1,6 +1,7 @@
 import { Disposable } from '@theia/core';
 import {
 	ApplicationShell,
+	codicon,
 	Dialog,
 	DialogProps,
 	WidgetManager
@@ -54,12 +55,7 @@ export class ContextMenuConfigDialog extends ReactDialog<ContextMenuConfiguratio
 		this.contentNode.style.maxHeight = '78vh';
 		this.contentNode.style.overflow = 'hidden';
 
-		const openInTabButton = this.appendButton('Open in Tab', false);
-		const openInTab = () => {
-			void this.openInTab();
-		};
-		openInTabButton.addEventListener('click', openInTab);
-		this.toDispose.push(Disposable.create(() => openInTabButton.removeEventListener('click', openInTab)));
+		this.addOpenInTabTitleAction();
 
 		this.appendCloseButton(Dialog.CANCEL);
 		this.appendAcceptButton('Save');
@@ -84,6 +80,52 @@ export class ContextMenuConfigDialog extends ReactDialog<ContextMenuConfiguratio
 				height='520px'
 			/>
 		);
+	}
+
+	protected addOpenInTabTitleAction(): void {
+		const titleBar = this.closeCrossNode.parentElement;
+		if (!titleBar) {
+			return;
+		}
+
+		const actions = this.node.ownerDocument.createElement('div');
+		actions.style.alignItems = 'center';
+		actions.style.display = 'flex';
+		actions.style.gap = '8px';
+
+		const openInTab = this.node.ownerDocument.createElement('i');
+		openInTab.className = codicon('open-in-product');
+		openInTab.setAttribute('aria-label', 'Open in Tab');
+		openInTab.setAttribute('role', 'button');
+		openInTab.setAttribute('tabindex', '0');
+		openInTab.title = 'Open in Tab';
+		openInTab.style.cursor = 'pointer';
+		openInTab.style.display = 'inline-flex';
+		openInTab.style.alignItems = 'center';
+		openInTab.style.justifyContent = 'center';
+		openInTab.style.minHeight = '22px';
+		openInTab.style.minWidth = '22px';
+
+		const activate = () => {
+			void this.openInTab();
+		};
+		const activateFromKeyboard = (event: KeyboardEvent) => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				activate();
+			}
+		};
+		openInTab.addEventListener('click', activate);
+		openInTab.addEventListener('keydown', activateFromKeyboard);
+		this.toDispose.push(Disposable.create(() => {
+			openInTab.removeEventListener('click', activate);
+			openInTab.removeEventListener('keydown', activateFromKeyboard);
+		}));
+
+		titleBar.removeChild(this.closeCrossNode);
+		actions.appendChild(openInTab);
+		actions.appendChild(this.closeCrossNode);
+		titleBar.appendChild(actions);
 	}
 
 	protected override handleEnter(event: KeyboardEvent): boolean | void {

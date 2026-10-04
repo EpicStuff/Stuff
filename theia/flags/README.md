@@ -85,7 +85,7 @@ theia --install-extension ./foo.vsix
 theia --uninstall-extension eamodio.gitlens
 ```
 
-Extension management uses a short lived backend and hidden empty renderer. CLI only windows are forced hidden and omitted from the taskbar. The command waits for the operation to finish, prints its result, then exits.
+Without an existing Theia instance, extension management uses a short lived backend and hidden empty renderer. CLI only windows are forced hidden and omitted from the taskbar. When another Theia instance already owns the single instance lock, extension management is handed to that running process and uses an existing renderer when possible, so it does not open a workspace window.
 
 An isolated user data environment can be selected with:
 

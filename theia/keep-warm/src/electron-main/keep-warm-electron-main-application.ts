@@ -127,10 +127,6 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			process.once('SIGINT', () => this.requestStop());
 		}
 
-		if (!this.keepWarm && useSingleInstanceLock) {
-			app.releaseSingleInstanceLock();
-		}
-
 		this.replaceProcessApplicationArgs(applicationArgs, this.getSuperArgs(cliArgs, true));
 		await super.start(config);
 	}

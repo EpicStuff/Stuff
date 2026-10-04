@@ -6,7 +6,7 @@ class XdgDataLoader < Formula
 	url 'https://raw.githubusercontent.com/Homebrew/brew/34c40c18ffa2029b611b61c73273e32c003d0842/Library/Homebrew/.ruby-version', using: :nounzip
 	sha256 '2e9fe584010a41f374317eb891684ccaab818403e8fa8eb7b2053c1810a8c00a'
 	license 'MIT'
-	version '1.0.3'
+	version '1.0.4'
 
 	livecheck do
 		skip 'No upstream'
@@ -33,7 +33,13 @@ class XdgDataLoader < Formula
 
 			homebrew_share='#{HOMEBREW_PREFIX}/share'
 			restart_plasma=false
+			restart_dolphin=false
 			status=0
+
+			if [ "${1:-}" = '--restart-dolphin' ]; then
+				restart_dolphin=true
+				shift
+			fi
 
 			uid="$(id -u)"
 			if [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/$uid" ]; then
@@ -62,6 +68,10 @@ class XdgDataLoader < Formula
 
 			if command -v kbuildsycoca6 >/dev/null 2>&1; then
 				kbuildsycoca6 "$@" || status=1
+			fi
+
+			if [ "$restart_dolphin" = true ] && command -v systemctl >/dev/null 2>&1 && systemctl --user is-active --quiet plasma-dolphin.service; then
+				systemctl --user restart plasma-dolphin.service || status=1
 			fi
 
 			if [ "$restart_plasma" = true ] && command -v systemctl >/dev/null 2>&1 && systemctl --user is-active --quiet plasma-plasmashell.service; then
@@ -97,6 +107,8 @@ class XdgDataLoader < Formula
 		assert_match '/run/user/$uid', refresh.read
 		assert_match 'DBUS_SESSION_BUS_ADDRESS', refresh.read
 		assert_match 'plasma-plasmashell.service', refresh.read
+		assert_match 'plasma-dolphin.service', refresh.read
+		assert_match '--restart-dolphin', refresh.read
 	end
 
 	private

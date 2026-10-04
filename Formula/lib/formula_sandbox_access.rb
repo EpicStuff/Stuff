@@ -26,7 +26,9 @@ module FormulaSandboxAccess
 		refresh = HOMEBREW_PREFIX/'opt/xdg-data-loader/bin/xdg-data-refresh'
 		return unless refresh.executable?
 
-		success = system refresh.to_s
+		args = [refresh.to_s]
+		args << '--restart-dolphin' if formula.name == 'xdg-data-loader'
+		success = system(*args)
 		opoo 'Could not refresh the KDE application cache; continuing without an immediate desktop refresh' unless success
 	end
 

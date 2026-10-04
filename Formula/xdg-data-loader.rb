@@ -5,7 +5,6 @@ class XdgDataLoader < Formula
 	homepage 'https://codeberg.org/EpicStuff/stuff'
 	url 'https://raw.githubusercontent.com/Homebrew/brew/34c40c18ffa2029b611b61c73273e32c003d0842/Library/Homebrew/.ruby-version', using: :nounzip
 	sha256 '2e9fe584010a41f374317eb891684ccaab818403e8fa8eb7b2053c1810a8c00a'
-	license 'MIT'
 	version '1.0.6'
 
 	livecheck do

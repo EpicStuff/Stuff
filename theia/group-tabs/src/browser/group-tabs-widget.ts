@@ -1,30 +1,50 @@
-import { Disposable } from '@theia/core';
-import { DockPanel, Message, Navigatable, SplitWidget, Widget } from '@theia/core/lib/browser';
+import { Disposable, Emitter, URI } from '@theia/core';
+import {
+	ApplicationShell,
+	BaseWidget,
+	DockLayout,
+	DockPanel,
+	Message,
+	Navigatable,
+	PanelLayout,
+	Saveable,
+	SaveableSource,
+	StatefulWidget,
+	Widget
+} from '@theia/core/lib/browser';
+import { CompositeSaveable } from '@theia/core/lib/browser/saveable';
 import { TabBarDelegator } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 
-type Orientation = 'horizontal' | 'vertical';
-
-class GroupTabsInnerSplitWidget extends SplitWidget {
-	constructor(orientation: Orientation) {
-		super({ orientation });
-	}
-}
-
-export class GroupTabsWidget extends SplitWidget implements TabBarDelegator {
+export class GroupTabsWidget extends BaseWidget implements ApplicationShell.TrackableWidgetProvider, SaveableSource, Navigatable, StatefulWidget, TabBarDelegator {
 	static readonly FACTORY_ID = 'group-tabs';
+
+	protected readonly dockPanel: DockPanel;
+	protected readonly compositeSaveable = new CompositeSaveable();
+	protected readonly onDidChangeTrackableWidgetsEmitter = new Emitter<Widget[]>();
+	readonly onDidChangeTrackableWidgets = this.onDidChangeTrackableWidgetsEmitter.event;
 
 	protected closing = false;
 	protected focusedPane?: Widget;
 	protected titleSource?: Widget;
+	protected navigatable?: Navigatable;
 	protected readonly transientPanes = new WeakSet<Widget>();
 	protected ungroupLayout?: DockPanel.ILayoutConfig;
 
 	constructor(options: GroupTabsWidget.Options) {
-		super({ orientation: 'horizontal' });
+		super();
 
 		this.id = `${GroupTabsWidget.FACTORY_ID}:${options.id}`;
 		this.addClass('theia-group-tabs-widget');
 		this.title.closable = true;
+
+		const layout = new PanelLayout();
+		this.layout = layout;
+		this.dockPanel = new DockPanel({ mode: 'multiple-document' });
+		this.dockPanel.addClass('theia-group-tabs-dock-panel');
+		layout.addWidget(this.dockPanel);
+
+		this.toDispose.push(this.compositeSaveable);
+		this.toDispose.push(this.onDidChangeTrackableWidgetsEmitter);
 		this.toDispose.push(Disposable.create(() => this.titleSource?.title.changed.disconnect(this.syncTitle, this)));
 
 		this.addEventListener(this.node, 'focusin', event => {
@@ -36,6 +56,10 @@ export class GroupTabsWidget extends SplitWidget implements TabBarDelegator {
 		return this.getTrackableWidgets()[0];
 	}
 
+	get saveable(): Saveable {
+		return this.compositeSaveable;
+	}
+
 	getTabBarDelegate(): Widget {
 		return this.primary ?? this;
 	}
@@ -44,16 +68,33 @@ export class GroupTabsWidget extends SplitWidget implements TabBarDelegator {
 		return this.closing;
 	}
 
+	getResourceUri(): URI | undefined {
+		return this.navigatable?.getResourceUri();
+	}
+
+	createMoveToUri(resourceUri: URI): URI | undefined {
+		return this.navigatable?.createMoveToUri(resourceUri);
+	}
+
 	markTransient(pane: Widget): void {
 		this.transientPanes.add(pane);
 	}
 
 	setUngroupLayout(layout: DockPanel.ILayoutConfig): void {
-		this.ungroupLayout = layout;
+		this.ungroupLayout = this.cloneLayout(layout);
 	}
 
 	getUngroupLayout(): DockPanel.ILayoutConfig | undefined {
-		return this.ungroupLayout;
+		return this.ungroupLayout && this.cloneLayout(this.ungroupLayout);
+	}
+
+	setGroupLayout(layout: DockPanel.ILayoutConfig): void {
+		this.dockPanel.restoreLayout(this.cloneLayout(layout));
+		this.afterLayoutChanged();
+	}
+
+	getGroupLayout(): DockPanel.ILayoutConfig {
+		return this.cloneLayout(this.dockPanel.saveLayout());
 	}
 
 	containsPane(pane: Widget): boolean {
@@ -61,137 +102,89 @@ export class GroupTabsWidget extends SplitWidget implements TabBarDelegator {
 	}
 
 	addRootPane(pane: Widget): void {
-		this.addPane(pane);
+		this.dockPanel.addWidget(pane);
 		this.afterLayoutChanged();
 	}
 
 	addRelativePane(pane: Widget, ref: Widget, relation: string): void {
 		if (!this.containsPane(ref)) {
-			this.addPane(pane);
-			this.afterLayoutChanged();
-			return;
-		}
-
-		const direction = this.toSplitDirection(relation);
-		const orientation: Orientation = direction === 'top' || direction === 'bottom' ? 'vertical' : 'horizontal';
-		const before = direction === 'left' || direction === 'top';
-		const owner = this.ownerOf(ref);
-		if (!owner) {
-			this.addPane(pane);
-			this.afterLayoutChanged();
-			return;
-		}
-
-		const index = owner.panes.indexOf(ref);
-		if (owner === this && owner.panes.length === 1) {
-			owner.orientation = orientation;
-			owner.insertPane(before ? index : index + 1, pane);
-			owner.setRelativeSizes([0.5, 0.5]);
-			this.afterLayoutChanged();
-			return;
-		}
-
-		if (owner.orientation === orientation) {
-			const oldSizes = owner.relativeSizes();
-			const refSize = oldSizes[index] ?? 1 / Math.max(owner.panes.length, 1);
-			const newSizes = [...oldSizes];
-			newSizes[index] = refSize / 2;
-			newSizes.splice(before ? index : index + 1, 0, refSize / 2);
-			owner.insertPane(before ? index : index + 1, pane);
-			if (newSizes.length === owner.panes.length) {
-				owner.setRelativeSizes(newSizes);
+			const primary = this.primary;
+			if (primary) {
+				this.dockPanel.addWidget(pane, { ref: primary, mode: 'split-right' });
+			} else {
+				this.dockPanel.addWidget(pane);
 			}
 			this.afterLayoutChanged();
 			return;
 		}
 
-		const parentSizes = owner.relativeSizes();
-		const nested = new GroupTabsInnerSplitWidget(orientation);
-		ref.parent = null;
-		owner.insertPane(index, nested);
-		if (before) {
-			nested.addPane(pane);
-			nested.addPane(ref);
-		} else {
-			nested.addPane(ref);
-			nested.addPane(pane);
-		}
-		nested.setRelativeSizes([0.5, 0.5]);
-		if (parentSizes.length === owner.panes.length) {
-			owner.setRelativeSizes(parentSizes);
-		}
+		this.dockPanel.addWidget(pane, {
+			ref,
+			mode: this.toDockMode(relation)
+		});
 		this.afterLayoutChanged();
 	}
 
 	detachPane(pane: Widget): void {
-		const owner = this.ownerOf(pane);
-		if (!owner) {
+		if (!this.containsPane(pane)) {
 			return;
 		}
 		pane.parent = null;
-		this.collapse(owner);
-		this.flattenRoot();
 		this.afterLayoutChanged();
 	}
 
-	override storeState(): GroupTabsWidget.State {
+	releasePanes(): Widget[] {
+		const panes = this.getTrackableWidgets();
+		for (const pane of panes) {
+			pane.parent = null;
+		}
+		this.afterLayoutChanged();
+		return panes;
+	}
+
+	storeState(): GroupTabsWidget.State {
 		return {
-			widgets: [],
-			layout: this.serializeNode(this),
-			ungroupLayout: this.ungroupLayout
+			layout: this.filteredLayout(this.dockPanel.saveLayout()),
+			ungroupLayout: this.ungroupLayout && this.filteredLayout(this.ungroupLayout)
 		};
 	}
 
-	override restoreState(oldState: SplitWidget.State): void {
+	restoreState(oldState: object): void {
 		const state = oldState as GroupTabsWidget.State;
-		this.ungroupLayout = state.ungroupLayout;
-		if (!state.layout) {
-			super.restoreState(oldState);
-			this.afterLayoutChanged();
-			return;
+		this.ungroupLayout = state.ungroupLayout && this.cloneLayout(state.ungroupLayout);
+		if (state.layout) {
+			this.dockPanel.restoreLayout(this.cloneLayout(state.layout));
 		}
-
-		this.restoreNode(this, state.layout);
 		this.afterLayoutChanged();
 	}
 
-	override getTrackableWidgets(): Widget[] {
-		return this.collectLeaves(this);
-	}
-
-	override addPane(pane: Widget): void {
-		super.addPane(pane);
-		this.updatePrimary();
-	}
-
-	override insertPane(index: number, pane: Widget): void {
-		super.insertPane(index, pane);
-		this.updatePrimary();
-	}
-
-	protected override onPaneAdded(pane: Widget): void {
-		pane.show();
-		super.onPaneAdded(pane);
-		this.updatePrimary();
+	getTrackableWidgets(): Widget[] {
+		return Array.from(this.dockPanel.widgets());
 	}
 
 	activateWidget(id: string): Widget | undefined {
 		const pane = this.getTrackableWidgets().find(candidate => candidate.id === id);
 		if (pane) {
 			this.focusedPane = pane;
+			this.dockPanel.activateWidget(pane);
 			pane.activate();
 		}
 		return pane;
 	}
 
 	revealWidget(id: string): Widget | undefined {
-		return this.getTrackableWidgets().find(candidate => candidate.id === id);
+		const pane = this.getTrackableWidgets().find(candidate => candidate.id === id);
+		if (pane) {
+			this.dockPanel.selectWidget(pane);
+		}
+		return pane;
 	}
 
 	protected override onActivateRequest(msg: Message): void {
 		const panes = this.getTrackableWidgets();
 		const pane = this.focusedPane && panes.includes(this.focusedPane) && !this.focusedPane.isDisposed ? this.focusedPane : panes[0];
 		if (pane) {
+			this.dockPanel.activateWidget(pane);
 			pane.activate();
 		} else {
 			super.onActivateRequest(msg);
@@ -204,150 +197,126 @@ export class GroupTabsWidget extends SplitWidget implements TabBarDelegator {
 		}
 
 		this.closing = true;
-		for (const pane of [...this.getTrackableWidgets()].reverse()) {
+		for (const pane of this.getTrackableWidgets()) {
 			pane.dispose();
 		}
 		super.dispose();
 	}
 
 	protected afterLayoutChanged(): void {
+		this.hideInnerTabBars();
+		this.syncSaveables();
 		this.updatePrimary();
-		this.fireDidChangeTrackableWidgets();
+		this.onDidChangeTrackableWidgetsEmitter.fire(this.getTrackableWidgets());
 	}
 
-	protected collectLeaves(owner: SplitWidget): Widget[] {
-		const result: Widget[] = [];
-		for (const pane of owner.panes) {
-			if (pane instanceof GroupTabsInnerSplitWidget) {
-				result.push(...this.collectLeaves(pane));
-			} else {
-				result.push(pane);
+	protected hideInnerTabBars(): void {
+		for (const tabBar of this.dockPanel.tabBars()) {
+			tabBar.hide();
+		}
+	}
+
+	protected syncSaveables(): void {
+		const current = new Set<Saveable>();
+		for (const pane of this.getTrackableWidgets()) {
+			const saveable = Saveable.get(pane);
+			if (saveable) {
+				current.add(saveable);
+				this.compositeSaveable.add(saveable);
 			}
 		}
-		return result;
-	}
-
-	protected ownerOf(pane: Widget): SplitWidget | undefined {
-		const owner = pane.parent?.parent;
-		if (owner === this) {
-			return this;
-		}
-		return owner instanceof GroupTabsInnerSplitWidget ? owner : undefined;
-	}
-
-	protected collapse(owner: SplitWidget): void {
-		let current = owner;
-		while (current !== this) {
-			const parent = this.ownerOf(current);
-			if (!parent) {
-				return;
-			}
-
-			if (current.panes.length === 0) {
-				current.parent = null;
-				current.dispose();
-				current = parent;
-				continue;
-			}
-
-			if (current.panes.length === 1) {
-				const only = current.panes[0];
-				const index = parent.panes.indexOf(current);
-				const parentSizes = parent.relativeSizes();
-				only.parent = null;
-				current.parent = null;
-				parent.insertPane(index, only);
-				current.dispose();
-				if (parentSizes.length === parent.panes.length) {
-					parent.setRelativeSizes(parentSizes);
-				}
-				current = parent;
-				continue;
-			}
-			return;
-		}
-	}
-
-	protected flattenRoot(): void {
-		if (this.panes.length !== 1 || !(this.panes[0] instanceof GroupTabsInnerSplitWidget)) {
-			return;
-		}
-
-		const nested = this.panes[0];
-		const children = [...nested.panes];
-		const sizes = nested.relativeSizes();
-		const orientation = nested.orientation as Orientation;
-		for (const child of children) {
-			child.parent = null;
-		}
-		nested.parent = null;
-		nested.dispose();
-		this.orientation = orientation;
-		for (const child of children) {
-			super.addPane(child);
-		}
-		if (sizes.length === this.panes.length) {
-			this.setRelativeSizes(sizes);
-		}
-	}
-
-	protected serializeNode(owner: SplitWidget): GroupTabsWidget.LayoutNodeState | undefined {
-		const children: GroupTabsWidget.LayoutChildState[] = [];
-		for (const pane of owner.panes) {
-			if (pane instanceof GroupTabsInnerSplitWidget) {
-				const nested = this.serializeNode(pane);
-				if (nested) {
-					children.push(nested);
-				}
-			} else if (!this.transientPanes.has(pane)) {
-				children.push({ widgets: [pane] });
+		for (const saveable of this.compositeSaveable.saveables) {
+			if (!current.has(saveable)) {
+				this.compositeSaveable.remove(saveable);
 			}
 		}
-		if (children.length === 0) {
-			return undefined;
-		}
-		return {
-			orientation: owner.orientation as Orientation,
-			children,
-			relativeSizes: children.length === owner.panes.length ? owner.relativeSizes() : undefined
-		};
 	}
 
-	protected restoreNode(owner: SplitWidget, state: GroupTabsWidget.LayoutNodeState): void {
-		owner.orientation = state.orientation ?? 'horizontal';
-		for (const child of state.children) {
-			if ('widgets' in child) {
-				const pane = child.widgets[0];
-				if (pane && !pane.isDisposed) {
-					owner.addPane(pane);
-				}
-			} else {
-				const nested = new GroupTabsInnerSplitWidget(child.orientation ?? 'horizontal');
-				owner.addPane(nested);
-				this.restoreNode(nested, child);
-				if (nested.panes.length === 0) {
-					nested.parent = null;
-					nested.dispose();
-				}
-			}
-		}
-		if (state.relativeSizes?.length === owner.panes.length) {
-			owner.setRelativeSizes(state.relativeSizes);
-		}
-	}
-
-	protected toSplitDirection(relation: string): 'left' | 'right' | 'top' | 'bottom' {
+	protected toDockMode(relation: string): DockLayout.InsertMode {
 		switch (relation) {
 			case 'split-left':
 			case 'open-to-left':
-				return 'left';
+				return 'split-left';
 			case 'split-top':
-				return 'top';
+				return 'split-top';
 			case 'split-bottom':
-				return 'bottom';
+				return 'split-bottom';
 			default:
-				return 'right';
+				return 'split-right';
 		}
+	}
+
+	protected filteredLayout(layout: DockPanel.ILayoutConfig): DockPanel.ILayoutConfig {
+		return {
+			main: this.filteredArea(layout.main)
+		};
+	}
+
+	protected filteredArea(area: DockLayout.AreaConfig | null): DockLayout.AreaConfig | null {
+		if (!area) {
+			return null;
+		}
+		if (area.type === 'tab-area') {
+			const widgets = area.widgets.filter(widget => !widget.isDisposed && !this.transientPanes.has(widget));
+			if (widgets.length === 0) {
+				return null;
+			}
+			const selected = area.widgets[area.currentIndex];
+			const currentIndex = Math.max(0, widgets.indexOf(selected));
+			return {
+				type: 'tab-area',
+				widgets,
+				currentIndex
+			};
+		}
+
+		const children: DockLayout.AreaConfig[] = [];
+		const sizes: number[] = [];
+		for (let index = 0; index < area.children.length; index++) {
+			const child = this.filteredArea(area.children[index]);
+			if (child) {
+				children.push(child);
+				sizes.push(area.sizes[index] ?? 1);
+			}
+		}
+		if (children.length === 0) {
+			return null;
+		}
+		if (children.length === 1) {
+			return children[0];
+		}
+		const total = sizes.reduce((sum, size) => sum + size, 0);
+		return {
+			type: 'split-area',
+			orientation: area.orientation,
+			children,
+			sizes: total > 0 ? sizes.map(size => size / total) : sizes
+		};
+	}
+
+	protected cloneLayout(layout: DockPanel.ILayoutConfig): DockPanel.ILayoutConfig {
+		return {
+			main: this.cloneArea(layout.main)
+		};
+	}
+
+	protected cloneArea(area: DockLayout.AreaConfig | null): DockLayout.AreaConfig | null {
+		if (!area) {
+			return null;
+		}
+		if (area.type === 'tab-area') {
+			return {
+				type: 'tab-area',
+				widgets: [...area.widgets],
+				currentIndex: area.currentIndex
+			};
+		}
+		return {
+			type: 'split-area',
+			orientation: area.orientation,
+			children: area.children.map(child => this.cloneArea(child) as DockLayout.AreaConfig),
+			sizes: [...area.sizes]
+		};
 	}
 
 	protected updatePrimary(): void {
@@ -376,20 +345,8 @@ export namespace GroupTabsWidget {
 		id: string;
 	}
 
-	export interface LayoutLeafState {
-		widgets: readonly Widget[];
-	}
-
-	export interface LayoutNodeState {
-		orientation?: Orientation;
-		children: LayoutChildState[];
-		relativeSizes?: number[];
-	}
-
-	export type LayoutChildState = LayoutLeafState | LayoutNodeState;
-
-	export interface State extends SplitWidget.State {
-		layout?: LayoutNodeState;
+	export interface State {
+		layout?: DockPanel.ILayoutConfig;
 		ungroupLayout?: DockPanel.ILayoutConfig;
 	}
 }

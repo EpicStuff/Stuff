@@ -1,6 +1,5 @@
 import { Command, CommandContribution, CommandRegistry } from '@theia/core';
-import { ApplicationShell, FrontendApplicationContribution, NavigatableWidget, Widget, codicon } from '@theia/core/lib/browser';
-import { QuickInputService, QuickPickItem } from '@theia/core/lib/common/quick-pick-service';
+import { ApplicationShell, FrontendApplicationContribution, Widget, codicon } from '@theia/core/lib/browser';
 import { TabBarToolbarContribution, TabBarToolbarRegistry } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { MiniBrowserOpenHandler } from '@theia/mini-browser/lib/browser/mini-browser-open-handler';
@@ -18,10 +17,6 @@ export namespace GroupTabsCommands {
 	};
 }
 
-interface WidgetPick extends QuickPickItem {
-	widget: Widget;
-}
-
 @injectable()
 export class GroupTabsContribution implements FrontendApplicationContribution, CommandContribution, TabBarToolbarContribution {
 	@inject(ApplicationShell)
@@ -32,9 +27,6 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 
 	@inject(MiniBrowserOpenHandler)
 	protected readonly miniBrowserOpenHandler!: MiniBrowserOpenHandler;
-
-	@inject(QuickInputService)
-	protected readonly quickInputService!: QuickInputService;
 
 	async onStart(): Promise<void> {
 		await this.groupTabsService.start();
@@ -48,10 +40,7 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 	registerCommands(commands: CommandRegistry): void {
 		commands.registerCommand(GroupTabsCommands.GROUP, {
 			execute: () => this.groupTabs(),
-			isEnabled: () => {
-				const primary = this.groupTabsService.resolveSource(this.shell.activeWidget ?? this.shell.currentWidget);
-				return !!primary && this.groupTabsService.getGroupableWidgets(primary).length > 0;
-			}
+			isEnabled: () => this.getCurrentTabs().length > 1
 		});
 
 		commands.registerCommand(GroupTabsCommands.CLOSE_SECONDARY, {
@@ -73,33 +62,41 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 	}
 
 	protected async groupTabs(): Promise<void> {
-		const primary = this.groupTabsService.resolveSource(this.shell.activeWidget ?? this.shell.currentWidget);
-		if (!primary || primary.isDisposed) {
+		const tabs = this.getCurrentTabs();
+		if (tabs.length < 2) {
 			return;
 		}
 
-		const candidates = this.groupTabsService.getGroupableWidgets(primary);
-		if (candidates.length === 0) {
-			return;
+		const active = this.groupTabsService.resolveSource(this.shell.activeWidget ?? this.shell.currentWidget);
+		const primary = active && tabs.includes(active) ? active : tabs[0];
+		await this.groupTabsService.groupManual(primary, tabs.filter(widget => widget !== primary));
+	}
+
+	protected getCurrentTabs(): Widget[] {
+		const result: Widget[] = [];
+		const seen = new Set<Widget>();
+		const add = (widget: Widget | undefined): void => {
+			if (!widget || widget.isDisposed) {
+				return;
+			}
+			for (const member of this.groupTabsService.getMembers(widget)) {
+				if (!member.isDisposed && !seen.has(member)) {
+					seen.add(member);
+					result.push(member);
+				}
+			}
+		};
+
+		for (const tabBar of this.shell.mainPanel.tabBars()) {
+			add(tabBar.currentTitle?.owner);
 		}
 
-		const picks: WidgetPick[] = candidates.map(widget => {
-			const uri = NavigatableWidget.getUri(widget);
-			return {
-				label: widget.title.label || widget.id,
-				description: uri?.toString(),
-				widget
-			};
-		});
-		const selected = await this.quickInputService.pick(picks, {
-			canPickMany: true,
-			placeHolder: 'Select tabs to group'
-		});
-		if (!selected?.length) {
-			return;
+		const right = this.shell.getCurrentWidget('right');
+		if (right?.isVisible && this.groupTabsService.isMiniBrowserUrlPreview(right)) {
+			add(right);
 		}
 
-		await this.groupTabsService.groupManual(primary, selected.map(item => item.widget));
+		return result;
 	}
 
 	protected patchMiniBrowserUrlPreview(): void {

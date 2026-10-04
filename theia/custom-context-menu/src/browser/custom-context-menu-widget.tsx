@@ -2,6 +2,7 @@ import { codicon, ReactWidget } from '@theia/core/lib/browser';
 import { QuickCommandService } from '@theia/core/lib/browser/quick-input/quick-command-service';
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
 import * as React from '@theia/core/shared/react';
+import { ToolbarIconDialogFactory } from '@theia/toolbar/lib/browser/toolbar-icon-selector-dialog';
 import { ContextMenuConfigEditor } from './custom-context-menu-editor';
 import { CustomContextMenuService } from './custom-context-menu-service';
 
@@ -15,6 +16,9 @@ export class ContextMenuConfigWidget extends ReactWidget {
 
 	@inject(QuickCommandService)
 	protected readonly quickCommandService!: QuickCommandService;
+
+	@inject(ToolbarIconDialogFactory)
+	protected readonly iconDialogFactory!: ToolbarIconDialogFactory;
 
 	@postConstruct()
 	protected init(): void {
@@ -40,6 +44,7 @@ export class ContextMenuConfigWidget extends ReactWidget {
 				<ContextMenuConfigEditor
 					service={this.service}
 					quickCommandService={this.quickCommandService}
+					iconDialogFactory={this.iconDialogFactory}
 					height='100%'
 					showApply={true}
 				/>

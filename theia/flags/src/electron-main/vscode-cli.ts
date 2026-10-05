@@ -42,6 +42,36 @@ const THEIA_PASSTHROUGH_OPTIONS = new Set([
 	'-p'
 ]);
 
+const THEIA_PASSTHROUGH_VALUE_OPTIONS = new Set([
+	'--app-project-path',
+	'--attach-container',
+	'--cert',
+	'--certkey',
+	'--dnsDefaultResultOrder',
+	'--electronUserData',
+	'--extensionTestsPath',
+	'--hostname',
+	'--install-plugin',
+	'--log-config',
+	'--log-file',
+	'--log-level',
+	'--open-url',
+	'--ovsx-rate-limit',
+	'--ovsx-router-config',
+	'--plugin-max-session-logs-folders',
+	'--pluginHostStopTimeout',
+	'--pluginHostTerminateTimeout',
+	'--plugins',
+	'--port',
+	'--proxy-authorization',
+	'--proxy-url',
+	'--remote-auto-shutdown-timeout',
+	'--session-preference',
+	'--set-preference',
+	'--vscode-api-version',
+	'-p'
+]);
+
 export interface ParsedVscodeCliArgs {
 	remainingArgs: string[];
 	help: boolean;
@@ -197,6 +227,22 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 	}
 
 	return parsed;
+}
+
+export function hasPositionalTarget(args: readonly string[]): boolean {
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index];
+		if (arg === '--') {
+			return index + 1 < args.length;
+		}
+		if (!arg.startsWith('-')) {
+			return true;
+		}
+		if (!arg.includes('=') && THEIA_PASSTHROUGH_VALUE_OPTIONS.has(arg)) {
+			index++;
+		}
+	}
+	return false;
 }
 
 export function parseGotoTarget(target: string): GotoTarget {

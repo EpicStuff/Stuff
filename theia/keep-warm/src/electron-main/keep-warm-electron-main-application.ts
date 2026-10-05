@@ -546,7 +546,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			return;
 		}
 
-		if (this.keepWarm && cleanApplicationArgs.length === 0 && !hasWindowAction && (this.windows.size === 0 || this.warmRenderer)) {
+		if (this.keepWarm && !hasTarget && !hasWindowAction && (this.windows.size === 0 || this.warmRenderer)) {
 			await this.handleMainCommand({
 				cwd,
 				secondInstance: false

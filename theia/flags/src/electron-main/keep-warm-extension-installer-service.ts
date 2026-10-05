@@ -16,7 +16,7 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 	protected readonly sessionWorkspaces = new Set<string>();
 	protected readonly waiters: Array<(client: KeepWarmExtensionInstallerClient) => void> = [];
 	protected readonly windowWaiters = new Map<number, Array<(client: KeepWarmExtensionInstallerClient) => void>>();
-	protected sessionLoaded = false;
+	protected sessionLoad: Promise<void> | undefined;
 	protected sessionWrite = Promise.resolve();
 
 	setClient(client: KeepWarmExtensionInstallerClient | undefined): void {
@@ -139,11 +139,11 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 	}
 
 	protected async ensureSessionLoaded(): Promise<void> {
-		if (this.sessionLoaded) {
-			return;
-		}
-		this.sessionLoaded = true;
+		this.sessionLoad ??= this.loadSession();
+		await this.sessionLoad;
+	}
 
+	protected async loadSession(): Promise<void> {
 		try {
 			const raw = await fs.readFile(this.sessionPath, 'utf8');
 			const parsed = JSON.parse(raw) as Partial<StoredWindowSession>;
@@ -168,7 +168,7 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 
 		this.sessionWrite = this.sessionWrite.catch(() => undefined).then(async () => {
 			await fs.mkdir(path.dirname(this.sessionPath), { recursive: true });
-			const temporaryPath = `${this.sessionPath}.tmp`;
+			const temporaryPath = `${this.sessionPath}.${process.pid}.tmp`;
 			await fs.writeFile(temporaryPath, JSON.stringify(snapshot, undefined, '\t') + '\n', 'utf8');
 			await fs.rename(temporaryPath, this.sessionPath);
 		});

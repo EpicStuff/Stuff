@@ -307,7 +307,7 @@ export class GroupTabsService {
 		}
 	}
 
-	noteMiniBrowserUrlPreview(widget: MiniBrowser, sourceInput: Widget | undefined): void {
+	noteMiniBrowserUrlPreview(widget: MiniBrowser, sourceInput: Widget | undefined, collapseRightAfterGrouping = false): void {
 		const source = this.resolveSource(sourceInput);
 		if (!source || source === widget || source.isDisposed) {
 			return;
@@ -318,7 +318,7 @@ export class GroupTabsService {
 			area: 'right'
 		});
 		setTimeout(() => {
-			void this.maybeAutoGroup(widget);
+			void this.maybeAutoGroup(widget, collapseRightAfterGrouping);
 		}, 0);
 	}
 
@@ -390,7 +390,7 @@ export class GroupTabsService {
 		};
 	}
 
-	protected async maybeAutoGroup(widget: Widget): Promise<void> {
+	protected async maybeAutoGroup(widget: Widget, collapseRightAfterGrouping = false): Promise<void> {
 		if (!this.rememberGroupsEnabled() || widget.isDisposed) {
 			return;
 		}
@@ -421,6 +421,9 @@ export class GroupTabsService {
 				restoreSecondary: !rememberedUrlPreview
 			});
 			pair.addRememberedRule(this.ruleKey(rule));
+			if (rememberedUrlPreview && collapseRightAfterGrouping) {
+				await this.shell.collapsePanel('right');
+			}
 		} catch (error) {
 			console.error('Failed to restore remembered tab group', error);
 		}

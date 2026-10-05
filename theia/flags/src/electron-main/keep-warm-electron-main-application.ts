@@ -8,7 +8,7 @@ import { ElectronMainApplication, ElectronMainCommandOptions } from '@theia/core
 import { TheiaBrowserWindowOptions } from '@theia/core/lib/electron-main/theia-electron-window';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { KeepWarmExtensionInstallerServiceImpl } from './keep-warm-extension-installer-service';
-import { ParsedVscodeCliArgs, VSCODE_COMPAT_HELP, hasPositionalTarget, parseGotoTarget, parseVscodeCliArgs } from './vscode-cli';
+import { ParsedVscodeCliArgs, VSCODE_COMPAT_HELP, hasWindowTarget, parseGotoTarget, parseVscodeCliArgs } from './vscode-cli';
 
 const KEEP_WARM_FLAG = '--keep-warm';
 const KEEP_WARMER_FLAG = '--keep-warmer';
@@ -537,7 +537,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 
 		const cleanApplicationArgs = this.getSuperArgs(cliArgs, false);
 		const hasWindowAction = this.hasWindowAction(cliArgs);
-		const hasTarget = hasPositionalTarget(cleanApplicationArgs);
+		const hasTarget = hasWindowTarget(cleanApplicationArgs);
 
 		if (wantsKeepWarm && !hasTarget && !hasWindowAction) {
 			if (wantsKeepWarmer && !this.getActiveVisibleWindow()) {

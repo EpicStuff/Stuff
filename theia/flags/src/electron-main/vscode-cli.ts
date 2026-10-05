@@ -72,6 +72,12 @@ const THEIA_PASSTHROUGH_VALUE_OPTIONS = new Set([
 	'-p'
 ]);
 
+const THEIA_PASSTHROUGH_WINDOW_OPTIONS = new Set([
+	'--attach-container',
+	'--extensionTestsPath',
+	'--open-url'
+]);
+
 export interface ParsedVscodeCliArgs {
 	remainingArgs: string[];
 	help: boolean;
@@ -229,7 +235,7 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 	return parsed;
 }
 
-export function hasPositionalTarget(args: readonly string[]): boolean {
+export function hasWindowTarget(args: readonly string[]): boolean {
 	for (let index = 0; index < args.length; index++) {
 		const arg = args[index];
 		if (arg === '--') {
@@ -238,7 +244,12 @@ export function hasPositionalTarget(args: readonly string[]): boolean {
 		if (!arg.startsWith('-')) {
 			return true;
 		}
-		if (!arg.includes('=') && THEIA_PASSTHROUGH_VALUE_OPTIONS.has(arg)) {
+		const separator = arg.indexOf('=');
+		const option = separator >= 0 ? arg.slice(0, separator) : arg;
+		if (THEIA_PASSTHROUGH_WINDOW_OPTIONS.has(option)) {
+			return true;
+		}
+		if (separator < 0 && THEIA_PASSTHROUGH_VALUE_OPTIONS.has(option)) {
 			index++;
 		}
 	}

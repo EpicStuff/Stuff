@@ -9,6 +9,7 @@ It currently provides:
 - A Fold All Code Cells action in the notebook toolbar.
 - Mapping of the VS Code `notebook/toolbar` contribution point into Theia's native notebook toolbar.
 - Automatic refresh of clean open notebooks when their files are changed externally.
+- KaTeX math rendering in notebook Markdown cells for inline `$...$` and display `$$...$$` expressions.
 - Compatibility updates for notebook context keys used by VS Code extensions, including cell resource, collapse state, kernel count, and interruptibility.
 
 The package uses the Theia packages supplied by the application through peer dependencies.

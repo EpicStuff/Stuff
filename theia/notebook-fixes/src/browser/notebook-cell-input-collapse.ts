@@ -9,6 +9,8 @@ import { NotebookEditorWidget } from '@theia/notebook/lib/browser/notebook-edito
 import { NotebookEditorWidgetService } from '@theia/notebook/lib/browser/service/notebook-editor-widget-service';
 import { NotebookService } from '@theia/notebook/lib/browser/service/notebook-service';
 import { NotebookCodeCellRenderer } from '@theia/notebook/lib/browser/view/notebook-code-cell-view';
+import { observeCellHeight } from '@theia/notebook/lib/browser/view/notebook-cell-list-view';
+import { NotebookMarkdownCellRenderer } from '@theia/notebook/lib/browser/view/notebook-markdown-cell-view';
 import { NotebookCellToolbarProps } from '@theia/notebook/lib/browser/view/notebook-cell-toolbar';
 import { NotebookCellToolbarFactory } from '@theia/notebook/lib/browser/view/notebook-cell-toolbar-factory';
 import { NotebookCellModel } from '@theia/notebook/lib/browser/view-model/notebook-cell-model';
@@ -63,7 +65,7 @@ function restoreNotebookInputCollapseState(notebook: NotebookModel): void {
 	const collapsedIndices = new Set(stored);
 	notebook.cells.forEach((cell, index) => {
 		notebookByCell.set(cell, notebook);
-		if (cell.cellKind !== CellKind.Code || inputCollapseStateTouched.has(cell)) {
+		if (!isInputCollapsibleCell(cell) || inputCollapseStateTouched.has(cell)) {
 			return;
 		}
 
@@ -81,7 +83,7 @@ async function persistNotebookInputCollapseState(notebook: NotebookModel): Promi
 	}
 
 	const collapsedIndices = notebook.cells.flatMap((cell, index) =>
-		cell.cellKind === CellKind.Code && isInputCollapsed(cell) ? [index] : []
+		isInputCollapsibleCell(cell) && isInputCollapsed(cell) ? [index] : []
 	);
 	const key = notebookStorageKey(notebook);
 	const nextState = { ...persistedInputCollapseState };
@@ -125,9 +127,13 @@ export function readNotebookCellInputCollapseState(cell: NotebookCellModel): boo
 
 const isInputCollapsed = readNotebookCellInputCollapseState;
 
+function isInputCollapsibleCell(cell: NotebookCellModel): boolean {
+	return cell.cellKind === CellKind.Code || cell.cellKind === CellKind.Markup;
+}
+
 export async function reloadNotebookPreservingInputCollapseState(notebook: NotebookModel): Promise<void> {
 	const collapsedIndices = new Set(notebook.cells.flatMap((cell, index) =>
-		cell.cellKind === CellKind.Code && isInputCollapsed(cell) ? [index] : []
+		isInputCollapsibleCell(cell) && isInputCollapsed(cell) ? [index] : []
 	));
 
 	notebooksReloadingFromDisk.add(notebook);
@@ -135,7 +141,7 @@ export async function reloadNotebookPreservingInputCollapseState(notebook: Noteb
 		await notebook.revert();
 		notebook.cells.forEach((cell, index) => {
 			notebookByCell.set(cell, notebook);
-			if (cell.cellKind === CellKind.Code) {
+			if (isInputCollapsibleCell(cell)) {
 				setInputCollapsed(cell, collapsedIndices.has(index), false);
 			}
 		});
@@ -251,6 +257,69 @@ class CollapsibleCodeCellInput extends React.Component<CollapsibleCodeCellInputP
 	}
 }
 
+class CollapsibleMarkdownCellInput extends React.Component<CollapsibleCodeCellInputProps, CollapsibleCodeCellInputState> {
+	protected stateSubscription?: Disposable;
+
+	constructor(props: CollapsibleCodeCellInputProps) {
+		super(props);
+		this.state = { collapsed: isInputCollapsed(props.cell) };
+	}
+
+	override componentDidMount(): void {
+		this.stateSubscription = inputCollapseStateChangedEmitter.event(cell => {
+			if (cell === this.props.cell) {
+				this.setState({ collapsed: isInputCollapsed(cell) });
+			}
+		});
+	}
+
+	override componentWillUnmount(): void {
+		this.stateSubscription?.dispose();
+	}
+
+	override render(): React.ReactNode {
+		if (!this.state.collapsed) {
+			return this.props.renderExpanded();
+		}
+
+		const preview = this.props.cell.source.replace(/\s+/g, ' ').trim() || 'Empty markdown cell';
+		return React.createElement(
+			'div',
+			{
+				className: 'theia-notebook-markdown-content',
+				title: 'Double-click to Expand Cell Input',
+				onDoubleClick: () => setInputCollapsed(this.props.cell, false),
+				ref: (node: HTMLDivElement | null) => observeCellHeight(node, this.props.cell),
+				style: {
+					alignItems: 'center',
+					cursor: 'default',
+					display: 'flex',
+					minHeight: '24px',
+					opacity: 0.7,
+					overflow: 'hidden',
+					padding: '0 10px'
+				}
+			},
+			React.createElement('span', {
+				className: codicon('chevron-right'),
+				onClick: (event: React.MouseEvent<HTMLSpanElement>) => {
+					event.stopPropagation();
+					setInputCollapsed(this.props.cell, false);
+				},
+				style: { cursor: 'pointer', flexShrink: 0, marginRight: '6px' },
+				title: 'Expand Cell Input'
+			}),
+			React.createElement('span', {
+				style: {
+					overflow: 'hidden',
+					textOverflow: 'ellipsis',
+					whiteSpace: 'nowrap'
+				}
+			}, preview)
+		);
+	}
+}
+
 interface DynamicCellToolbarProps {
 	cell: NotebookCellModel;
 	renderToolbar: () => React.ReactNode;
@@ -358,6 +427,7 @@ export function patchNotebookCodeCellInputCollapse(): void {
 	rendererPatched = true;
 
 	const originalRender = NotebookCodeCellRenderer.prototype.render;
+	const originalMarkdownRender = NotebookMarkdownCellRenderer.prototype.render;
 	NotebookCodeCellRenderer.prototype.render = function (
 		this: NotebookCodeCellRenderer,
 		notebookModel: NotebookModel,
@@ -370,6 +440,19 @@ export function patchNotebookCodeCellInputCollapse(): void {
 		return React.createElement(CollapsibleCodeCellInput, {
 			cell,
 			renderExpanded: () => originalRender.call(this, notebookModel, cell, handle)
+		});
+	};
+
+	NotebookMarkdownCellRenderer.prototype.render = function (
+		this: NotebookMarkdownCellRenderer,
+		notebookModel: NotebookModel,
+		cell: NotebookCellModel
+	): React.ReactNode {
+		trackNotebook(notebookModel);
+		notebookByCell.set(cell, notebookModel);
+		return React.createElement(CollapsibleMarkdownCellInput, {
+			cell,
+			renderExpanded: () => originalMarkdownRender.call(this, notebookModel, cell)
 		});
 	};
 }
@@ -393,9 +476,15 @@ export namespace NotebookCellInputCollapseCommands {
 		category: 'Notebook'
 	};
 
-	export const COLLAPSE_ALL_CODE_INPUTS: Command = {
-		id: 'notebook.cell.collapseAllCodeInputs',
-		label: 'Fold All Code Cells',
+	export const COLLAPSE_ALL_INPUTS: Command = {
+		id: 'notebook.cell.collapseAllCellInputs',
+		label: 'Collapse All Cell Inputs',
+		category: 'Notebook'
+	};
+
+	export const EXPAND_ALL_INPUTS: Command = {
+		id: 'notebook.cell.expandAllCellInputs',
+		label: 'Expand All Cell Inputs',
 		category: 'Notebook'
 	};
 
@@ -424,15 +513,15 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 		commands.registerCommand(NotebookCellInputCollapseCommands.COLLAPSE, {
 			isEnabled: (first?: NotebookModel | NotebookCellModel, second?: NotebookCellModel) => {
 				const cell = this.resolveCell(first, second);
-				return cell?.cellKind === CellKind.Code && !isInputCollapsed(cell);
+				return !!cell && isInputCollapsibleCell(cell) && !isInputCollapsed(cell);
 			},
 			isVisible: (first?: NotebookModel | NotebookCellModel, second?: NotebookCellModel) => {
 				const cell = this.resolveCell(first, second);
-				return cell?.cellKind === CellKind.Code && !isInputCollapsed(cell);
+				return !!cell && isInputCollapsibleCell(cell) && !isInputCollapsed(cell);
 			},
 			execute: (first?: NotebookModel | NotebookCellModel, second?: NotebookCellModel) => {
 				const cell = this.resolveCell(first, second);
-				if (cell?.cellKind === CellKind.Code) {
+				if (cell && isInputCollapsibleCell(cell)) {
 					setInputCollapsed(cell, true);
 				}
 			}
@@ -441,35 +530,41 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 		commands.registerCommand(NotebookCellInputCollapseCommands.EXPAND, {
 			isEnabled: (first?: NotebookModel | NotebookCellModel, second?: NotebookCellModel) => {
 				const cell = this.resolveCell(first, second);
-				return cell?.cellKind === CellKind.Code && isInputCollapsed(cell);
+				return !!cell && isInputCollapsibleCell(cell) && isInputCollapsed(cell);
 			},
 			isVisible: (first?: NotebookModel | NotebookCellModel, second?: NotebookCellModel) => {
 				const cell = this.resolveCell(first, second);
-				return cell?.cellKind === CellKind.Code && isInputCollapsed(cell);
+				return !!cell && isInputCollapsibleCell(cell) && isInputCollapsed(cell);
 			},
 			execute: (first?: NotebookModel | NotebookCellModel, second?: NotebookCellModel) => {
 				const cell = this.resolveCell(first, second);
-				if (cell?.cellKind === CellKind.Code) {
+				if (cell && isInputCollapsibleCell(cell)) {
 					setInputCollapsed(cell, false);
 				}
 			}
 		});
 
 		commands.registerCommand(NotebookCellInputCollapseCommands.TOGGLE, {
-			isEnabled: (first?: NotebookModel | NotebookCellModel, second?: NotebookCellModel) => this.resolveCell(first, second)?.cellKind === CellKind.Code,
-			isVisible: (first?: NotebookModel | NotebookCellModel, second?: NotebookCellModel) => this.resolveCell(first, second)?.cellKind === CellKind.Code,
+			isEnabled: (first?: NotebookModel | NotebookCellModel, second?: NotebookCellModel) => {
+				const cell = this.resolveCell(first, second);
+				return !!cell && isInputCollapsibleCell(cell);
+			},
+			isVisible: (first?: NotebookModel | NotebookCellModel, second?: NotebookCellModel) => {
+				const cell = this.resolveCell(first, second);
+				return !!cell && isInputCollapsibleCell(cell);
+			},
 			execute: (first?: NotebookModel | NotebookCellModel, second?: NotebookCellModel) => {
 				const cell = this.resolveCell(first, second);
-				if (cell?.cellKind === CellKind.Code) {
+				if (cell && isInputCollapsibleCell(cell)) {
 					setInputCollapsed(cell, !isInputCollapsed(cell));
 				}
 			}
 		});
 
-		commands.registerCommand(NotebookCellInputCollapseCommands.COLLAPSE_ALL_CODE_INPUTS, {
+		commands.registerCommand(NotebookCellInputCollapseCommands.COLLAPSE_ALL_INPUTS, {
 			isEnabled: (item?: URI | NotebookModel) => {
 				const notebook = this.resolveNotebook(item);
-				return !!notebook?.cells.some(cell => cell.cellKind === CellKind.Code && !isInputCollapsed(cell));
+				return !!notebook?.cells.some(cell => isInputCollapsibleCell(cell) && !isInputCollapsed(cell));
 			},
 			isVisible: (item?: URI | NotebookModel) => !!this.resolveNotebook(item),
 			execute: (item?: URI | NotebookModel) => {
@@ -480,8 +575,30 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 
 				trackNotebook(notebook);
 				for (const cell of notebook.cells) {
-					if (cell.cellKind === CellKind.Code) {
+					if (isInputCollapsibleCell(cell)) {
 						setInputCollapsed(cell, true, false);
+					}
+				}
+				void inputCollapseStorageReady.then(() => persistNotebookInputCollapseState(notebook));
+			}
+		});
+
+		commands.registerCommand(NotebookCellInputCollapseCommands.EXPAND_ALL_INPUTS, {
+			isEnabled: (item?: URI | NotebookModel) => {
+				const notebook = this.resolveNotebook(item);
+				return !!notebook?.cells.some(cell => isInputCollapsibleCell(cell) && isInputCollapsed(cell));
+			},
+			isVisible: (item?: URI | NotebookModel) => !!this.resolveNotebook(item),
+			execute: (item?: URI | NotebookModel) => {
+				const notebook = this.resolveNotebook(item);
+				if (!notebook) {
+					return;
+				}
+
+				trackNotebook(notebook);
+				for (const cell of notebook.cells) {
+					if (isInputCollapsibleCell(cell)) {
+						setInputCollapsed(cell, false, false);
 					}
 				}
 				void inputCollapseStorageReady.then(() => persistNotebookInputCollapseState(notebook));
@@ -498,8 +615,8 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 			order: '25'
 		});
 		menus.registerMenuAction(NotebookMenus.NOTEBOOK_MAIN_TOOLBAR_EXECUTION_GROUP, {
-			commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_CODE_INPUTS.id,
-			label: 'Fold All Code Cells',
+			commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_INPUTS.id,
+			label: 'Collapse All Cell Inputs',
 			icon: codicon('fold'),
 			order: '20'
 		});

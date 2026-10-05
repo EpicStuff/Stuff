@@ -1,6 +1,7 @@
 import { randomBytes, timingSafeEqual } from 'crypto';
 import { promises as fs } from 'fs';
 import * as http from 'http';
+import * as https from 'https';
 import * as path from 'path';
 import { EnvVariablesServer } from '@theia/core/lib/common/env-variables';
 import { FileUri } from '@theia/core/lib/common/file-uri';
@@ -64,9 +65,6 @@ export class KeepWarmBackendCliState {
 export class KeepWarmBackendCliContribution implements CliContribution {
 	@inject(KeepWarmBackendCliState)
 	protected readonly state!: KeepWarmBackendCliState;
-
-	@inject(VsxCli)
-	protected readonly vsxCli!: VsxCli;
 
 	configure(conf: Argv): void {
 		conf.option('uninstall-extension', {
@@ -346,7 +344,7 @@ export class KeepWarmBackendCliRunner implements BackendApplicationContribution 
 		});
 	}
 
-	async onStart(server: http.Server): Promise<void> {
+	async onStart(server: http.Server | https.Server): Promise<void> {
 		if (this.state.active) {
 			return;
 		}

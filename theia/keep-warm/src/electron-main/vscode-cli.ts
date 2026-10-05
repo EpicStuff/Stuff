@@ -235,25 +235,33 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 	return parsed;
 }
 
-export function hasWindowTarget(args: readonly string[]): boolean {
+export function getWindowTarget(args: readonly string[]): string | undefined {
 	for (let index = 0; index < args.length; index++) {
 		const arg = args[index];
 		if (arg === '--') {
-			return index + 1 < args.length;
+			return args[index + 1];
 		}
 		if (!arg.startsWith('-')) {
-			return true;
+			return arg;
 		}
 		const separator = arg.indexOf('=');
 		const option = separator >= 0 ? arg.slice(0, separator) : arg;
-		if (THEIA_PASSTHROUGH_WINDOW_OPTIONS.has(option)) {
-			return true;
-		}
 		if (separator < 0 && THEIA_PASSTHROUGH_VALUE_OPTIONS.has(option)) {
 			index++;
 		}
 	}
-	return false;
+	return undefined;
+}
+
+export function hasWindowTarget(args: readonly string[]): boolean {
+	if (getWindowTarget(args) !== undefined) {
+		return true;
+	}
+	return args.some(arg => {
+		const separator = arg.indexOf('=');
+		const option = separator >= 0 ? arg.slice(0, separator) : arg;
+		return THEIA_PASSTHROUGH_WINDOW_OPTIONS.has(option);
+	});
 }
 
 export function parseGotoTarget(target: string): GotoTarget {

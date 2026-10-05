@@ -1,11 +1,18 @@
-import { FrontendApplicationContribution } from '@theia/core/lib/browser';
+import { animationFrame, FrontendApplicationContribution } from '@theia/core/lib/browser';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
+import { NotebookEditorWidget } from '@theia/notebook/lib/browser/notebook-editor-widget';
 import { NotebookEditorWidgetService } from '@theia/notebook/lib/browser/service/notebook-editor-widget-service';
 import { NotebookModel } from '@theia/notebook/lib/browser/view-model/notebook-model';
 import { reloadNotebookPreservingInputCollapseState } from './notebook-cell-input-collapse';
 
 const EXTERNAL_CHANGE_RELOAD_DELAY_MS = 100;
+
+interface NotebookScrollPosition {
+	editor: NotebookEditorWidget;
+	scrollLeft: number;
+	scrollTop: number;
+}
 
 @injectable()
 export class NotebookExternalFileChangeContribution implements FrontendApplicationContribution {
@@ -59,9 +66,39 @@ export class NotebookExternalFileChangeContribution implements FrontendApplicati
 				return;
 			}
 
+			const scrollPositions = this.captureScrollPositions(model);
 			await reloadNotebookPreservingInputCollapseState(model);
+			await this.restoreScrollPositions(scrollPositions);
 		} catch (error) {
 			console.error('Failed to reload externally changed notebook', error);
+		}
+	}
+
+	protected captureScrollPositions(model: NotebookModel): NotebookScrollPosition[] {
+		return this.notebookEditorWidgetService.getNotebookEditors().flatMap(editor => {
+			if (editor.model !== model) {
+				return [];
+			}
+
+			const scrollContainer = editor.node.querySelector<HTMLElement>('.theia-notebook-scroll-container');
+			return scrollContainer ? [{
+				editor,
+				scrollLeft: scrollContainer.scrollLeft,
+				scrollTop: scrollContainer.scrollTop
+			}] : [];
+		});
+	}
+
+	protected async restoreScrollPositions(positions: NotebookScrollPosition[]): Promise<void> {
+		await animationFrame();
+		await animationFrame();
+
+		for (const { editor, scrollLeft, scrollTop } of positions) {
+			const scrollContainer = editor.node.querySelector<HTMLElement>('.theia-notebook-scroll-container');
+			if (scrollContainer) {
+				scrollContainer.scrollLeft = scrollLeft;
+				scrollContainer.scrollTop = scrollTop;
+			}
 		}
 	}
 

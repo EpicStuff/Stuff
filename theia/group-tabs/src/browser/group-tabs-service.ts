@@ -330,12 +330,18 @@ export class GroupTabsService {
 			const panes = pair.getTrackableWidgets().filter(pane => !pane.isDisposed);
 			if (panes.length >= 2) {
 				this.registerPair(pair);
+				if (this.shell.mainPanel.findTabBar(pair.title)?.currentTitle === pair.title && pair.primary) {
+					await this.shell.activateWidget(pair.primary.id);
+				}
 				continue;
 			}
 
 			const pane = panes[0];
 			if (pane && this.shouldKeepIncompleteGroup(pair, pane)) {
 				this.registerPair(pair);
+				if (this.shell.mainPanel.findTabBar(pair.title)?.currentTitle === pair.title) {
+					await this.shell.activateWidget(pane.id);
+				}
 				continue;
 			}
 

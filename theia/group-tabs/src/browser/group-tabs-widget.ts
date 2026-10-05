@@ -52,9 +52,16 @@ export class GroupTabsWidget extends BaseWidget implements ApplicationShell.Trac
 		this.toDispose.push(this.onDidChangeTrackableWidgetsEmitter);
 		this.toDispose.push(Disposable.create(() => this.titleSource?.title.changed.disconnect(this.syncTitle, this)));
 
-		this.addEventListener(this.node, 'focusin', event => {
-			this.focusedPane = this.getTrackableWidgets().find(pane => pane.node.contains(event.target as Node)) ?? this.focusedPane;
-		});
+		const activatePaneFromEvent = (event: Event): void => {
+			const pane = this.getTrackableWidgets().find(candidate => candidate.node.contains(event.target as Node));
+			if (!pane) {
+				return;
+			}
+			this.focusedPane = pane;
+			pane.activate();
+		};
+		this.addEventListener(this.node, 'focusin', activatePaneFromEvent);
+		this.addEventListener(this.node, 'pointerdown', activatePaneFromEvent, true);
 	}
 
 	get primary(): Widget | undefined {

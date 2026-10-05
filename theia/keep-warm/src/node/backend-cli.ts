@@ -102,8 +102,6 @@ export class KeepWarmBackendCliContribution implements CliContribution {
 		} else if (Array.isArray(installExtensions)) {
 			this.state.installExtensions = installExtensions.filter((value): value is string => typeof value === 'string');
 		}
-		this.vsxCli.pluginsToInstall = [];
-
 		const uninstallExtensions = args.uninstallExtension;
 		if (typeof uninstallExtensions === 'string') {
 			this.state.uninstallExtensions = [uninstallExtensions];
@@ -290,6 +288,9 @@ export class KeepWarmBackendCliPluginDeployerContribution extends PluginDeployer
 	@inject(KeepWarmBackendCliForwarder)
 	protected readonly forwarder!: KeepWarmBackendCliForwarder;
 
+	@inject(VsxCli)
+	protected readonly vsxCli!: VsxCli;
+
 	override async initialize(): Promise<void> {
 		if (!this.backendCliState.active) {
 			return super.initialize();
@@ -300,6 +301,7 @@ export class KeepWarmBackendCliPluginDeployerContribution extends PluginDeployer
 			return;
 		}
 
+		this.vsxCli.pluginsToInstall = [];
 		try {
 			await this.pluginDeployer.start();
 		} catch (error) {

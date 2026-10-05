@@ -67,21 +67,6 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 		}
 	}
 
-	async installExtension(windowId: number, extension: string, local: boolean): Promise<void> {
-		const client = await this.waitForClient(windowId);
-		await client.installExtension(extension, local);
-	}
-
-	async uninstallExtension(windowId: number, extensionId: string): Promise<string> {
-		const client = await this.waitForClient(windowId);
-		return client.uninstallExtension(extensionId);
-	}
-
-	async listExtensions(windowId: number, showVersions: boolean): Promise<string[]> {
-		const client = await this.waitForClient(windowId);
-		return client.listExtensions(showVersions);
-	}
-
 	async openWorkspace(windowId: number, workspacePath: string): Promise<void> {
 		const client = await this.waitForClient(windowId);
 		await client.openWorkspace(workspacePath);

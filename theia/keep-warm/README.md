@@ -85,7 +85,7 @@ theia --install-extension ./foo.vsix
 theia --uninstall-extension eamodio.gitlens
 ```
 
-Without an existing Theia instance, extension management uses a short lived backend and hidden empty renderer. CLI only windows are forced hidden and omitted from the taskbar. When another Theia instance already owns the single instance lock, extension management is handed to that running process and uses an existing renderer when possible, so it does not open a workspace window.
+Extension management is backend only. The launcher runs these commands with Electron in Node mode, so they do not start Electron main, create a BrowserWindow, load frontend contributions, or touch the warmer renderer. If a Theia backend is already running for the same configuration directory, the short lived CLI backend forwards the command to that resident backend and waits for its result. Otherwise it performs the operation locally and exits before starting an HTTP server.
 
 An isolated user data environment can be selected with:
 

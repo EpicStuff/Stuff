@@ -537,8 +537,9 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 
 		const cleanApplicationArgs = this.getSuperArgs(cliArgs, false);
 		const hasWindowAction = this.hasWindowAction(cliArgs);
+		const hasPositionalTarget = cleanApplicationArgs.some(arg => !arg.startsWith('-'));
 
-		if (wantsKeepWarm && cleanApplicationArgs.length === 0 && !hasWindowAction) {
+		if (wantsKeepWarm && !hasPositionalTarget && !hasWindowAction) {
 			if (wantsKeepWarmer && !this.getActiveVisibleWindow()) {
 				await this.ensureWarmRenderer();
 			}

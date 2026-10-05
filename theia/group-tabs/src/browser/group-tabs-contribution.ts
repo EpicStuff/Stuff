@@ -166,8 +166,9 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 		const original = this.miniBrowserOpenHandler.openPreview.bind(this.miniBrowserOpenHandler);
 		this.miniBrowserOpenHandler.openPreview = async startPage => {
 			const source = this.groupTabsService.resolveSource(this.shell.activeWidget ?? this.shell.currentWidget);
+			const rightWasExpanded = this.shell.isExpanded('right');
 			const preview = await original(startPage);
-			this.groupTabsService.noteMiniBrowserUrlPreview(preview, source);
+			this.groupTabsService.noteMiniBrowserUrlPreview(preview, source, !rightWasExpanded);
 			return preview;
 		};
 	}

@@ -231,12 +231,30 @@ export class KeepWarmBackendCliForwarder {
 			return undefined;
 		}
 
-		if (!Number.isInteger(state.port) || state.port <= 0 || typeof state.token !== 'string') {
+		if (!Number.isInteger(state.pid) || state.pid <= 0 || !Number.isInteger(state.port) || state.port <= 0 || typeof state.token !== 'string') {
+			return undefined;
+		}
+		try {
+			process.kill(state.pid, 0);
+		} catch {
 			return undefined;
 		}
 
 		const body = JSON.stringify(request);
 		return new Promise(resolve => {
+			let connected = false;
+			let settled = false;
+			const settle = (result: BackendCliResult | undefined): void => {
+				if (!settled) {
+					settled = true;
+					resolve(result);
+				}
+			};
+			const failure = (message: string): BackendCliResult => ({
+				stdout: '',
+				stderr: `theia: ${message}\n`,
+				exitCode: 1
+			});
 			const headers: Record<string, string | number> = {
 				'content-type': 'application/json',
 				'content-length': Buffer.byteLength(body),
@@ -253,22 +271,44 @@ export class KeepWarmBackendCliForwarder {
 				method: 'POST',
 				headers
 			}, response => {
+				connected = true;
 				const chunks: Buffer[] = [];
 				response.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
 				response.on('end', () => {
+					if (response.statusCode === 403 || response.statusCode === 404) {
+						settle(undefined);
+						return;
+					}
 					if (response.statusCode !== 200) {
-						resolve(undefined);
+						settle(failure(`Resident backend CLI request failed with HTTP ${response.statusCode ?? 'unknown'}`));
 						return;
 					}
 					try {
-						resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')) as BackendCliResult);
+						settle(JSON.parse(Buffer.concat(chunks).toString('utf8')) as BackendCliResult);
 					} catch {
-						resolve(undefined);
+						settle(failure('Resident backend CLI returned an invalid response'));
 					}
 				});
 			});
-			requestHandle.setTimeout(1000, () => requestHandle.destroy());
-			requestHandle.on('error', () => resolve(undefined));
+			requestHandle.once('socket', socket => {
+				if (!socket.connecting) {
+					connected = true;
+					return;
+				}
+				const connectionTimeout = setTimeout(() => {
+					if (!connected) {
+						requestHandle.destroy(new Error('Resident backend connection timed out'));
+					}
+				}, 1000);
+				socket.once('connect', () => {
+					connected = true;
+					clearTimeout(connectionTimeout);
+				});
+				socket.once('close', () => clearTimeout(connectionTimeout));
+			});
+			requestHandle.on('error', error => {
+				settle(connected ? failure(`Resident backend CLI request failed: ${error.message}`) : undefined);
+			});
 			requestHandle.end(body);
 		});
 	}
@@ -397,14 +437,17 @@ export class KeepWarmBackendCliRunner implements BackendApplicationContribution 
 			}
 		}
 
-		if (result.stdout) {
-			process.stdout.write(result.stdout);
+		await this.writeOutput(process.stdout, result.stdout);
+		await this.writeOutput(process.stderr, result.stderr);
+		process.exit(result.exitCode);
+	}
+
+	protected async writeOutput(stream: NodeJS.WriteStream, output: string): Promise<void> {
+		if (!output) {
+			return;
 		}
-		if (result.stderr) {
-			process.stderr.write(result.stderr);
-		}
-		await new Promise<never>(() => {
-			setImmediate(() => process.exit(result.exitCode));
+		await new Promise<void>((resolve, reject) => {
+			stream.write(output, error => error ? reject(error) : resolve());
 		});
 	}
 

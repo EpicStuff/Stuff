@@ -333,8 +333,13 @@ export class GroupTabsService {
 				continue;
 			}
 
-			const current = this.shell.mainPanel.findTabBar(pair.title)?.currentTitle === pair.title;
 			const pane = panes[0];
+			if (pane && this.shouldKeepIncompleteGroup(pair, pane)) {
+				this.registerPair(pair);
+				continue;
+			}
+
+			const current = this.shell.mainPanel.findTabBar(pair.title)?.currentTitle === pair.title;
 			if (pane) {
 				pair.detachPane(pane);
 				await this.withoutShellCapture(() => this.shell.addWidget(pane, { area: 'main', ref: pair, mode: 'tab-after' }));
@@ -380,7 +385,7 @@ export class GroupTabsService {
 	}
 
 	protected async maybeAutoGroup(widget: Widget): Promise<void> {
-		if (!this.rememberGroupsEnabled() || widget.isDisposed || this.shell.getAreaFor(widget) !== 'main') {
+		if (!this.rememberGroupsEnabled() || widget.isDisposed) {
 			return;
 		}
 		const placement = this.provenance.get(widget);
@@ -398,9 +403,16 @@ export class GroupTabsService {
 			return;
 		}
 
+		const area = this.shell.getAreaFor(widget);
+		const rememberedUrlPreview = this.isMiniBrowserUrlPreview(widget)
+			&& placement.relation === MINI_BROWSER_URL_PREVIEW_RELATION;
+		if (area !== 'main' && !(rememberedUrlPreview && area === 'right')) {
+			return;
+		}
+
 		try {
 			const pair = await this.addRelative(source, widget, placement, {
-				restoreSecondary: !this.isMiniBrowserUrlPreview(widget)
+				restoreSecondary: !rememberedUrlPreview
 			});
 			pair.addRememberedRule(this.ruleKey(rule));
 		} catch (error) {
@@ -448,6 +460,18 @@ export class GroupTabsService {
 
 	protected ruleKey(rule: LearnedGroupRule): string {
 		return `${rule.parentKind}\n${rule.childKind}\n${rule.relation}`;
+	}
+
+	protected shouldKeepIncompleteGroup(pair: GroupTabsWidget, primary: Widget): boolean {
+		if (pair.getRememberedRules().length > 0) {
+			return true;
+		}
+		const parentKind = this.widgetKind(primary);
+		return this.learnedRules.some(rule =>
+			rule.parentKind === parentKind
+			&& rule.childKind === 'mini-browser:url-preview'
+			&& rule.relation === MINI_BROWSER_URL_PREVIEW_RELATION
+		);
 	}
 
 	protected rememberGroupsEnabled(): boolean {

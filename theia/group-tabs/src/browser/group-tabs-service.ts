@@ -162,7 +162,10 @@ export class GroupTabsService {
 			});
 
 			if (placement?.ref && rememberedRef && source === rememberedRef) {
-				await this.learnRule(source, child, relation);
+				const rememberedRule = await this.learnRule(source, child, relation);
+				if (rememberedRule) {
+					pair.addRememberedRule(rememberedRule);
+				}
 			}
 			resolved.add(child);
 		}
@@ -199,7 +202,10 @@ export class GroupTabsService {
 				this.registerMember(pair, widget, placement);
 				const source = this.resolveSource(placement.ref);
 				if (source && family.has(source)) {
-					await this.learnRule(source, widget, placement.relation);
+					const rememberedRule = await this.learnRule(source, widget, placement.relation);
+					if (rememberedRule) {
+						pair.addRememberedRule(rememberedRule);
+					}
 				}
 			}
 			if (widget !== primary && this.isMiniBrowserUrlPreview(widget)) {
@@ -218,8 +224,8 @@ export class GroupTabsService {
 			return;
 		}
 
-		await this.forgetRules(record);
-		const layout = this.pruneLayout(pair.getUngroupLayout() ?? pair.getGroupLayout());
+		await this.forgetRules(pair, record);
+		const layout = this.pruneLayout(pair.getGroupLayout());
 		const primary = record.primary;
 		pair.releasePanes();
 
@@ -393,51 +399,55 @@ export class GroupTabsService {
 		}
 
 		try {
-			await this.addRelative(source, widget, placement, {
+			const pair = await this.addRelative(source, widget, placement, {
 				restoreSecondary: !this.isMiniBrowserUrlPreview(widget)
 			});
+			pair.addRememberedRule(this.ruleKey(rule));
 		} catch (error) {
 			console.error('Failed to restore remembered tab group', error);
 		}
 	}
 
-	protected async learnRule(parent: Widget, child: Widget, relation: string): Promise<void> {
+	protected async learnRule(parent: Widget, child: Widget, relation: string): Promise<string | undefined> {
 		if (!this.rememberGroupsEnabled()) {
-			return;
+			return undefined;
 		}
 		const rule: LearnedGroupRule = {
 			parentKind: this.widgetKind(parent),
 			childKind: this.widgetKind(child),
 			relation
 		};
-		if (this.learnedRules.some(candidate =>
-			candidate.parentKind === rule.parentKind
-			&& candidate.childKind === rule.childKind
-			&& candidate.relation === rule.relation
-		)) {
-			return;
+		const key = this.ruleKey(rule);
+		if (!this.learnedRules.some(candidate => this.ruleKey(candidate) === key)) {
+			this.learnedRules.push(rule);
+			await this.storageService.setData(LEARNED_RULES_STORAGE_KEY, this.learnedRules);
 		}
-		this.learnedRules.push(rule);
-		await this.storageService.setData(LEARNED_RULES_STORAGE_KEY, this.learnedRules);
+		return key;
 	}
 
-	protected async forgetRules(record: GroupTabsRecord): Promise<void> {
+	protected async forgetRules(pair: GroupTabsWidget, record: GroupTabsRecord): Promise<void> {
 		const members = new Set(record.members);
-		const removed = new Set<string>();
+		const removed = new Set(pair.getRememberedRules());
 		for (const [child, placement] of record.placements) {
 			const parent = this.resolveSource(placement.ref);
 			if (!parent || !members.has(parent)) {
 				continue;
 			}
-			removed.add(`${this.widgetKind(parent)}\n${this.widgetKind(child)}\n${placement.relation}`);
+			removed.add(this.ruleKey({
+				parentKind: this.widgetKind(parent),
+				childKind: this.widgetKind(child),
+				relation: placement.relation
+			}));
 		}
 		if (removed.size === 0) {
 			return;
 		}
-		this.learnedRules = this.learnedRules.filter(rule =>
-			!removed.has(`${rule.parentKind}\n${rule.childKind}\n${rule.relation}`)
-		);
+		this.learnedRules = this.learnedRules.filter(rule => !removed.has(this.ruleKey(rule)));
 		await this.storageService.setData(LEARNED_RULES_STORAGE_KEY, this.learnedRules);
+	}
+
+	protected ruleKey(rule: LearnedGroupRule): string {
+		return `${rule.parentKind}\n${rule.childKind}\n${rule.relation}`;
 	}
 
 	protected rememberGroupsEnabled(): boolean {

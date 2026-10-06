@@ -1,8 +1,8 @@
 # theia-webview-context-fix
 
-A native Eclipse Theia extension for Theia 1.73.1 that fixes VS Code compatible webview context menus such as the GitLens Commit Graph menu.
+A native Eclipse Theia extension for Theia 1.75.0 that fixes VS Code compatible webview context menus such as the GitLens Commit Graph menu.
 
-It implements the two fixes already verified against Theia 1.73.1:
+It implements the two fixes already verified against Theia 1.75.0:
 
 1. Editor hosted webviews now apply the context received from the webview when evaluating menu `when` clauses.
 2. Webviews merge inherited `data-vscode-context` values from the complete composed event path, with inner values overriding outer values.
@@ -11,14 +11,14 @@ The first fix is a native Theia frontend module that replaces `WebviewWidget.han
 
 ## Add the extension
 
-Add this package to the dependencies of the Theia application that also contains `@theia/plugin-ext` 1.73.1.
+Add this package to the dependencies of the Theia application that also contains `@theia/plugin-ext` 1.75.0.
 
 For a local checkout:
 
 ```json
 {
 	"dependencies": {
-		"@theia/plugin-ext": "1.73.1",
+		"@theia/plugin-ext": "1.75.0",
 		"theia-webview-context-fix": "file:../theia-webview-context-fix"
 	}
 }
@@ -33,7 +33,7 @@ npm run build
 
 ## Add the preload build fix
 
-Theia 1.73.1 generates an `esbuild.mjs` file in the application directory. Add this import near the top:
+Theia 1.75.0 generates an `esbuild.mjs` file in the application directory. Add this import near the top:
 
 ```js
 import { webviewContextFixPlugin } from 'theia-webview-context-fix/esbuild';
@@ -45,7 +45,7 @@ Then add this line after `browserOptions` is imported and before `esbuild.contex
 browserOptions.plugins.push(webviewContextFixPlugin());
 ```
 
-For the default generated Theia 1.73.1 `esbuild.mjs`, the beginning should therefore look like:
+For the default generated Theia 1.75.0 `esbuild.mjs`, the beginning should therefore look like:
 
 ```js
 import { browserOptions, watch } from './gen-esbuild.browser.mjs';
@@ -65,7 +65,7 @@ Keep the rest of the generated file unchanged.
 
 Build the application normally. The native frontend module replaces `WebviewWidget.handleContextMenu`, while the esbuild plugin patches `lib/webview/pre/main.js` after Theia copies it.
 
-The preload patch is intentionally strict. If the expected Theia 1.73.1 implementation is not present, the build fails instead of silently applying a potentially incorrect patch.
+The preload patch is intentionally strict. If the expected Theia 1.75.0 implementation is not present, the build fails instead of silently applying a potentially incorrect patch.
 
 ## What it changes
 
@@ -75,4 +75,4 @@ The preload build plugin changes context discovery from returning only the neare
 
 ## Scope
 
-This package targets Theia 1.73.1. When upgrading Theia, first check whether the upstream bugs have been fixed. If they have, remove this package. If not, update the version guard and verify the two source locations before carrying the fix forward.
+This package targets Theia 1.75.0. When upgrading Theia, first check whether the upstream bugs have been fixed. If they have, remove this package. If not, update the version guard and verify the two source locations before carrying the fix forward.

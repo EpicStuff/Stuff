@@ -19,7 +19,7 @@ const original = `        host.postMessage('did-context-menu', {
             return {};
         }`;
 
-test('patches Theia 1.73.1 webview context collection', () => {
+test('patches Theia 1.75.0 webview context collection', () => {
 	const result = patchWebviewPreloadSource(original);
 
 	assert.equal(result.changed, true);

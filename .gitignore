@@ -7,3 +7,5 @@
 
 # stuff
 *.nim
+zellij detach others/target/
+zellij detach others/Cargo.lock

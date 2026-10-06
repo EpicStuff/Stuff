@@ -4,6 +4,7 @@ import { ExtractableWidget } from '@theia/core/lib/browser/widgets/extractable-w
 import { CommandService } from '@theia/core/lib/common/command';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { TabBar, Widget } from '@theia/core/shared/@lumino/widgets';
+import { CursorPositionedSecondaryWindowService } from '../electron-browser/cursor-positioned-secondary-window-service';
 
 const EXTRACT_WIDGET_COMMAND = 'extract-widget';
 
@@ -14,6 +15,9 @@ export class DraggableWindowsContribution implements FrontendApplicationContribu
 
 	@inject(CommandService)
 	protected readonly commandService!: CommandService;
+
+	@inject(CursorPositionedSecondaryWindowService)
+	protected readonly secondaryWindowService!: CursorPositionedSecondaryWindowService;
 
 	protected readonly registeredTabBars = new WeakSet<TabBar<Widget>>();
 
@@ -73,15 +77,28 @@ export class DraggableWindowsContribution implements FrontendApplicationContribu
 			}
 
 			setTimeout(() => {
-				if (!widget.isDisposed && ExtractableWidget.is(widget) && widget.secondaryWindow === undefined) {
-					void this.commandService.executeCommand(EXTRACT_WIDGET_COMMAND, widget);
-				}
+				void this.extractWidgetAtPointer(widget);
 			});
 		};
 
 		dragDocument.addEventListener('pointerup', onPointerUp, true);
 		dragDocument.addEventListener('pointercancel', onPointerCancel, true);
 		dragDocument.addEventListener('keydown', onKeyDown, true);
+	}
+
+	protected async extractWidgetAtPointer(widget: ExtractableWidget): Promise<void> {
+		if (widget.isDisposed || widget.secondaryWindow !== undefined) {
+			return;
+		}
+
+		await this.secondaryWindowService.captureNextWindowPosition();
+		try {
+			if (!widget.isDisposed && widget.secondaryWindow === undefined) {
+				await this.commandService.executeCommand(EXTRACT_WIDGET_COMMAND, widget);
+			}
+		} finally {
+			this.secondaryWindowService.clearNextWindowPosition();
+		}
 	}
 
 	protected isOutsideWindow(event: PointerEvent, dragWindow: Window): boolean {

@@ -1,0 +1,90 @@
+diff --git a/lib.typ b/lib.typ
+index 5fd1cc0..b312b13 100644
+--- a/lib.typ
++++ b/lib.typ
+@@ -305,15 +305,14 @@
+ /// #example(`resume.github-link("ptsouchlos/awesome-resume")`)
+ /// - github-path (string): The path to the Github project (e.g. "ptsouchlos/awesome-resume")
+ /// -> none
+-#let github-link(github-path) = {
+-  set box(height: 11pt)
+-
+-  align(right + horizon)[
+-    #fa-icon("github", fill: color-darkgray) #h(2pt) #link(
+-      "https://github.com/" + github-path,
+-      github-path,
+-    )
+-  ]
++#let github-link(github-path, show_base: false) = {
++	box(height: 0pt, baseline: bottom)[#text(baseline: -10pt)[#fa-icon("github", fill: color-darkgray)]]
++	h(2pt)
++	if show_base == false {
++		link("https://github.com/" + github-path, github-path)
++	} else {
++		link("https://github.com/" + github-path, "github.com/" + github-path)
++	}
+ }
+ 
+ /// Right section for the justified headers
+@@ -380,7 +379,7 @@
+   author: (:),
+   profile-picture: image,
+   contact-items-separator: h(10pt),
+-  contact-items-inset: (left: 4pt),
++  contact-items-inset: (left: 4pt),  // Setting: left - gap between icon and text in the header
+   date: datetime.today().display("[month repr:long] [day], [year]"),
+   accent-color: default-accent-color,
+   colored-headers: true,
+@@ -454,10 +453,9 @@
+ 
+   set heading(numbering: none, outlined: false)
+ 
+-  show heading.where(level: 1): it => block(sticky: true)[
++  show heading.where(level: 1): it => block(above: .7em, sticky: true)[  // Setting: above - controls space abouve h1 text
+     #set text(size: 16pt, weight: "regular")
+     #set align(left)
+-    #set block(above: 1em)
+     #let color = if colored-headers {
+       accent-color
+     } else {
+@@ -526,11 +524,12 @@
+ 
+   // Contact section
+   let contacts = {
+-    set box(height: 9pt)
++    set box(height: 6pt)
+     set text(size: 9pt, weight: "regular", style: "normal")
+ 
+     let items = __format_contact_items(author, item-inset: contact-items-inset)
+     align(center, items.join(contact-items-separator))
++		v(-.7em) // Setting: after icon header gap
+   }
+ 
+   if profile-picture != none {
+@@ -570,7 +569,7 @@
+ /// - body (content): The body of the resume entry
+ #let resume-item(body) = {
+   set text(size: 10pt, style: "normal", weight: "light", fill: color-darknight)
+-  set block(above: 0.75em, below: 1.25em)
++  set block(above: 0.75em, below: .75em)
+   set par(leading: 0.65em)
+   block(above: 0.5em)[
+     #body
+@@ -600,7 +599,7 @@
+   } else {
+     title-content = title
+   }
+-  block(above: 1em, below: 0.65em, sticky: true)[
++  block(above: 0em, below: 0.65em, sticky: true)[
+     #pad[
+       #justified-header(title-content, location)
+       #if description != "" or date != "" [
+@@ -651,7 +650,7 @@
+ 
+   pad[
+     #grid(
+-      columns: (3fr, 8fr),
++      columns: (2fr, 7fr),
+       gutter: 10pt,
+       align: left + top,
+       resume-skill-category(category), resume-skill-values(items),

@@ -16,3 +16,6 @@ goes through all the folders with extension ids and gives u their name
 ## vaultwarden-nohttps
 patch the website to allow http
 
+## modern-cv
+my changes to https://typst.app/universe/package/modern-cv, based on v0.10.0
+

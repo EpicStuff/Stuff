@@ -4,7 +4,7 @@ import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import * as React from '@theia/core/shared/react';
 import { CellKind } from '@theia/notebook/lib/common';
 import { NotebookMenus } from '@theia/notebook/lib/browser/contributions/notebook-actions-contribution';
-import { NotebookCellActionContribution } from '@theia/notebook/lib/browser/contributions/notebook-cell-actions-contribution';
+import { NotebookCellActionContribution, NotebookCellCommands } from '@theia/notebook/lib/browser/contributions/notebook-cell-actions-contribution';
 import { NotebookEditorWidget } from '@theia/notebook/lib/browser/notebook-editor-widget';
 import { NotebookEditorWidgetService } from '@theia/notebook/lib/browser/service/notebook-editor-widget-service';
 import { NotebookService } from '@theia/notebook/lib/browser/service/notebook-service';
@@ -673,10 +673,49 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 	@inject(NotebookService)
 	protected readonly notebookService!: NotebookService;
 
+	@inject(CommandRegistry)
+	protected readonly commandRegistry!: CommandRegistry;
+
 	@postConstruct()
 	protected init(): void {
 		initializeInputCollapsePersistence(this.storageService, this.notebookEditorWidgetService);
+		document.addEventListener('keydown', this.handleNotebookEditorKeyDown, true);
 	}
+
+	protected readonly handleNotebookEditorKeyDown = (event: KeyboardEvent): void => {
+		if (event.key !== 'Enter' || !event.ctrlKey || event.altKey || event.shiftKey || event.metaKey || event.isComposing) {
+			return;
+		}
+
+		const editor = this.notebookEditorWidgetService.focusedEditor;
+		const notebook = editor?.model;
+		const target = event.target;
+		if (!editor || !notebook || !(target instanceof Element) || !editor.node.contains(target)) {
+			return;
+		}
+		if (!target.closest('.theia-notebook-cell-editor')) {
+			return;
+		}
+
+		const cellNode = target.closest<HTMLElement>('.theia-notebook-cell[data-cell-handle]');
+		if (!cellNode || !editor.node.contains(cellNode)) {
+			return;
+		}
+
+		const handle = Number(cellNode.dataset.cellHandle);
+		if (!Number.isInteger(handle)) {
+			return;
+		}
+		const cell = notebook.getCellByHandle(handle);
+		if (cell?.cellKind !== CellKind.Code) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		event.stopImmediatePropagation();
+		void this.commandRegistry.executeCommand(NotebookCellCommands.EXECUTE_SINGLE_CELL_COMMAND.id, notebook, cell);
+	};
 
 	registerCommands(commands: CommandRegistry): void {
 		commands.registerCommand(NotebookCellInputCollapseCommands.COLLAPSE, {

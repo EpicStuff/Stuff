@@ -1,6 +1,6 @@
 {
 	"name": "theia-draggable-windows",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Adds VS Code style tab dragging into connected Theia secondary windows.",
 	"engines": {
 		"node": ">=24"
@@ -11,7 +11,8 @@
 		"README.md"
 	],
 	"exports": {
-		"./lib/browser/theia-draggable-windows-frontend-module": "./lib/browser/theia-draggable-windows-frontend-module.js"
+		"./lib/electron-browser/theia-draggable-windows-frontend-module": "./lib/electron-browser/theia-draggable-windows-frontend-module.js",
+		"./lib/electron-main/theia-draggable-windows-electron-main-module": "./lib/electron-main/theia-draggable-windows-electron-main-module.js"
 	},
 	"scripts": {
 		"build": "tsc -p tsconfig.json",
@@ -25,13 +26,15 @@
 	},
 	"theiaExtensions": [
 		{
-			"frontend": "lib/browser/theia-draggable-windows-frontend-module"
+			"frontendElectron": "lib/electron-browser/theia-draggable-windows-frontend-module",
+			"electronMain": "lib/electron-main/theia-draggable-windows-electron-main-module"
 		}
 	],
 	"keywords": [
 		"theia-extension",
 		"theia",
 		"tabs",
-		"secondary-window"
+		"secondary-window",
+		"electron"
 	]
 }

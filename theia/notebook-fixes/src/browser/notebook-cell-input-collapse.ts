@@ -488,6 +488,60 @@ class CollapsibleMarkdownCellInput extends React.Component<CollapsibleCodeCellIn
 	}
 }
 
+interface MarkdownCellInputCollapseSidebarProps {
+	cell: NotebookCellModel;
+}
+
+class MarkdownCellInputCollapseSidebar extends React.Component<MarkdownCellInputCollapseSidebarProps, CollapsibleCodeCellInputState> {
+	protected stateSubscription?: Disposable;
+
+	constructor(props: MarkdownCellInputCollapseSidebarProps) {
+		super(props);
+		this.state = { collapsed: isInputCollapsed(props.cell) };
+	}
+
+	override componentDidMount(): void {
+		this.stateSubscription = inputCollapseStateChangedEmitter.event(cell => {
+			if (cell === this.props.cell) {
+				this.setState({ collapsed: isInputCollapsed(cell) });
+			}
+		});
+	}
+
+	override componentWillUnmount(): void {
+		this.stateSubscription?.dispose();
+	}
+
+	override render(): React.ReactNode {
+		const collapsed = this.state.collapsed;
+		return React.createElement(
+			'div',
+			{
+				className: 'theia-notebook-markdown-sidebar',
+				style: {
+					alignItems: 'flex-start',
+					display: 'flex',
+					justifyContent: 'center',
+					paddingTop: '8px'
+				}
+			},
+			React.createElement('span', {
+				className: codicon(collapsed ? 'chevron-right' : 'chevron-down'),
+				onClick: (event: React.MouseEvent<HTMLSpanElement>) => {
+					event.preventDefault();
+					event.stopPropagation();
+					setInputCollapsed(this.props.cell, !collapsed);
+				},
+				style: {
+					cursor: 'pointer',
+					opacity: 0.8
+				},
+				title: collapsed ? 'Expand Cell Input' : 'Collapse Cell Input'
+			})
+		);
+	}
+}
+
 interface DynamicCellToolbarProps {
 	cell: NotebookCellModel;
 	renderToolbar: () => React.ReactNode;
@@ -623,6 +677,16 @@ export function patchNotebookCodeCellInputCollapse(): void {
 			cell,
 			renderExpanded: () => originalMarkdownRender.call(this, notebookModel, cell)
 		});
+	};
+
+	NotebookMarkdownCellRenderer.prototype.renderSidebar = function (
+		this: NotebookMarkdownCellRenderer,
+		notebookModel: NotebookModel,
+		cell: NotebookCellModel
+	): React.ReactNode {
+		trackNotebook(notebookModel);
+		notebookByCell.set(cell, notebookModel);
+		return React.createElement(MarkdownCellInputCollapseSidebar, { cell });
 	};
 }
 

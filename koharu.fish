@@ -216,10 +216,9 @@ end
 # ─── INIT KOHARU + REMEMBER ORIGINAL STATE ─────────────────
 koharu_is_up; and set -g koharu_was_up yes
 ensure_koharu_up
-set KOHARU_CONFIG (curl -sf $KOHARU/config)
-set VISION_STEPS (printf '%s' "$KOHARU_CONFIG" | jq -c '[.pipeline.detector,.pipeline.fontDetector,.pipeline.segmenter,.pipeline.bubbleSegmenter,.pipeline.ocr,.pipeline.inpainter] | map(select(. != null and . != ""))')
-set LLM_STEPS (printf '%s' "$KOHARU_CONFIG" | jq -c '[.pipeline.translator,.pipeline.renderer] | map(select(. != null and . != ""))')
-
+set KOHARU_CONFIG (curl -sf $KOHARU/config); or die 'Failed to fetch Koharu config.'
+set VISION_STEPS (printf '%s' "$KOHARU_CONFIG" | jq -ce '.pipeline as $p | {detector:$p.detector,segmenter:$p.segmenter,bubble_segmenter:$p.bubble_segmenter,font_detector:$p.font_detector,ocr:$p.ocr,inpainter:$p.inpainter} | to_entries as $entries | [$entries[] | select(.value | type != "string" or length == 0) | .key] as $missing | if ($missing | length) > 0 then error("Missing pipeline settings: \($missing | join(", "))") else [$entries[].value] end'); or die 'Invalid or incomplete Koharu vision pipeline settings.'
+set LLM_STEPS (printf '%s' "$KOHARU_CONFIG" | jq -ce '.pipeline as $p | {translator:$p.translator,renderer:$p.renderer} | to_entries as $entries | [$entries[] | select(.value | type != "string" or length == 0) | .key] as $missing | if ($missing | length) > 0 then error("Missing pipeline settings: \($missing | join(", "))") else [$entries[].value] end'); or die 'Invalid or incomplete Koharu LLM pipeline settings.'
 # ─── PICK PROJECT ──────────────────────────────────────────
 set CHOICE (curl -sf $KOHARU/projects \
 	| jq -r '.projects | sort_by(-.updatedAtMs) | .[] | "\(.id)\t\(.name)"' \

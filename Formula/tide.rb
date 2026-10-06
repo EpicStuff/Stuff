@@ -1,7 +1,8 @@
 class Tide < Formula
 	desc 'Ultimate Fish prompt'
 	homepage 'https://github.com/IlanCosman/tide'
-	url 'https://github.com/IlanCosman/tide.git', tag: 'v6.2.0', revision: 'c4e3831dc4392979478d3d7b66a68f0274996c85'
+	url 'https://github.com/IlanCosman/tide/archive/refs/tags/v6.2.0.tar.gz'
+	sha256 'c5d229d9d918043739aac93581ac96f00b6f31185b7df1c9864401bcbb69f3bc'
 	license 'MIT'
 	head 'https://github.com/IlanCosman/tide.git', branch: 'main'
 

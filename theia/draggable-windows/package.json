@@ -1,0 +1,37 @@
+{
+	"name": "theia-draggable-windows",
+	"version": "0.1.0",
+	"description": "Adds VS Code style tab dragging into connected Theia secondary windows.",
+	"engines": {
+		"node": ">=24"
+	},
+	"files": [
+		"lib",
+		"src",
+		"README.md"
+	],
+	"exports": {
+		"./lib/browser/theia-draggable-windows-frontend-module": "./lib/browser/theia-draggable-windows-frontend-module.js"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"clean": "rm -rf lib"
+	},
+	"peerDependencies": {
+		"@theia/core": ">=1.75.0 <2.0.0"
+	},
+	"devDependencies": {
+		"typescript": "~5.9.3"
+	},
+	"theiaExtensions": [
+		{
+			"frontend": "lib/browser/theia-draggable-windows-frontend-module"
+		}
+	],
+	"keywords": [
+		"theia-extension",
+		"theia",
+		"tabs",
+		"secondary-window"
+	]
+}

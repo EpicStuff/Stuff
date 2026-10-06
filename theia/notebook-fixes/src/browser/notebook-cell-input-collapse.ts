@@ -11,6 +11,7 @@ import { NotebookService } from '@theia/notebook/lib/browser/service/notebook-se
 import { NotebookCodeCellRenderer } from '@theia/notebook/lib/browser/view/notebook-code-cell-view';
 import { observeCellHeight } from '@theia/notebook/lib/browser/view/notebook-cell-list-view';
 import { NotebookMarkdownCellRenderer } from '@theia/notebook/lib/browser/view/notebook-markdown-cell-view';
+import { NotebookEditorFindMatch, NotebookEditorFindMatchOptions } from '@theia/notebook/lib/browser/view/notebook-find-widget';
 import { NotebookCellToolbarProps } from '@theia/notebook/lib/browser/view/notebook-cell-toolbar';
 import { NotebookCellToolbarFactory } from '@theia/notebook/lib/browser/view/notebook-cell-toolbar-factory';
 import { NotebookCellModel } from '@theia/notebook/lib/browser/view-model/notebook-cell-model';
@@ -26,6 +27,9 @@ const notebookByCell = new WeakMap<NotebookCellModel, NotebookModel>();
 const trackedNotebooks = new WeakSet<NotebookModel>();
 const notebooksReloadingFromDisk = new WeakSet<NotebookModel>();
 const inputCollapseStateChangedEmitter = new Emitter<NotebookCellModel>();
+const instrumentedFindMatches = new WeakSet<object>();
+
+let autoExpandedFindCell: NotebookCellModel | undefined;
 
 let inputCollapseStorageService: StorageService | undefined;
 let persistedInputCollapseState: PersistedInputCollapseState = {};
@@ -154,6 +158,9 @@ export async function reloadNotebookPreservingInputCollapseState(notebook: Noteb
 
 function setInputCollapsed(cell: NotebookCellModel, collapsed: boolean, persist: boolean = true): void {
 	inputCollapseStateTouched.add(cell);
+	if (persist && autoExpandedFindCell === cell) {
+		autoExpandedFindCell = undefined;
+	}
 	if (isInputCollapsed(cell) === collapsed) {
 		return;
 	}
@@ -167,6 +174,153 @@ function setInputCollapsed(cell: NotebookCellModel, collapsed: boolean, persist:
 			void inputCollapseStorageReady.then(() => persistNotebookInputCollapseState(notebook));
 		}
 	}
+}
+
+function escapeFindPattern(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function countCollapsedSourceMatches(cell: NotebookCellModel, options: NotebookEditorFindMatchOptions): number {
+	if (!options.search) {
+		return 0;
+	}
+
+	let pattern = options.regex ? options.search : escapeFindPattern(options.search);
+	if (options.wholeWord) {
+		pattern = `\\b(?:${pattern})\\b`;
+	}
+
+	let expression: RegExp;
+	try {
+		expression = new RegExp(pattern, options.matchCase ? 'g' : 'gi');
+	} catch {
+		return 0;
+	}
+
+	let count = 0;
+	let match: RegExpExecArray | null;
+	while ((match = expression.exec(cell.source)) !== null) {
+		count++;
+		if (match[0].length === 0) {
+			expression.lastIndex++;
+		}
+	}
+	return count;
+}
+
+function finishAutoExpandedFindCell(cell: NotebookCellModel): void {
+	if (autoExpandedFindCell !== cell) {
+		return;
+	}
+	autoExpandedFindCell = undefined;
+
+	const notebook = notebookByCell.get(cell);
+	if (notebook) {
+		void inputCollapseStorageReady.then(() => persistNotebookInputCollapseState(notebook));
+	}
+}
+
+function prepareFindJump(cell: NotebookCellModel): boolean {
+	if (autoExpandedFindCell && autoExpandedFindCell !== cell) {
+		const previous = autoExpandedFindCell;
+		autoExpandedFindCell = undefined;
+		if (!isInputCollapsed(previous)) {
+			setInputCollapsed(previous, true, false);
+		}
+	}
+
+	if (!isInputCollapsed(cell)) {
+		return false;
+	}
+
+	setInputCollapsed(cell, false, false);
+	autoExpandedFindCell = cell;
+	return true;
+}
+
+function afterCellExpansion(callback: () => void): void {
+	requestAnimationFrame(() => requestAnimationFrame(callback));
+}
+
+function instrumentFindMatch(cell: NotebookCellModel, match: NotebookEditorFindMatch): NotebookEditorFindMatch {
+	const matchObject = match as object;
+	if (instrumentedFindMatches.has(matchObject)) {
+		return match;
+	}
+	instrumentedFindMatches.add(matchObject);
+
+	const originalShow = match.show.bind(match);
+	match.show = () => {
+		const expandedForFind = prepareFindJump(cell);
+		if (expandedForFind) {
+			afterCellExpansion(originalShow);
+		} else {
+			originalShow();
+		}
+	};
+	return match;
+}
+
+function revealCollapsedSourceMatch(
+	cell: NotebookCellModel,
+	options: NotebookEditorFindMatchOptions,
+	index: number,
+	originalFindMatches: (this: NotebookCellModel, options: NotebookEditorFindMatchOptions) => NotebookEditorFindMatch[]
+): void {
+	prepareFindJump(cell);
+
+	const reveal = () => {
+		afterCellExpansion(() => {
+			const matches = originalFindMatches.call(cell, options);
+			const match = matches[index] ?? matches[0];
+			if (match) {
+				match.selected = true;
+				match.show();
+			} else if (cell.cellKind === CellKind.Code) {
+				cell.requestCenterEditor();
+			}
+		});
+	};
+
+	if (cell.cellKind === CellKind.Code) {
+		void cell.resolveTextModel().then(reveal);
+	} else {
+		reveal();
+	}
+}
+
+let findPatched = false;
+
+function patchNotebookFindForCollapsedCells(): void {
+	if (findPatched) {
+		return;
+	}
+	findPatched = true;
+
+	const originalFindMatches = NotebookCellModel.prototype.findMatches;
+	NotebookCellModel.prototype.findMatches = function (
+		this: NotebookCellModel,
+		options: NotebookEditorFindMatchOptions
+	): NotebookEditorFindMatch[] {
+		if (isInputCollapsed(this) && this.cellKind === CellKind.Markup) {
+			const count = countCollapsedSourceMatches(this, options);
+			return Array.from({ length: count }, (_, index): NotebookEditorFindMatch => ({
+				selected: false,
+				show: () => revealCollapsedSourceMatch(this, options, index, originalFindMatches)
+			}));
+		}
+
+		const matches = originalFindMatches.call(this, options);
+		if (matches.length > 0 || !isInputCollapsed(this)) {
+			return matches.map(match => instrumentFindMatch(this, match));
+		}
+
+		const count = countCollapsedSourceMatches(this, options);
+		return Array.from({ length: count }, (_, index): NotebookEditorFindMatch => ({
+			selected: false,
+			show: () => revealCollapsedSourceMatch(this, options, index, originalFindMatches)
+		}));
+	};
 }
 
 interface CollapsibleCodeCellInputProps {
@@ -200,7 +354,7 @@ class CollapsibleCodeCellInput extends React.Component<CollapsibleCodeCellInputP
 
 	override render(): React.ReactNode {
 		const expanded = this.props.renderExpanded();
-		if (!React.isValidElement<{ children?: React.ReactNode }>(expanded)) {
+		if (!React.isValidElement<{ children?: React.ReactNode; onMouseDown?: React.MouseEventHandler<HTMLElement> }>(expanded)) {
 			return expanded;
 		}
 
@@ -218,7 +372,12 @@ class CollapsibleCodeCellInput extends React.Component<CollapsibleCodeCellInputP
 		const [editor, ...persistentChildren] = editorChildren;
 		return React.cloneElement(
 			expanded,
-			{},
+			{
+				onMouseDown: event => {
+					expanded.props.onMouseDown?.(event);
+					finishAutoExpandedFindCell(this.props.cell);
+				}
+			},
 			React.cloneElement(
 				editorContainer,
 				{},
@@ -279,7 +438,16 @@ class CollapsibleMarkdownCellInput extends React.Component<CollapsibleCodeCellIn
 
 	override render(): React.ReactNode {
 		if (!this.state.collapsed) {
-			return this.props.renderExpanded();
+			const expanded = this.props.renderExpanded();
+			if (!React.isValidElement<{ onMouseDown?: React.MouseEventHandler<HTMLElement> }>(expanded)) {
+				return expanded;
+			}
+			return React.cloneElement(expanded, {
+				onMouseDown: event => {
+					expanded.props.onMouseDown?.(event);
+					finishAutoExpandedFindCell(this.props.cell);
+				}
+			});
 		}
 
 		const preview = this.props.cell.source.replace(/\s+/g, ' ').trim() || 'Empty markdown cell';
@@ -421,6 +589,7 @@ function enableCodeFolding(cell: NotebookCellModel): void {
 }
 
 export function patchNotebookCodeCellInputCollapse(): void {
+	patchNotebookFindForCollapsedCells();
 	if (rendererPatched) {
 		return;
 	}

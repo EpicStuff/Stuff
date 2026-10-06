@@ -49,6 +49,10 @@ export class DraggableWindowsContribution implements FrontendApplicationContribu
 			return;
 		}
 
+		const tabBounds = args.tab.getBoundingClientRect();
+		const offsetX = tabBounds.width / 2;
+		const offsetY = tabBounds.height / 2;
+
 		let finished = false;
 		const cleanup = () => {
 			if (finished) {
@@ -77,7 +81,7 @@ export class DraggableWindowsContribution implements FrontendApplicationContribu
 			}
 
 			setTimeout(() => {
-				void this.extractWidgetAtPointer(widget);
+				void this.extractWidgetAtPointer(widget, offsetX, offsetY);
 			});
 		};
 
@@ -86,12 +90,12 @@ export class DraggableWindowsContribution implements FrontendApplicationContribu
 		dragDocument.addEventListener('keydown', onKeyDown, true);
 	}
 
-	protected async extractWidgetAtPointer(widget: ExtractableWidget): Promise<void> {
+	protected async extractWidgetAtPointer(widget: ExtractableWidget, offsetX: number, offsetY: number): Promise<void> {
 		if (widget.isDisposed || widget.secondaryWindow !== undefined) {
 			return;
 		}
 
-		await this.secondaryWindowService.captureNextWindowPosition();
+		await this.secondaryWindowService.captureNextWindowPosition(offsetX, offsetY);
 		try {
 			if (!widget.isDisposed && widget.secondaryWindow === undefined) {
 				await this.commandService.executeCommand(EXTRACT_WIDGET_COMMAND, widget);

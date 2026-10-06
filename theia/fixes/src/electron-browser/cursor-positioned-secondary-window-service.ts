@@ -3,16 +3,26 @@ import { ElectronSecondaryWindowService } from '@theia/core/lib/electron-browser
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { CursorScreenPosition, DraggableWindowPlacementService } from '../common/window-placement-protocol';
 
+interface NextWindowPosition {
+	cursor: CursorScreenPosition;
+	offsetX: number;
+	offsetY: number;
+}
+
 @injectable()
 export class CursorPositionedSecondaryWindowService extends ElectronSecondaryWindowService {
 	@inject(DraggableWindowPlacementService)
 	protected readonly draggableWindowPlacementService!: DraggableWindowPlacementService;
 
-	protected nextWindowPosition: CursorScreenPosition | undefined;
+	protected nextWindowPosition: NextWindowPosition | undefined;
 
-	async captureNextWindowPosition(): Promise<void> {
+	async captureNextWindowPosition(offsetX: number, offsetY: number): Promise<void> {
 		try {
-			this.nextWindowPosition = await this.draggableWindowPlacementService.getCursorScreenPosition();
+			this.nextWindowPosition = {
+				cursor: await this.draggableWindowPlacementService.getCursorScreenPosition(),
+				offsetX,
+				offsetY
+			};
 		} catch {
 			this.nextWindowPosition = undefined;
 		}
@@ -30,10 +40,9 @@ export class CursorPositionedSecondaryWindowService extends ElectronSecondaryWin
 			return coordinates;
 		}
 
-		const [height, width] = coordinates;
-		const effectiveWidth = width ?? widget.node.clientWidth;
-		const left = Math.max(position.display.x, Math.round(position.point.x - effectiveWidth / 2));
-		const top = Math.max(position.display.y, Math.round(position.point.y - 30));
-		return [height, width, left, top];
+		const { cursor, offsetX, offsetY } = position;
+		const left = Math.max(cursor.display.x, Math.round(cursor.point.x - offsetX));
+		const top = Math.max(cursor.display.y, Math.round(cursor.point.y - 30 - offsetY));
+		return [coordinates[0], coordinates[1], left, top];
 	}
 }

@@ -1,1 +1,47 @@
-﻿# todo
+serverAddr: example.com
+serverPort: 1234
+loginFailExit: false
+webServer:
+	port: 5678
+auth:
+	method: token
+	token: ...
+transport:
+	tls:
+		enable: true
+		certFile: /some/path/to/cert/file
+		keyFile: /some/path/to/key/file
+		trustedCaFile: /some/path/to/ca/file
+log:
+	level: trace
+	maxDays: 30
+
+defaults:
+	proxies:
+		stcp:
+			ip: 127.0.0.1
+		sudp:
+			ip: 127.0.0.1
+		http:
+			ip: 127.0.0.1
+			requestHeaders.set.X-Forwarded-Proto: https
+	visitors:
+		stcp:
+			ip: 127.0.0.1
+
+proxies:
+	stcp:
+		example1:
+			port: 1
+			secretKey: ...
+		example2:
+			port: 2
+		example3:
+			port: 3
+	sudp:
+		example4:
+			port: 4
+	http:
+		example5:
+			subdomain: example
+			port: 5

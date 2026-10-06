@@ -2,10 +2,10 @@
 set KOHARU http://localhost:4000/api/v1
 set LLM_MODEL vntl-llama3-8b-v2
 set RESIZE_MAX 1440x2560
-set RESTART_MODE headless
-set MODE full
-set -l flags --port 4000
-set -g STARTED_OPS
+set BASE_FLAGS --port 4000
+set mode full
+set restart_mode headless
+set started_ops
 
 # ─── ARGS ───────────────────────────────────────────────────
 argparse h/help e/export-only -- $argv
@@ -17,7 +17,7 @@ if set -q _flag_help
 	exit 0
 end
 
-set -q _flag_e; and set MODE export
+set -q _flag_e; and set mode export
 
 # ─── PACKAGE CHECK ──────────────────────────────────────────
 set -l missing
@@ -46,19 +46,19 @@ function koharu_is_up
 	curl -sf $KOHARU/meta > /dev/null 2>&1
 end
 
-function ensure_koharu_up --argument-names mode
+function ensure_koharu_up
 	koharu_is_up; and return 0
-	test "$mode" != gui; and set -a flags --headless
-	echo "  Launching koharu ($mode)..."
-	prime-run koharu $flags &>/dev/null &
-	disown
+	set flags $BASE_FLAGS
+	test "$restart_mode" = headless; and set -a flags --headless
+	echo "  Launching koharu ($restart_mode)..."
+	koharu $flags &> /tmp/koharu.log & disown
 	set -l tries 0
 	while not koharu_is_up
 		sleep 1
 		set tries (math $tries + 1)
 		if test $tries -gt 30
-			echo "Koharu failed to start within 30s — aborting." >&2
-			return 1
+			echo "Koharu failed to start within 30s, aborting." >&2
+			exit 1
 		end
 	end
 	echo "  Koharu is up."
@@ -72,37 +72,15 @@ function open_project --argument-names project_id
 end
 
 function run_pipeline --argument-names pages_json steps_json
-	set -l op_id (curl -sX POST $KOHARU/pipelines \
-		-H 'content-type: application/json' \
-		-d "{\"steps\":$steps_json,\"pages\":$pages_json}" \
-		| jq -r '.operationId')
-	set -ga STARTED_OPS $op_id
-end
-
-# function wait_for_pipelines
-# 	set -l spin ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏
-# 	set -l i 1
-# 	while true
-# 		set -l running (curl -s $KOHARU/operations \
-# 			| jq '[.operations[] | select(.status=="running" or .status=="pending" or .status=="queued")] | length')
-# 		if test $running -eq 0
-# 			printf "\r\e[K"
-# 			break
-# 		end
-# 		printf "\r%s %d op(s) running..." $spin[$i] $running
-# 		set i (math "$i % 10 + 1")
-# 		sleep 0.3
-# 	end
-# end
-function wait_for_pipelines
-	set -l ours_json (printf '%s\n' $STARTED_OPS | jq -R . | jq -s .)
-	while true
-		set -l running (curl -s $KOHARU/operations \
-			| jq --argjson ours "$ours_json" \
-				'[.operations[] | select(.id as $id | $ours | index($id)) | select(.status=="running" or .status=="pending" or .status=="queued")] | length')
-		test $running -eq 0; and break
-		sleep 1
+	set -l op_id (
+		curl -sfX POST $KOHARU/pipelines -H 'content-type: application/json' -d "{\"steps\":$steps_json,\"pages\":$pages_json}" \
+		| jq -er '.operationId'
+	)
+	or begin
+		echo "Failed to start pipeline." >&2
+		exit 1
 	end
+	set -ga started_ops $op_id
 end
 
 function bar --argument-names pct width
@@ -124,7 +102,7 @@ function watch_pipeline --argument-names label bars
 		set -l f (echo $data \
 			| jq -r '[.event, .jobId // .id // "", .currentPage // 0, .totalPages // 0, .currentStepIndex // 0, .totalSteps // 0, .step // ""] | @tsv' \
 			| string split \t)
-		contains -- $f[2] $STARTED_OPS; or continue
+		contains -- $f[2] $started_ops; or continue
 
 		switch $f[1]
 			case jobProgress
@@ -153,25 +131,25 @@ function on_sigint --on-signal SIGINT
 	exit 130
 end
 function cleanup --on-event fish_exit
-	if test -n "$STARTED_OPS"; and koharu_is_up
+	if set -q started_ops[1]; and koharu_is_up
 		set -l live (curl -s $KOHARU/operations \
 			| jq -r '.operations[] | select(.status=="running" or .status=="pending" or .status=="queued") | .id')
-		for op in $STARTED_OPS
+		for op in $started_ops
 			if contains $op $live
 				echo "Cancelling op $op"
 				curl -sX DELETE $KOHARU/operations/$op > /dev/null
 			end
 		end
 	end
-	if test "$RESTART_MODE" = headless
+	if test "$restart_mode" = headless
 		echo "Shutting down headless koharu."
 		pkill -INT koharu; sleep 1; pkill koharu
 	end
 end
 
 # ─── INIT KOHARU + REMEMBER ORIGINAL STATE ─────────────────
-koharu_is_up; and set RESTART_MODE gui
-ensure_koharu_up headless; or exit 1
+koharu_is_up; and set restart_mode gui
+ensure_koharu_up
 
 # ─── PICK PROJECT ──────────────────────────────────────────
 set CHOICE (curl -s $KOHARU/projects \
@@ -186,7 +164,7 @@ echo "Selected: $PROJECT_NAME ($PROJECT_ID)"
 set DO_EXPORT no
 set DO_RESIZE no
 set DO_CONVERT no
-switch $MODE
+switch $mode
 	case full
 		set DO_EXPORT (pick_yn "Export when done?" yes)
 	case export
@@ -206,7 +184,7 @@ if test $PAGE_COUNT -eq 0
 end
 
 # ─── PIPELINE PHASES (full mode only) ──────────────────────
-if test $MODE = full
+if test $mode = full
 	# ─── PHASE 1: VISION ───────────────────────────────────
 	echo "──────────────── Phase 1: Vision ─────────────────"
 	curl -sX DELETE $KOHARU/llm/current > /dev/null
@@ -224,7 +202,7 @@ if test $MODE = full
 	echo "─────────── Phase 2: Unloading Models ────────────"
 	echo "  Restarting koharu to free GPU VRAM"
 	pkill -INT koharu; sleep 1; pkill koharu; sleep 2
-	ensure_koharu_up $RESTART_MODE; or exit 1
+	ensure_koharu_up
 	open_project $PROJECT_ID
 
 	curl -sX PUT $KOHARU/llm/current \
@@ -257,7 +235,7 @@ if test $MODE = full
 		sleep 1
 		set tries (math $tries + 1)
 		if test $tries -gt 60
-			echo "LLM load timed out after 5 min." >&2
+			echo "LLM load timed out after 1 min." >&2
 			exit 1
 		end
 	end
@@ -274,10 +252,14 @@ end
 if test "$DO_EXPORT" = yes
 	set tmp /tmp/koharu-export.bin
 	set out "$PROJECT_ID.cbz"
-	set ctype (curl -sX POST $KOHARU/projects/current/export \
+	set ctype (curl -sfX POST $KOHARU/projects/current/export \
 		-H 'content-type: application/json' \
 		-d '{"format":"rendered"}' \
 		-o $tmp -w "%{content_type}")
+	or begin
+		echo "Export failed." >&2
+		exit 1
+	end
 
 	if test -e $out
 		echo "⚠ $out exists — moving to trash."

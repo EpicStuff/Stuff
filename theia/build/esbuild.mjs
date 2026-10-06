@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-export const supportedTheiaVersion = '1.73.1';
+export const supportedTheiaVersion = '1.75.0';
 
 const originalCall = 'context: findVscodeContext(e.composedPath(), 0)';
 const fixedCall = 'context: findVscodeContext(e.composedPath())';

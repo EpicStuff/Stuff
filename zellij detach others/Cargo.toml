@@ -1,0 +1,16 @@
+[package]
+	edition = '2021'
+	name = 'detach-others'
+	rust-version = '1.92'
+	version = '0.2.0'
+[[bin]]
+	name = 'detach-others'
+	path = 'main.rs'
+[dependencies]
+	zellij-tile = '=0.44.3'
+[profile.release]
+	codegen-units = 1
+	lto = true
+	opt-level = 'z'
+	panic = 'abort'
+	strip = true

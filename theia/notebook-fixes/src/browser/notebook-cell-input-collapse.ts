@@ -6,6 +6,7 @@ import { CellKind } from '@theia/notebook/lib/common';
 import { NotebookMenus } from '@theia/notebook/lib/browser/contributions/notebook-actions-contribution';
 import { NotebookCellActionContribution, NotebookCellCommands } from '@theia/notebook/lib/browser/contributions/notebook-cell-actions-contribution';
 import { NotebookEditorWidget } from '@theia/notebook/lib/browser/notebook-editor-widget';
+import { NotebookCellEditorService } from '@theia/notebook/lib/browser/service/notebook-cell-editor-service';
 import { NotebookEditorWidgetService } from '@theia/notebook/lib/browser/service/notebook-editor-widget-service';
 import { NotebookService } from '@theia/notebook/lib/browser/service/notebook-service';
 import { NotebookCodeCellRenderer } from '@theia/notebook/lib/browser/view/notebook-code-cell-view';
@@ -30,6 +31,9 @@ const inputCollapseStateChangedEmitter = new Emitter<NotebookCellModel>();
 const instrumentedFindMatches = new WeakSet<object>();
 
 let autoExpandedFindCell: NotebookCellModel | undefined;
+let notebookCellEditorService: NotebookCellEditorService | undefined;
+
+const collapsedCodeCellHiddenAreaSource = {};
 
 let inputCollapseStorageService: StorageService | undefined;
 let persistedInputCollapseState: PersistedInputCollapseState = {};
@@ -133,6 +137,50 @@ const isInputCollapsed = readNotebookCellInputCollapseState;
 
 function isInputCollapsibleCell(cell: NotebookCellModel): boolean {
 	return cell.cellKind === CellKind.Code || cell.cellKind === CellKind.Markup;
+}
+
+function getCodeCellEditor(cell: NotebookCellModel) {
+	return notebookCellEditorService?.allCellEditors.find(editor => editor.uri.toString() === cell.uri.toString());
+}
+
+function applyCollapsedCodeEditorState(cell: NotebookCellModel, collapsed: boolean): void {
+	if (cell.cellKind !== CellKind.Code) {
+		return;
+	}
+
+	const editor = getCodeCellEditor(cell)?.getControl();
+	const model = editor?.getModel();
+	if (!editor || !model) {
+		return;
+	}
+
+	const lineCount = model.getLineCount();
+	if (collapsed && lineCount > 1) {
+		editor.setHiddenAreas([{
+			startLineNumber: 2,
+			startColumn: 1,
+			endLineNumber: lineCount,
+			endColumn: model.getLineMaxColumn(lineCount)
+		}], collapsedCodeCellHiddenAreaSource, true);
+		editor.setScrollTop(0);
+	} else {
+		editor.setHiddenAreas([], collapsedCodeCellHiddenAreaSource, true);
+	}
+}
+
+function selectCollapsedCodeCellInput(cell: NotebookCellModel): boolean {
+	if (cell.cellKind !== CellKind.Code || !isInputCollapsed(cell)) {
+		return false;
+	}
+
+	const editor = getCodeCellEditor(cell)?.getControl();
+	const model = editor?.getModel();
+	if (!editor || !model) {
+		return false;
+	}
+
+	editor.setSelection(model.getFullModelRange());
+	return true;
 }
 
 export async function reloadNotebookPreservingInputCollapseState(notebook: NotebookModel): Promise<void> {
@@ -334,6 +382,8 @@ interface CollapsibleCodeCellInputState {
 
 class CollapsibleCodeCellInput extends React.Component<CollapsibleCodeCellInputProps, CollapsibleCodeCellInputState> {
 	protected stateSubscription?: Disposable;
+	protected editorSubscription?: Disposable;
+	protected contentSubscription?: Disposable;
 
 	constructor(props: CollapsibleCodeCellInputProps) {
 		super(props);
@@ -343,13 +393,33 @@ class CollapsibleCodeCellInput extends React.Component<CollapsibleCodeCellInputP
 	override componentDidMount(): void {
 		this.stateSubscription = inputCollapseStateChangedEmitter.event(cell => {
 			if (cell === this.props.cell) {
-				this.setState({ collapsed: isInputCollapsed(cell) });
+				const collapsed = isInputCollapsed(cell);
+				this.setState({ collapsed });
+				applyCollapsedCodeEditorState(cell, collapsed);
 			}
 		});
+		this.editorSubscription = notebookCellEditorService?.onDidChangeCellEditors(() => {
+			applyCollapsedCodeEditorState(this.props.cell, this.state.collapsed);
+		});
+		this.contentSubscription = this.props.cell.onDidChangeContent(() => {
+			if (this.state.collapsed) {
+				requestAnimationFrame(() => applyCollapsedCodeEditorState(this.props.cell, true));
+			}
+		});
+		requestAnimationFrame(() => applyCollapsedCodeEditorState(this.props.cell, this.state.collapsed));
+	}
+
+	override componentDidUpdate(_prevProps: CollapsibleCodeCellInputProps, prevState: CollapsibleCodeCellInputState): void {
+		if (prevState.collapsed !== this.state.collapsed) {
+			requestAnimationFrame(() => applyCollapsedCodeEditorState(this.props.cell, this.state.collapsed));
+		}
 	}
 
 	override componentWillUnmount(): void {
 		this.stateSubscription?.dispose();
+		this.editorSubscription?.dispose();
+		this.contentSubscription?.dispose();
+		applyCollapsedCodeEditorState(this.props.cell, false);
 	}
 
 	override render(): React.ReactNode {
@@ -370,6 +440,32 @@ class CollapsibleCodeCellInput extends React.Component<CollapsibleCodeCellInputP
 		}
 
 		const [editor, ...persistentChildren] = editorChildren;
+		const displayedEditor = this.state.collapsed
+			? React.createElement(
+				'div',
+				{
+					style: {
+						maxHeight: '37px',
+						overflow: 'hidden',
+						position: 'relative'
+					}
+				},
+				editor,
+				React.createElement('span', {
+					style: {
+						background: 'var(--theia-editor-background)',
+						opacity: 0.7,
+						paddingLeft: '4px',
+						pointerEvents: 'none',
+						position: 'absolute',
+						right: '8px',
+						top: '10px',
+						zIndex: 5
+					}
+				}, '…')
+			)
+			: editor;
+
 		return React.cloneElement(
 			expanded,
 			{
@@ -381,37 +477,9 @@ class CollapsibleCodeCellInput extends React.Component<CollapsibleCodeCellInputP
 			React.cloneElement(
 				editorContainer,
 				{},
-				this.state.collapsed ? this.renderCollapsedInput() : editor,
+				displayedEditor,
 				...persistentChildren
 			)
-		);
-	}
-
-	protected renderCollapsedInput(): React.ReactNode {
-		return React.createElement(
-			'div',
-			{
-				title: 'Double-click to Expand Cell Input',
-				onDoubleClick: () => setInputCollapsed(this.props.cell, false),
-				style: {
-					alignItems: 'center',
-					cursor: 'default',
-					display: 'flex',
-					minHeight: '24px',
-					opacity: 0.7,
-					padding: '0 10px'
-				}
-			},
-			React.createElement('span', {
-				className: codicon('chevron-right'),
-				onClick: (event: React.MouseEvent<HTMLSpanElement>) => {
-					event.stopPropagation();
-					setInputCollapsed(this.props.cell, false);
-				},
-				style: { cursor: 'pointer', marginRight: '6px' },
-				title: 'Expand Cell Input'
-			}),
-			React.createElement('span', undefined, 'Cell input is collapsed')
 		);
 	}
 }
@@ -728,6 +796,9 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 	@inject(NotebookEditorWidgetService)
 	protected readonly notebookEditorWidgetService!: NotebookEditorWidgetService;
 
+	@inject(NotebookCellEditorService)
+	protected readonly notebookCellEditorService!: NotebookCellEditorService;
+
 	@inject(ApplicationShell)
 	protected readonly applicationShell!: ApplicationShell;
 
@@ -742,12 +813,13 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 
 	@postConstruct()
 	protected init(): void {
+		notebookCellEditorService = this.notebookCellEditorService;
 		initializeInputCollapsePersistence(this.storageService, this.notebookEditorWidgetService);
 		document.addEventListener('keydown', this.handleNotebookEditorKeyDown, true);
 	}
 
 	protected readonly handleNotebookEditorKeyDown = (event: KeyboardEvent): void => {
-		if (event.key !== 'Enter' || !event.ctrlKey || event.altKey || event.shiftKey || event.metaKey || event.isComposing) {
+		if (event.isComposing) {
 			return;
 		}
 
@@ -772,6 +844,24 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 		}
 		const cell = notebook.getCellByHandle(handle);
 		if (cell?.cellKind !== CellKind.Code) {
+			return;
+		}
+
+		if (event.key.toLowerCase() === 'a' && event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && selectCollapsedCodeCellInput(cell)) {
+			event.preventDefault();
+			event.stopPropagation();
+			event.stopImmediatePropagation();
+			return;
+		}
+
+		if (event.key === 'Enter' && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && isInputCollapsed(cell)) {
+			event.preventDefault();
+			event.stopPropagation();
+			event.stopImmediatePropagation();
+			return;
+		}
+
+		if (event.key !== 'Enter' || !event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) {
 			return;
 		}
 

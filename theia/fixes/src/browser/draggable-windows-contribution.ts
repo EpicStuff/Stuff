@@ -85,10 +85,6 @@ export class DraggableWindowsContribution implements FrontendApplicationContribu
 	}
 
 	protected isOutsideWindow(event: PointerEvent, dragWindow: Window): boolean {
-		const left = dragWindow.screenX;
-		const top = dragWindow.screenY;
-		const right = left + dragWindow.outerWidth;
-		const bottom = top + dragWindow.outerHeight;
-		return event.screenX < left || event.screenX >= right || event.screenY < top || event.screenY >= bottom;
+		return event.clientX < 0 || event.clientX >= dragWindow.innerWidth || event.clientY < 0 || event.clientY >= dragWindow.innerHeight;
 	}
 }

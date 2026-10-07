@@ -43,17 +43,7 @@ class XdgDataLoader < Formula
 	def caveats
 		config_home = ENV['XDG_CONFIG_HOME'].to_s.empty? ? '~/.config' : ENV['XDG_CONFIG_HOME']
 		<<~EOS
-			The Homebrew XDG data loader is enabled at:
-			  #{config_home}/plasma-workspace/env/homebrew-xdg-data-dirs.sh
-
-			It adds:
-			  #{HOMEBREW_PREFIX}/share
-
-			to XDG_DATA_DIRS for new Plasma sessions. Formulae that depend on this
-			loader refresh KDE's application cache after they are linked, so new
-			.desktop entries can appear without logging out.
-
-			Remove the loader symlink before uninstalling xdg-data-loader.
+			Make sure to remove #{config_home}/plasma-workspace/env/homebrew-xdg-data-dirs.sh before uninstalling xdg-data-loader.
 		EOS
 	end
 

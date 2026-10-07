@@ -1,0 +1,19 @@
+pkgname=dolphin-seafile-ignore
+pkgver=0.1.2
+pkgrel=1
+pkgdesc='Dolphin action for adding Seafile files and folders to seafile-ignore.txt'
+arch=('x86_64')
+license=('MIT')
+depends=('kio' 'qt6-base' 'sqlite')
+makedepends=('cmake' 'extra-cmake-modules')
+source=('CMakeLists.txt' 'seafileignoreaction.cpp' 'seafileignoreaction.h' 'seafileignoreaction.json')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+build() {
+	cmake -B build -S . -DCMAKE_BUILD_TYPE='Release' -DCMAKE_INSTALL_PREFIX='/usr' -DBUILD_TESTING='OFF'
+	cmake --build build
+}
+
+package() {
+	DESTDIR="$pkgdir" cmake --install build
+}

@@ -1,0 +1,41 @@
+{
+	"name": "theia-notebook-fixes",
+	"version": "0.1.0",
+	"description": "Native Eclipse Theia notebook compatibility fixes and cell input folding.",
+	"license": "MIT",
+	"engines": {
+		"node": ">=24"
+	},
+	"files": [
+		"lib",
+		"src",
+		"LICENSE",
+		"README.md"
+	],
+	"exports": {
+		"./lib/browser/theia-notebook-fixes-frontend-module": "./lib/browser/theia-notebook-fixes-frontend-module.js"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"clean": "rm -rf lib"
+	},
+	"peerDependencies": {
+		"@theia/core": ">=1.75.0 <2.0.0",
+		"@theia/notebook": ">=1.75.0 <2.0.0",
+		"@theia/plugin-ext": ">=1.75.0 <2.0.0"
+	},
+	"devDependencies": {
+		"typescript": "~5.9.3"
+	},
+	"theiaExtensions": [
+		{
+			"frontend": "lib/browser/theia-notebook-fixes-frontend-module"
+		}
+	],
+	"keywords": [
+		"theia-extension",
+		"theia",
+		"notebook",
+		"jupyter"
+	]
+}

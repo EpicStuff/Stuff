@@ -1,0 +1,14 @@
+{
+	"KPlugin": {
+		"MimeTypes": [
+			"application/octet-stream",
+			"inode/directory"
+		],
+		"Name": "Seafile Ignore",
+		"Description": "Add selected Seafile files and folders to seafile-ignore.txt",
+		"ServiceTypes": [
+			"KFileItemAction/Plugin"
+		]
+	},
+	"MimeType": "application/octet-stream;"
+}

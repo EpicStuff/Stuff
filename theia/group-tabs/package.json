@@ -1,7 +1,7 @@
 {
-	"name": "theia-notebook-fixes",
-	"version": "0.1.0",
-	"description": "Native Eclipse Theia notebook compatibility fixes and cell input folding.",
+	"name": "theia-group-tabs",
+	"version": "0.2.0",
+	"description": "Generic paired tab support for Eclipse Theia previews.",
 	"engines": {
 		"node": ">=24"
 	},
@@ -12,7 +12,8 @@
 		"README.md"
 	],
 	"exports": {
-		"./lib/browser/theia-notebook-fixes-frontend-module": "./lib/browser/theia-notebook-fixes-frontend-module.js"
+		"./lib/browser/theia-group-tabs-frontend-module": "./lib/browser/theia-group-tabs-frontend-module.js",
+		"./lib/browser/group-tabs-service": "./lib/browser/group-tabs-service.js"
 	},
 	"scripts": {
 		"build": "tsc -p tsconfig.json",
@@ -20,7 +21,7 @@
 	},
 	"peerDependencies": {
 		"@theia/core": ">=1.75.0 <2.0.0",
-		"@theia/notebook": ">=1.75.0 <2.0.0",
+		"@theia/mini-browser": ">=1.75.0 <2.0.0",
 		"@theia/plugin-ext": ">=1.75.0 <2.0.0"
 	},
 	"devDependencies": {
@@ -28,13 +29,13 @@
 	},
 	"theiaExtensions": [
 		{
-			"frontend": "lib/browser/theia-notebook-fixes-frontend-module"
+			"frontend": "lib/browser/theia-group-tabs-frontend-module"
 		}
 	],
 	"keywords": [
 		"theia-extension",
 		"theia",
-		"notebook",
-		"jupyter"
+		"tabs",
+		"preview"
 	]
 }

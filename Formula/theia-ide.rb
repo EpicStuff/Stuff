@@ -1,7 +1,7 @@
 require 'digest'
 require 'json'
-require_relative '../lib/ensure_deps'
-require_relative '../lib/formula_sandbox_access'
+require_relative './lib/ensure_deps'
+require_relative './lib/formula_sandbox_access'
 
 class TheiaIde < Formula
 	extend EnsureDeps

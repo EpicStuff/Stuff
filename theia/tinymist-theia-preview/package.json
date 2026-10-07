@@ -4,7 +4,6 @@
 	"description": "Opens Tinymist previews in Theia's Mini Browser instead of a VS Code webview.",
 	"version": "0.1.0",
 	"publisher": "epicstuff",
-	"license": "MIT",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/EpicStuff/Stuff.git",

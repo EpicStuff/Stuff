@@ -3,7 +3,6 @@ class CachyosFishConfig < Formula
 	homepage 'https://github.com/CachyOS/cachyos-fish-config'
 	url 'https://github.com/CachyOS/cachyos-fish-config/archive/refs/tags/v16.tar.gz'
 	sha256 '97a0b603f393be3422465ff9e18f2d03ccfc33657b672de6ba89b3a3ac3b473d'
-	license 'MIT'
 
 	livecheck do
 		url 'https://github.com/CachyOS/cachyos-fish-config.git'

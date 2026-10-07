@@ -3,7 +3,6 @@ class Zapret2 < Formula
 	homepage 'https://github.com/bol-van/zapret2'
 	url 'https://github.com/bol-van/zapret2/releases/download/v1.0.5.2/zapret2-v1.0.5.2.tar.gz'
 	sha256 'fb3bcf69e7d86b9fa2d60bd53c956ac06d9dcc3adf9392afd84865f1d94b1158'
-	license 'MIT'
 
 	depends_on :linux
 	depends_on arch: :x86_64

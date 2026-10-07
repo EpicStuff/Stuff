@@ -4,6 +4,7 @@ Native Eclipse Theia extensions are direct child packages:
 
 - `webview-context-fix` fixes inherited VS Code webview context menus.
 - `notebook-fixes` adds notebook compatibility fixes and code cell input folding.
+- `group-tabs` groups source and preview widgets into one top level split tab.
 
 VS Code compatibility extensions live under `vscode-extensions`:
 

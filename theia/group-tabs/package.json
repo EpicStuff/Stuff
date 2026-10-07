@@ -1,0 +1,42 @@
+{
+	"name": "theia-group-tabs",
+	"version": "0.2.0",
+	"description": "Generic paired tab support for Eclipse Theia previews.",
+	"license": "MIT",
+	"engines": {
+		"node": ">=24"
+	},
+	"files": [
+		"lib",
+		"src",
+		"LICENSE",
+		"README.md"
+	],
+	"exports": {
+		"./lib/browser/theia-group-tabs-frontend-module": "./lib/browser/theia-group-tabs-frontend-module.js",
+		"./lib/browser/group-tabs-service": "./lib/browser/group-tabs-service.js"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"clean": "rm -rf lib"
+	},
+	"peerDependencies": {
+		"@theia/core": ">=1.75.0 <2.0.0",
+		"@theia/mini-browser": ">=1.75.0 <2.0.0",
+		"@theia/plugin-ext": ">=1.75.0 <2.0.0"
+	},
+	"devDependencies": {
+		"typescript": "~5.9.3"
+	},
+	"theiaExtensions": [
+		{
+			"frontend": "lib/browser/theia-group-tabs-frontend-module"
+		}
+	],
+	"keywords": [
+		"theia-extension",
+		"theia",
+		"tabs",
+		"preview"
+	]
+}

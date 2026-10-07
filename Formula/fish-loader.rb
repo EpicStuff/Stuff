@@ -1,4 +1,4 @@
-require_relative '../lib/formula_sandbox_access'
+require_relative './lib/formula_sandbox_access'
 
 class FishLoader < Formula
 	desc 'Load Homebrew Fish files'

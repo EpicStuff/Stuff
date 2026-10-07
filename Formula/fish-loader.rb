@@ -1,10 +1,12 @@
+require_relative '../lib/formula_sandbox_access'
+
 class FishLoader < Formula
 	desc 'Load Homebrew Fish files'
 	homepage 'https://codeberg.org/EpicStuff/stuff'
 	url 'https://raw.githubusercontent.com/Homebrew/brew/34c40c18ffa2029b611b61c73273e32c003d0842/Library/Homebrew/.ruby-version', using: :nounzip
 	sha256 '2e9fe584010a41f374317eb891684ccaab818403e8fa8eb7b2053c1810a8c00a'
 	license 'MIT'
-	version '1.1.1'
+	version '1.1.2'
 
 	livecheck do
 		skip 'No upstream'
@@ -55,22 +57,15 @@ class FishLoader < Formula
 			end
 		FISH
 
-		ohai 'Enable Homebrew Fish packages', <<~EOS
-			mkdir -p ~/.config/fish/conf.d
-			ln -s '#{opt_prefix}/fish-loader.fish' ~/.config/fish/conf.d/homebrew-loader.fish
-
-			Make sure to remove ~/.config/fish/conf.d/homebrew-loader.fish before uninstalling.
-		EOS
+		install_loader_link
 	end
 
 	def caveats
 		<<~EOS
-			Enable Homebrew Fish vendor files:
-			  mkdir -p ~/.config/fish/conf.d
-			  ln -s '#{opt_prefix}/fish-loader.fish' ~/.config/fish/conf.d/homebrew-loader.fish
+			The Homebrew Fish loader is enabled at:
+			  ~/.config/fish/conf.d/homebrew-loader.fish
 
-			Then restart Fish:
-			  exec /usr/bin/fish -l
+			It will be loaded by new Fish sessions.
 
 			Make sure to remove ~/.config/fish/conf.d/homebrew-loader.fish before uninstalling.
 		EOS
@@ -84,5 +79,24 @@ class FishLoader < Formula
 		assert_match 'vendor_functions.d', loader.read
 		assert_match 'vendor_completions.d', loader.read
 		assert_match 'vendor_conf.d', loader.read
+	end
+
+	private
+
+	def install_loader_link
+		config_dir = Pathname(Dir.home)/'.config/fish/conf.d'
+		loader = config_dir/'homebrew-loader.fish'
+		target = opt_prefix/'fish-loader.fish'
+
+		config_dir.mkpath
+
+		if loader.symlink?
+			return if loader.readlink == target
+
+			odie "Refusing to overwrite existing symlink: #{loader} -> #{loader.readlink}"
+		end
+		odie "Refusing to overwrite existing path: #{loader}" if loader.exist?
+
+		ln_s target, loader
 	end
 end

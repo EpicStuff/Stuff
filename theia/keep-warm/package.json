@@ -1,0 +1,42 @@
+{
+	"name": "theia-keep-warm",
+	"version": "0.2.0",
+	"description": "Keeps the Eclipse Theia Electron backend warm between windows.",
+	"license": "MIT",
+	"engines": {
+		"node": ">=24"
+	},
+	"files": [
+		"lib",
+		"src",
+		"LICENSE",
+		"README.md"
+	],
+	"exports": {
+		"./lib/electron-main/theia-keep-warm-electron-main-module": "./lib/electron-main/theia-keep-warm-electron-main-module.js",
+		"./lib/electron-browser/theia-keep-warm-frontend-module": "./lib/electron-browser/theia-keep-warm-frontend-module.js"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"clean": "rm -rf lib"
+	},
+	"peerDependencies": {
+		"@theia/core": ">=1.75.0 <2.0.0",
+		"@theia/plugin-ext": ">=1.75.0 <2.0.0"
+	},
+	"devDependencies": {
+		"typescript": "~5.9.3"
+	},
+	"theiaExtensions": [
+		{
+			"frontendElectron": "lib/electron-browser/theia-keep-warm-frontend-module",
+			"electronMain": "lib/electron-main/theia-keep-warm-electron-main-module"
+		}
+	],
+	"keywords": [
+		"theia-extension",
+		"theia",
+		"electron",
+		"startup"
+	]
+}

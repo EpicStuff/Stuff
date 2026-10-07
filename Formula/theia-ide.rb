@@ -12,7 +12,7 @@ class TheiaIde < Formula
 		tag: 'v1.75.0',
 		revision: '9145abe093659217ef2967cc2955abdc37c16408'
 	license 'MIT'
-	revision 1
+	revision 2
 
 	livecheck do
 		url :stable
@@ -62,6 +62,7 @@ class TheiaIde < Formula
 		restore_plugin_cache(plugin_cache)
 		system 'yarn', 'download:plugins'
 		store_plugin_cache(plugin_cache)
+		install_local_vscode_extensions
 		system 'yarn', 'electron', 'package:preview'
 
 		app_dir = buildpath.glob('applications/electron/dist/linux*-unpacked').find(&:directory?)
@@ -160,6 +161,32 @@ class TheiaIde < Formula
 			end
 		rescue StandardError => e
 			opoo "Could not generate Theia desktop entry with Electron Builder; continuing without desktop integration: #{e.message}"
+		end
+	end
+
+	def install_local_vscode_extensions
+		extensions_path = ENV['HOMEBREW_THEIA_EXTENSIONS']
+		return if extensions_path.to_s.empty?
+
+		root = Pathname(extensions_path).expand_path/'vscode-extensions'
+		return unless root.directory?
+
+		plugin_dir = buildpath/'plugins'
+		plugin_dir.mkpath
+		extension_paths = root.children.select { |path| path.directory? && (path/'package.json').file? }.sort
+
+		extension_paths.each do |path|
+			manifest = JSON.parse((path/'package.json').read)
+			name = manifest['name']
+			publisher = manifest['publisher']
+
+			odie "VS Code extension is missing a package name: #{path}" if name.to_s.empty?
+			odie "VS Code extension is missing a publisher: #{path}" if publisher.to_s.empty?
+
+			destination = plugin_dir/"local-#{publisher}.#{name}"
+			odie "VS Code extension destination already exists: #{destination}" if destination.exist?
+
+			cp_r path.realpath, destination
 		end
 	end
 

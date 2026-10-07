@@ -1,6 +1,7 @@
+require 'digest'
 require 'json'
-require_relative '../lib/ensure_deps'
-require_relative '../lib/formula_sandbox_access'
+require_relative './lib/ensure_deps'
+require_relative './lib/formula_sandbox_access'
 
 class TheiaIde < Formula
 	extend EnsureDeps
@@ -11,6 +12,7 @@ class TheiaIde < Formula
 		tag: 'v1.75.0',
 		revision: '9145abe093659217ef2967cc2955abdc37c16408'
 	license 'MIT'
+	revision 7
 
 	livecheck do
 		url :stable
@@ -19,6 +21,7 @@ class TheiaIde < Formula
 	end
 
 	depends_on :linux
+	depends_on 'epic/stuff/xdg-data-loader'
 	ensure_build_dep 'node@24', command: 'node', minimum_version: '24'
 	ensure_build_dep 'yarn', command: 'yarn', minimum_version: '1.7', version_below: '2'
 	ensure_build_dep 'python@3.14', command: 'python3'
@@ -31,7 +34,9 @@ class TheiaIde < Formula
 	def install
 		ENV.prepend_path 'PKG_CONFIG_PATH', '/usr/share/pkgconfig'
 		ENV['PUPPETEER_SKIP_DOWNLOAD'] = 'true'
-		ENV['XDG_CACHE_HOME'] = (HOMEBREW_CACHE/'theia-ide').to_s
+		cache_root = HOMEBREW_CACHE/'npm_cache/theia-ide'
+		ENV['XDG_CACHE_HOME'] = cache_root.to_s
+		prepare_ffmpeg_cache(cache_root)
 		system_electron = prepare_build_manifests
 		build_jobs = [ENV.make_jobs.to_i, 1].max
 		child_jobs = [Math.sqrt(build_jobs).floor, 1].max
@@ -54,7 +59,11 @@ class TheiaIde < Formula
 		end
 
 		system 'yarn', 'electron', 'build:prod'
+		plugin_cache = plugin_cache_path(cache_root)
+		restore_plugin_cache(plugin_cache)
 		system 'yarn', 'download:plugins'
+		store_plugin_cache(plugin_cache)
+		install_local_vscode_extensions
 		system 'yarn', 'electron', 'package:preview'
 
 		app_dir = buildpath.glob('applications/electron/dist/linux*-unpacked').find(&:directory?)
@@ -66,6 +75,7 @@ class TheiaIde < Formula
 		libexec.install app_dir.children
 		bin.write_exec_script libexec/'theia-ide-electron-app'
 		mv bin/'theia-ide-electron-app', bin/'theia'
+		install_desktop_entry
 	end
 
 	test do
@@ -74,6 +84,157 @@ class TheiaIde < Formula
 	end
 
 	private
+
+	def install_desktop_entry
+		desktop_dir = buildpath/'desktop-entry'
+		desktop_dir.mkpath
+		script = buildpath/'generate-desktop-entry.cjs'
+		script.write <<~JS
+			const fs = require('fs/promises');
+			const os = require('os');
+			const path = require('path');
+			const { build } = require('electron-builder');
+
+			async function main() {
+				const projectDir = process.argv[2];
+				const outputDir = process.argv[3];
+				const prepackaged = await fs.mkdtemp(path.join(os.tmpdir(), 'theia-desktop-'));
+
+				try {
+					await fs.mkdir(path.join(prepackaged, 'resources'), { recursive: true });
+					let generated = false;
+
+					await build({
+						projectDir,
+						linux: ['deb'],
+						prepackaged,
+						publish: 'never',
+						config: {
+							afterPack: null
+						},
+						effectiveOptionComputed: async value => {
+							const [args, desktopFilePath] = value;
+							const mapping = args.find(arg => typeof arg === 'string' && arg.includes('=/usr/share/applications/'));
+							const match = mapping?.match(/=\\/usr\\/share\\/applications\\/([^/]+\\.desktop)$/);
+							if (!match || typeof desktopFilePath !== 'string') {
+								throw new Error('Electron Builder did not expose the generated desktop entry');
+							}
+
+							await fs.copyFile(desktopFilePath, path.join(outputDir, match[1]));
+							generated = true;
+							return true;
+						}
+					});
+
+					if (!generated) {
+						throw new Error('Electron Builder did not generate a desktop entry');
+					}
+				} finally {
+					await fs.rm(prepackaged, { recursive: true, force: true });
+				}
+			}
+
+			main().catch(error => {
+				console.error(error);
+				process.exitCode = 1;
+			});
+		JS
+
+		begin
+			system 'node', script, buildpath/'applications/electron', desktop_dir
+			desktop_files = desktop_dir.glob('*.desktop')
+			raise 'Electron Builder generated an unexpected number of desktop entries' unless desktop_files.length == 1
+
+			desktop_file = desktop_files.first
+			contents = desktop_file.read
+			exec_lines = contents.lines.count { |line| line.start_with?('Exec=') }
+			raise 'Generated desktop entry does not contain exactly one Exec entry' unless exec_lines == 1
+
+			exec_path = (opt_bin/'theia').to_s
+			exec_path = %("#{exec_path.gsub('\\', '\\\\').gsub('"', '\\"')}") unless exec_path.match?(/\A[\/0-9A-Za-z._-]+\z/)
+			contents = contents.sub(/^Exec=(?:"(?:[^"\\]|\\.)*"|\S+)(.*)$/, "Exec=#{exec_path}\\1")
+
+			icon_lines = contents.lines.count { |line| line.start_with?('Icon=') }
+			raise 'Generated desktop entry does not contain exactly one Icon entry' unless icon_lines == 1
+			icon_name = contents[/^Icon=(.+)$/, 1]&.strip
+			raise 'Generated desktop entry contains an invalid Icon entry' unless icon_name&.match?(/\A[A-Za-z0-9._-]+\z/)
+
+			icon_source = buildpath/'applications/electron/resources/icons/LinuxLauncherIcons/512x512.png'
+			raise 'Could not find the Theia launcher icon' unless icon_source.file?
+
+			icon_file = "#{icon_name}.png"
+			icon_path = opt_share/'icons'/icon_file
+			contents = contents.sub(/^Icon=.*$/, "Icon=#{icon_path}")
+			desktop_file.atomic_write(contents)
+
+			(share/'icons').install icon_source => icon_file
+			(share/'applications').install desktop_file
+		rescue StandardError => e
+			opoo "Could not generate Theia desktop entry with Electron Builder; continuing without desktop integration: #{e.message}"
+		end
+	end
+
+	def install_local_vscode_extensions
+		extensions_path = ENV['HOMEBREW_THEIA_EXTENSIONS']
+		return if extensions_path.to_s.empty?
+
+		root = Pathname(extensions_path).expand_path/'vscode-extensions'
+		return unless root.directory?
+
+		plugin_dir = buildpath/'plugins'
+		plugin_dir.mkpath
+		extension_paths = root.children.select { |path| path.directory? && (path/'package.json').file? }.sort
+
+		extension_paths.each do |path|
+			manifest = JSON.parse((path/'package.json').read)
+			name = manifest['name']
+			publisher = manifest['publisher']
+
+			odie "VS Code extension is missing a package name: #{path}" if name.to_s.empty?
+			odie "VS Code extension is missing a publisher: #{path}" if publisher.to_s.empty?
+
+			destination = plugin_dir/"local-#{publisher}.#{name}"
+			odie "VS Code extension destination already exists: #{destination}" if destination.exist?
+
+			cp_r path.realpath, destination
+		end
+	end
+
+	def prepare_ffmpeg_cache(cache_root)
+		cache = cache_root/'theia-cli-cache'
+		cache.mkpath
+		tmp_root = Pathname(ENV.fetch('TMPDIR'))/'theia-cli'
+		tmp_root.mkpath
+		link = tmp_root/'cache'
+		rm_rf link if link.exist? || link.symlink?
+		ln_s cache, link
+	end
+
+	def plugin_cache_path(cache_root)
+		package = JSON.parse((buildpath/'package.json').read)
+		fingerprint = Digest::SHA256.hexdigest(JSON.generate({
+			plugins: package['theiaPlugins'],
+			excluded: package['theiaPluginsExcludeIds'],
+		}))
+		cache_root/'plugins'/version.to_s/fingerprint
+	end
+
+	def restore_plugin_cache(cache)
+		return unless cache.directory?
+
+		plugins = buildpath/'plugins'
+		plugins.mkpath
+		system 'cp', '-a', '--reflink=auto', "#{cache}/.", plugins
+	end
+
+	def store_plugin_cache(cache)
+		plugins = buildpath/'plugins'
+		return unless plugins.directory?
+
+		rm_rf cache
+		cache.mkpath
+		system 'cp', '-a', '--reflink=auto', "#{plugins}/.", cache
+	end
 
 	def prepare_build_manifests
 		root_package_path = buildpath/'package.json'
@@ -136,6 +297,7 @@ class TheiaIde < Formula
 		]
 		test_dependencies.each { |dependency| electron_package.fetch('devDependencies').delete(dependency) }
 		electron_package.fetch('dependencies').delete('@theia/test')
+		disable_ai_extensions(electron_package) if ENV['HOMEBREW_THEIA_NO_AI'] == '1'
 
 		system_electron = find_system_electron(electron_package.dig('devDependencies', 'electron'))
 		if system_electron
@@ -144,6 +306,33 @@ class TheiaIde < Formula
 		end
 		electron_package_path.atomic_write(JSON.pretty_generate(electron_package) + "\n")
 		system_electron
+	end
+
+	def disable_ai_extensions(electron_package)
+		electron_package.fetch('dependencies').delete_if { |name, _version| name.start_with?('@theia/ai-') }
+
+		product_package_path = buildpath/'theia-extensions/product/package.json'
+		product_package = JSON.parse(product_package_path.read)
+		product_package.fetch('dependencies').delete_if { |name, _version| name.start_with?('@theia/ai-') }
+		product_package_path.atomic_write(JSON.pretty_generate(product_package) + "\n")
+
+		frontend_module_path = buildpath/'theia-extensions/product/src/browser/theia-ide-frontend-module.ts'
+		frontend_module = frontend_module_path.read
+		frontend_module.sub!("import { AIRegistryConfiguration } from '@theia/ai-registry/lib/common/ai-registry-configuration';\n", '')
+		frontend_module.sub!("import { TheiaIDEAIRegistryConfiguration } from './theia-ide-ai-registry-configuration';\n", '')
+
+		ai_binding = [
+			'    if (isBound(AIRegistryConfiguration)) {',
+			'        rebind(AIRegistryConfiguration).to(TheiaIDEAIRegistryConfiguration).inSingletonScope();',
+			'    } else {',
+			'        bind(AIRegistryConfiguration).to(TheiaIDEAIRegistryConfiguration).inSingletonScope();',
+			'    }',
+		].join("\n") + "\n"
+		odie 'Could not remove Theia IDE AI registry binding' unless frontend_module.include?(ai_binding)
+
+		frontend_module.sub!(ai_binding, '')
+		frontend_module_path.atomic_write(frontend_module)
+		rm_f buildpath/'theia-extensions/product/src/browser/theia-ide-ai-registry-configuration.ts'
 	end
 
 	def find_system_electron(required_version)

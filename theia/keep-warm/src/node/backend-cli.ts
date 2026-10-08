@@ -83,6 +83,7 @@ export class KeepWarmBackendCliContribution implements CliContribution {
 			default: false,
 			description: 'Show versions with --list-extensions'
 		});
+		// Applied by the theia launcher through THEIA_CONFIG_DIR; declared here so the backend accepts it.
 		conf.option('user-data-dir', {
 			type: 'string',
 			description: 'Set the Theia user data directory'
@@ -109,10 +110,6 @@ export class KeepWarmBackendCliContribution implements CliContribution {
 
 		this.state.listExtensions = args.listExtensions === true;
 		this.state.showVersions = args.showVersions === true;
-
-		if (typeof args.userDataDir === 'string') {
-			process.env.THEIA_CONFIG_DIR = path.resolve(process.cwd(), args.userDataDir);
-		}
 	}
 }
 

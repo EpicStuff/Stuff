@@ -2,11 +2,12 @@ import { Disposable, Emitter, URI } from '@theia/core';
 import {
 	ApplicationShell,
 	BaseWidget,
+	BoxLayout,
+	BoxPanel,
 	DockLayout,
 	DockPanel,
 	Message,
 	Navigatable,
-	PanelLayout,
 	Saveable,
 	SaveableSource,
 	StatefulWidget,
@@ -39,10 +40,12 @@ export class GroupTabsWidget extends BaseWidget implements ApplicationShell.Trac
 		this.addClass('theia-group-tabs-widget');
 		this.title.closable = true;
 
-		const layout = new PanelLayout();
-		this.layout = layout;
-		this.dockPanel = new DockPanel({ mode: 'multiple-document' });
+		this.dockPanel = new DockPanel({ mode: 'multiple-document', spacing: 0 });
 		this.dockPanel.addClass('theia-group-tabs-dock-panel');
+
+		const layout = new BoxLayout({ direction: 'top-to-bottom', spacing: 0 });
+		this.layout = layout;
+		BoxPanel.setStretch(this.dockPanel, 1);
 		layout.addWidget(this.dockPanel);
 
 		this.toDispose.push(this.compositeSaveable);

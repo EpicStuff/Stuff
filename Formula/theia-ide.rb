@@ -463,37 +463,12 @@ class TheiaIde < Formula
 	def integrate_vscode_cli_usage
 		usage_path = buildpath/'applications/electron/scripts/cli-usage.js'
 		source = usage_path.read
-		old_help_condition = "if (hasFlag(['--help'])) {"
-		new_help_condition = "if (hasFlag(['--help', '-h'])) {"
-		old_help_line = '  --help                              Print usage'
-		new_help_block = <<~HELP.chomp
-			  -h, --help                          Print usage
-			  -n, --new-window                    Force a new window
-			  -r, --reuse-window                  Force the last active window to be reused
-			  -g, --goto <file:line[:column]>     Open a file at the given line and column
-			  -d, --diff <file1> <file2>          Compare two files
-			      --list-extensions               List installed user extensions
-			      --show-versions                 Show versions with --list-extensions
-			      --install-extension <id|vsix>   Install or update an extension
-			      --uninstall-extension <id>      Uninstall an extension
-			      --user-data-dir <dir>           Set Electron and Theia user data directories
-			      --disable-gpu                   Disable hardware acceleration
-			      --keep-warm                     Keep the Electron main process and backend resident
-			      --keep-warmer                   Also preload a hidden empty frontend renderer
-			      --daemon                        Detach the requested invocation
-			      --quit                          Stop the resident keep warm instance
-		HELP
+		return unless source.include?("hasFlag(['--help'])")
 
-		already_patched = source.include?(new_help_condition) && source.include?('  -n, --new-window')
-		return if already_patched
-
-		odie 'Theia CLI usage is only partially patched' if source.include?(new_help_condition) || source.include?('  -n, --new-window')
-		odie 'Unsupported Theia CLI help condition' unless source.include?(old_help_condition)
-		odie 'Unsupported Theia CLI help layout' unless source.include?(old_help_line)
-
-		source = source.sub(old_help_condition, new_help_condition)
-		source = source.sub(old_help_line, new_help_block)
-		usage_path.atomic_write(source)
+		# theia-flags prints the combined help from the Electron main process, so drop Theia's early --help exit.
+		help_block = /^    if \(hasFlag\(\['--help'\]\)\) \{\n.*?^        process\.exit\(0\);\n    \}\n/m
+		odie 'Unsupported Theia CLI help layout' unless source.match?(help_block)
+		usage_path.atomic_write(source.sub(help_block, ''))
 	end
 
 	def integrate_webview_context_fix

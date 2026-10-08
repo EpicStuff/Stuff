@@ -119,6 +119,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		const windowId = window.webContents.id;
 
 		window.once('closed', () => {
+			this.extensionInstaller.rejectWindowWaiters(windowId);
 			setTimeout(() => {
 				if (this.quitting || !this.getActiveVisibleWindow()) {
 					return;
@@ -220,7 +221,11 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		}
 
 		if (hasWindowAction && cliArgs) {
-			await this.handleVscodeWindowCommand(cliArgs, options);
+			try {
+				await this.handleVscodeWindowCommand(cliArgs, options);
+			} catch (error) {
+				console.error(error);
+			}
 			return;
 		}
 

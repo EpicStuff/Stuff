@@ -15,7 +15,7 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 	protected readonly workspaceByWindowId = new Map<number, string>();
 	protected readonly sessionWorkspaces = new Set<string>();
 	protected readonly waiters: Array<(client: KeepWarmExtensionInstallerClient) => void> = [];
-	protected readonly windowWaiters = new Map<number, Array<(client: KeepWarmExtensionInstallerClient) => void>>();
+	protected readonly windowWaiters = new Map<number, Array<{ resolve: (client: KeepWarmExtensionInstallerClient) => void; reject: (error: Error) => void }>>();
 	protected sessionLoad: Promise<void> | undefined;
 	protected sessionWrite = Promise.resolve();
 
@@ -47,7 +47,7 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 			if (windowWaiters) {
 				this.windowWaiters.delete(windowId);
 				for (const windowWaiter of windowWaiters) {
-					windowWaiter(client);
+					windowWaiter.resolve(client);
 				}
 			}
 
@@ -80,6 +80,14 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 	async openDiff(windowId: number, leftPath: string, rightPath: string): Promise<void> {
 		const client = await this.waitForClient(windowId);
 		await client.openDiff(leftPath, rightPath);
+	}
+
+	rejectWindowWaiters(windowId: number): void {
+		const windowWaiters = this.windowWaiters.get(windowId);
+		this.windowWaiters.delete(windowId);
+		for (const windowWaiter of windowWaiters ?? []) {
+			windowWaiter.reject(new Error(`Window ${windowId} closed before its frontend connected`));
+		}
 	}
 
 	async getRestorableWorkspaces(): Promise<string[]> {
@@ -186,9 +194,9 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 			if (windowClient) {
 				return windowClient;
 			}
-			return new Promise(resolve => {
+			return new Promise((resolve, reject) => {
 				const waiters = this.windowWaiters.get(windowId) ?? [];
-				waiters.push(resolve);
+				waiters.push({ resolve, reject });
 				this.windowWaiters.set(windowId, waiters);
 			});
 		}

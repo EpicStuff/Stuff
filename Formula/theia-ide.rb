@@ -94,10 +94,19 @@ class TheiaIde < Formula
 		script = <<~SH
 			#!/bin/sh
 			backend_cli=0
+			user_data_dir=
+			previous=
 			for arg do
+				if [ "$previous" = --user-data-dir ]; then
+					user_data_dir=$arg
+				fi
+				previous=$arg
 				case "$arg" in
 					--install-extension|--install-extension=*|--install-plugin|--install-plugin=*|--uninstall-extension|--uninstall-extension=*|--list-extensions|--show-versions)
 						backend_cli=1
+						;;
+					--user-data-dir=*)
+						user_data_dir=${arg#--user-data-dir=}
 						;;
 					--)
 						break
@@ -108,6 +117,14 @@ class TheiaIde < Formula
 			if [ "$backend_cli" -eq 1 ]; then
 				export THEIA_BACKEND_CLI=1
 				export ELECTRON_RUN_AS_NODE=1
+				# The backend resolves its config directory before CLI contributions see --user-data-dir.
+				if [ -n "$user_data_dir" ]; then
+					case "$user_data_dir" in
+						/*) ;;
+						*) user_data_dir="$PWD/$user_data_dir" ;;
+					esac
+					export THEIA_CONFIG_DIR="$user_data_dir"
+				fi
 				if [ -z "${THEIA_DEFAULT_PLUGINS:-}" ]; then
 					export THEIA_DEFAULT_PLUGINS="local-dir:#{bundled_plugins}"
 				fi

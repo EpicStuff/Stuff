@@ -97,7 +97,8 @@ class XdgDataLoader < Formula
 	end
 
 	def caveats
-		config_home = ENV['XDG_CONFIG_HOME'].to_s.empty? ? '~/.config' : ENV['XDG_CONFIG_HOME']
+		xdg_config_home = ENV['HOMEBREW_XDG_CONFIG_HOME'] || ENV['XDG_CONFIG_HOME']
+		config_home = xdg_config_home.to_s.empty? ? '~/.config' : xdg_config_home
 		<<~EOS
 			Make sure to remove #{config_home}/plasma-workspace/env/homebrew-xdg-data-dirs.sh before uninstalling xdg-data-loader.
 		EOS

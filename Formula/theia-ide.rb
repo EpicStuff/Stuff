@@ -45,7 +45,8 @@ class TheiaIde < Formula
 		extensions = prepare_native_extensions
 		integrate_vscode_cli_usage if extensions.any? { |extension| extension[:name] == 'theia-flags' }
 
-		if extensions.empty?
+		# A system Electron rewrites the pinned electron version, which the lockfile does not contain.
+		if extensions.empty? && !system_electron
 			system 'yarn', 'install', '--frozen-lockfile'
 		else
 			system 'yarn', 'install'

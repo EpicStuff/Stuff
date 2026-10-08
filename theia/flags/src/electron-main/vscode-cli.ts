@@ -113,7 +113,14 @@ VS Code compatible options:
       --install-extension <id|vsix>  Install or update an extension
       --uninstall-extension <id>     Uninstall an extension
       --user-data-dir <dir>          Use an isolated Electron and Theia user data directory
-      --disable-gpu                   Disable hardware acceleration
+      --disable-gpu                  Disable hardware acceleration
+
+Theia options:
+      --electronUserData <dir>       Set the Electron user data directory
+      --no-cluster                   Run the backend in the same process
+      --log-level <level>            Set the log level: info, debug, warn, error, trace, fatal
+      --log-config <path>            Use a JSON log configuration file (exclusive with --log-level)
+      --log-file <path>              Write logs to the given file
 
 Theia custom options:
       --keep-warm                    Keep the Electron main process and backend resident

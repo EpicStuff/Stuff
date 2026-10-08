@@ -192,7 +192,14 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	}
 
 	protected override async handleMainCommand(options: ElectronMainCommandOptions): Promise<void> {
-		const cliArgs = options.secondInstance ? this.pendingSecondInstanceCliArgs.shift() : this.startupCliArgs;
+		let cliArgs: ParsedVscodeCliArgs | undefined;
+		if (options.secondInstance) {
+			cliArgs = this.pendingSecondInstanceCliArgs.shift();
+		} else {
+			// Startup args apply once; later non second instance commands (restart, plain resident invocation) must not replay them.
+			cliArgs = this.startupCliArgs;
+			this.startupCliArgs = undefined;
+		}
 		const hasWindowAction = !!cliArgs && this.hasWindowAction(cliArgs);
 		const hasExplicitTarget = hasWindowAction || options.file !== undefined;
 

@@ -29,6 +29,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	protected keepWarmer = false;
 	protected suppressInitialEmptyWindow = false;
 	protected warmRenderer: BrowserWindow | undefined;
+	protected warmRendererCreation: Promise<void> | undefined;
 	protected quitting = false;
 	protected sessionRestorePending = true;
 	protected startupCliArgs: ParsedVscodeCliArgs | undefined;
@@ -483,7 +484,12 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			return;
 		}
 
-		this.warmRenderer = await this.createHiddenEmptyRenderer();
+		this.warmRendererCreation ??= this.createHiddenEmptyRenderer().then(window => {
+			this.warmRenderer = window;
+		}).finally(() => {
+			this.warmRendererCreation = undefined;
+		});
+		await this.warmRendererCreation;
 	}
 
 	protected override async openWindowWithWorkspace(workspacePath: string): Promise<BrowserWindow> {

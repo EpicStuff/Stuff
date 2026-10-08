@@ -31,10 +31,12 @@ module FormulaSandboxAccess
 	end
 
 	def ensure_xdg_data_loader_link
-		config_home = if ENV['XDG_CONFIG_HOME'].to_s.empty?
+		# brew only passes XDG_CONFIG_HOME through as HOMEBREW_XDG_CONFIG_HOME.
+		xdg_config_home = ENV['HOMEBREW_XDG_CONFIG_HOME'] || ENV['XDG_CONFIG_HOME']
+		config_home = if xdg_config_home.to_s.empty?
 			Pathname(Etc.getpwuid(Process.uid).dir)/'.config'
 		else
-			Pathname(ENV['XDG_CONFIG_HOME']).expand_path
+			Pathname(xdg_config_home).expand_path
 		end
 		config_dir = config_home/'plasma-workspace/env'
 		loader = config_dir/'homebrew-xdg-data-dirs.sh'

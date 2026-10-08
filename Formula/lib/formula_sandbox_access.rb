@@ -26,7 +26,8 @@ module FormulaSandboxAccess
 	private
 
 	def uses_xdg_data_loader?
-		formula.name == 'xdg-data-loader' || formula.deps.any? { |dependency| dependency.name == 'xdg-data-loader' }
+		# Dependency names keep their tap prefix, e.g. epic/stuff/xdg-data-loader.
+		formula.name == 'xdg-data-loader' || formula.deps.any? { |dependency| dependency.name.split('/').last == 'xdg-data-loader' }
 	end
 
 	def ensure_xdg_data_loader_link

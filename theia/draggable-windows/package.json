@@ -19,7 +19,8 @@
 		"clean": "rm -rf lib"
 	},
 	"peerDependencies": {
-		"@theia/core": ">=1.75.0 <2.0.0"
+		"@theia/core": ">=1.75.0 <2.0.0",
+		"@theia/secondary-window": ">=1.75.0 <2.0.0"
 	},
 	"devDependencies": {
 		"typescript": "~5.9.3"

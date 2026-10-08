@@ -285,9 +285,13 @@ class TheiaIde < Formula
 		plugins = buildpath/'plugins'
 		return unless plugins.directory?
 
+		# download:plugins skips plugins that already exist, so never leave a partially copied cache behind.
+		staging = cache.sub_ext('.tmp')
+		rm_rf staging
+		staging.mkpath
+		system 'cp', '-a', '--reflink=auto', "#{plugins}/.", staging
 		rm_rf cache
-		cache.mkpath
-		system 'cp', '-a', '--reflink=auto', "#{plugins}/.", cache
+		staging.rename(cache)
 	end
 
 	def prepare_build_manifests

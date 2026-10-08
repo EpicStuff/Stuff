@@ -5,7 +5,7 @@ import {
 	allowedMarkdownHtmlTags,
 	MarkdownRenderOptions as MonacoMarkdownRenderOptions
 } from '@theia/monaco-editor-core/esm/vs/base/browser/markdownRenderer';
-import type * as marked from '@theia/monaco-editor-core/esm/vs/base/common/marked/marked';
+import type * as marked from 'marked';
 import { MonacoMarkdownRenderer } from '@theia/monaco/lib/browser/markdown-renderer/monaco-markdown-renderer';
 import {
 	createNotebookEditorWidgetContainer,

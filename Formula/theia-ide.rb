@@ -43,7 +43,7 @@ class TheiaIde < Formula
 		ENV['CHILD_CONCURRENCY'] = child_jobs.to_s
 		ENV['JOBS'] = [(build_jobs.to_f/child_jobs).ceil, 1].max.to_s
 		extensions = prepare_native_extensions
-		integrate_vscode_cli_usage if extensions.any? { |extension| extension[:name] == 'theia-keep-warm' }
+		integrate_vscode_cli_usage if extensions.any? { |extension| extension[:name] == 'theia-flags' }
 
 		if extensions.empty?
 			system 'yarn', 'install', '--frozen-lockfile'

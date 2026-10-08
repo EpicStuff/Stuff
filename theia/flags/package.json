@@ -1,5 +1,5 @@
 {
-	"name": "theia-keep-warm",
+	"name": "theia-flags",
 	"version": "0.5.0",
 	"description": "Keeps the Eclipse Theia Electron backend warm between windows.",
 	"engines": {

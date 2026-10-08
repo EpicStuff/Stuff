@@ -1,4 +1,4 @@
-# theia-keep-warm
+# theia-flags
 
 Native Eclipse Theia Electron startup extension verified against Theia 1.75.0.
 

@@ -44,7 +44,7 @@ The additional targets use the same renderer interception for Theia's terminal c
 
 Commands added through the configurator that are contributed by extensions receive the same argument conversion Theia applies to extension menu items in that menu, for example only the first argument in `webview/context` or only the tree item references in `view/item/context`. Built-in Theia commands receive the menu's arguments unchanged.
 
-The extension leaves Theia's `MenuModelRegistry` untouched. It applies the saved layout to a temporary menu model immediately before `ContextMenuRenderer` renders it. Original command behavior and extension supplied conditions remain active unless a condition is explicitly overridden.
+The extension leaves Theia's `MenuModelRegistry` untouched. It applies the saved layout to a temporary menu model immediately before `ContextMenuRenderer` renders it. Original command behavior and extension supplied conditions remain active unless a condition is explicitly overridden. The build fails if the upstream `ContextMenuRenderer.render` implementation, or the menu node visibility code the layout relies on, changes from the Theia version it was verified against.
 
 ## Storage
 

@@ -3,6 +3,7 @@ import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { ApplicationShell, DockLayout, DockPanel, Widget, WidgetManager } from '@theia/core/lib/browser';
 import { StorageService } from '@theia/core/lib/browser/storage-service';
 import { inject, injectable } from '@theia/core/shared/inversify';
+import { Message, MessageLoop } from '@theia/core/shared/@lumino/messaging';
 import { MiniBrowser } from '@theia/mini-browser/lib/browser/mini-browser';
 import { MiniBrowserOpenHandler } from '@theia/mini-browser/lib/browser/mini-browser-open-handler';
 import { WebviewMessageChannels, WebviewWidget } from '@theia/plugin-ext/lib/main/browser/webview/webview';
@@ -29,6 +30,7 @@ interface GroupTabsRecord {
 	members: Set<Widget>;
 	placements: Map<Widget, GroupTabsPlacement>;
 	memberDisposables: Map<Widget, Disposable>;
+	closingActive?: Widget;
 	toDispose: DisposableCollection;
 }
 
@@ -703,7 +705,18 @@ export class GroupTabsService {
 			}
 		};
 		widget.disposed.connect(onDisposed);
-		const disposable = Disposable.create(() => widget.disposed.disconnect(onDisposed));
+		// The shell moves the outer selection off the group when the active pane is closed.
+		const onMessage = (_: unknown, msg: Message): boolean => {
+			if (msg.type === 'close-request' && this.shell.activeWidget === widget && this.shell.mainPanel.findTabBar(pair.title)?.currentTitle === pair.title) {
+				record.closingActive = widget;
+			}
+			return true;
+		};
+		MessageLoop.installMessageHook(widget, onMessage);
+		const disposable = Disposable.create(() => {
+			widget.disposed.disconnect(onDisposed);
+			MessageLoop.removeMessageHook(widget, onMessage);
+		});
 		record.memberDisposables.set(widget, disposable);
 	}
 
@@ -713,6 +726,10 @@ export class GroupTabsService {
 			return;
 		}
 
+		const reselect = record.closingActive === widget;
+		if (reselect) {
+			record.closingActive = undefined;
+		}
 		record.memberDisposables.get(widget)?.dispose();
 		record.memberDisposables.delete(widget);
 		record.members.delete(widget);
@@ -729,20 +746,23 @@ export class GroupTabsService {
 			return;
 		}
 		if (record.members.size === 1) {
-			await this.unwrapSingle(pair);
+			await this.unwrapSingle(pair, reselect);
 			return;
 		}
 
 		record.primary = pair.primary ?? [...record.members][0];
+		if (reselect) {
+			await this.shell.activateWidget(pair.id);
+		}
 	}
 
-	protected async unwrapSingle(pair: GroupTabsWidget): Promise<void> {
+	protected async unwrapSingle(pair: GroupTabsWidget, reselect: boolean): Promise<void> {
 		const record = this.records.get(pair);
 		if (!record || record.members.size !== 1 || pair.isDisposed) {
 			return;
 		}
 		const remaining = [...record.members][0];
-		const current = this.shell.mainPanel.findTabBar(pair.title)?.currentTitle === pair.title;
+		const current = reselect || this.shell.mainPanel.findTabBar(pair.title)?.currentTitle === pair.title;
 		if (pair.containsPane(remaining)) {
 			pair.detachPane(remaining);
 		}

@@ -40,7 +40,8 @@ export class GroupTabsWidget extends BaseWidget implements ApplicationShell.Trac
 		this.addClass('theia-group-tabs-widget');
 		this.title.closable = true;
 
-		this.dockPanel = new DockPanel({ mode: 'multiple-document', spacing: 0 });
+		// Tab drags from outside fall through to the outer main panel instead of landing in the hidden inner tab bars.
+		this.dockPanel = new DockPanel({ mode: 'multiple-document', spacing: 0, tabsConstrained: true });
 		this.dockPanel.addClass('theia-group-tabs-dock-panel');
 
 		const layout = new BoxLayout({ direction: 'top-to-bottom', spacing: 0 });

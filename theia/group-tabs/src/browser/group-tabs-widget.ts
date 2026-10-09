@@ -21,7 +21,7 @@ export class GroupTabsWidget extends BaseWidget implements ApplicationShell.Trac
 	static readonly FACTORY_ID = 'group-tabs';
 
 	protected readonly dockPanel: DockPanel;
-	protected readonly compositeSaveable = new CompositeSaveable();
+	protected readonly compositeSaveable = new GroupTabsSaveable(() => this.exclusiveSaveables());
 	protected readonly onDidChangeTrackableWidgetsEmitter = new Emitter<Widget[]>();
 	readonly onDidChangeTrackableWidgets = this.onDidChangeTrackableWidgetsEmitter.event;
 
@@ -33,7 +33,7 @@ export class GroupTabsWidget extends BaseWidget implements ApplicationShell.Trac
 	protected readonly rememberedRules = new Set<string>();
 	protected ungroupLayout?: DockPanel.ILayoutConfig;
 
-	constructor(options: GroupTabsWidget.Options) {
+	constructor(options: GroupTabsWidget.Options, protected readonly shell: ApplicationShell) {
 		super();
 
 		this.id = `${GroupTabsWidget.FACTORY_ID}:${options.id}`;
@@ -51,6 +51,8 @@ export class GroupTabsWidget extends BaseWidget implements ApplicationShell.Trac
 		this.toDispose.push(this.compositeSaveable);
 		this.toDispose.push(this.onDidChangeTrackableWidgetsEmitter);
 		this.toDispose.push(Disposable.create(() => this.titleSource?.title.changed.disconnect(this.syncTitle, this)));
+		this.toDispose.push(shell.onDidAddWidget(() => this.compositeSaveable.refresh()));
+		this.toDispose.push(shell.onDidRemoveWidget(() => this.compositeSaveable.refresh()));
 
 		const activatePaneFromEvent = (event: Event): void => {
 			const pane = this.getTrackableWidgets().find(candidate => candidate.node.contains(event.target as Node));
@@ -250,11 +252,20 @@ export class GroupTabsWidget extends BaseWidget implements ApplicationShell.Trac
 				this.compositeSaveable.add(saveable);
 			}
 		}
-		for (const saveable of this.compositeSaveable.saveables) {
+		for (const saveable of this.compositeSaveable.allSaveables) {
 			if (!current.has(saveable)) {
 				this.compositeSaveable.remove(saveable);
 			}
 		}
+		this.compositeSaveable.refresh();
+	}
+
+	protected exclusiveSaveables(): Set<Saveable> {
+		const outside = this.shell.widgets.filter(widget => widget.isAttached && !this.node.contains(widget.node));
+		return new Set(this.getTrackableWidgets()
+			.filter(pane => Saveable.closingWidgetWouldLoseSaveable(pane, outside))
+			.map(pane => Saveable.get(pane))
+			.filter((saveable): saveable is Saveable => !!saveable));
 	}
 
 	protected toDockMode(relation: string): DockLayout.InsertMode {
@@ -361,6 +372,34 @@ export class GroupTabsWidget extends BaseWidget implements ApplicationShell.Trac
 			this.title.label = this.titleSource.title.label;
 			this.title.caption = this.titleSource.title.caption;
 			this.title.iconClass = this.titleSource.title.iconClass;
+		}
+	}
+}
+
+// Only covers documents no widget outside the group still holds, matching how Theia closes a single tab.
+class GroupTabsSaveable extends CompositeSaveable {
+	constructor(protected readonly exclusive: () => Set<Saveable>) {
+		super();
+	}
+
+	override get dirty(): boolean {
+		return this.saveables.some(saveable => saveable.dirty);
+	}
+
+	override get saveables(): readonly Saveable[] {
+		const exclusive = this.exclusive();
+		return this.allSaveables.filter(saveable => exclusive.has(saveable));
+	}
+
+	get allSaveables(): readonly Saveable[] {
+		return super.saveables;
+	}
+
+	refresh(): void {
+		const dirty = this.dirty;
+		if (dirty !== this.isDirty) {
+			this.isDirty = dirty;
+			this.onDirtyChangedEmitter.fire();
 		}
 	}
 }

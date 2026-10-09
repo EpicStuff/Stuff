@@ -75,7 +75,8 @@ module FormulaSandboxAccess
 		path = Pathname(extensions_path).expand_path
 		raise ArgumentError, "Native extension path does not exist: #{path}" unless path.directory?
 
-		allow_build_path(sandbox, path.realpath)
+		# The build only copies the extension tree, so it never needs to write there.
+		sandbox.allow_read(path: path.realpath, type: :subpath)
 	end
 
 	def allow_fish_loader_path(sandbox)

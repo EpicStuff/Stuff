@@ -1,7 +1,7 @@
 import { Disposable } from '@theia/core';
 import {
 	ApplicationShell,
-	Dialog,
+	codicon,
 	DialogProps,
 	WidgetManager
 } from '@theia/core/lib/browser';
@@ -12,7 +12,6 @@ import * as React from '@theia/core/shared/react';
 import { ToolbarIconDialogFactory } from '@theia/toolbar/lib/browser/toolbar-icon-selector-dialog';
 import { ContextMenuConfigEditor } from './custom-context-menu-editor';
 import { CustomContextMenuService } from './custom-context-menu-service';
-import { ContextMenuConfigurationChanges } from './custom-context-menu-types';
 import { ContextMenuConfigWidget } from './custom-context-menu-widget';
 
 export const ContextMenuConfigDialogFactory = Symbol('ContextMenuConfigDialogFactory');
@@ -21,7 +20,7 @@ export interface ContextMenuConfigDialogFactory {
 }
 
 @injectable()
-export class ContextMenuConfigDialog extends ReactDialog<ContextMenuConfigurationChanges> {
+export class ContextMenuConfigDialog extends ReactDialog<void> {
 	@inject(CustomContextMenuService)
 	protected readonly service!: CustomContextMenuService;
 
@@ -54,22 +53,13 @@ export class ContextMenuConfigDialog extends ReactDialog<ContextMenuConfiguratio
 		this.contentNode.style.maxHeight = '78vh';
 		this.contentNode.style.overflow = 'hidden';
 
-		const openInTabButton = this.appendButton('Open in Tab', false);
-		const openInTab = () => {
-			void this.openInTab();
-		};
-		openInTabButton.addEventListener('click', openInTab);
-		this.toDispose.push(Disposable.create(() => openInTabButton.removeEventListener('click', openInTab)));
+		this.addOpenInTabTitleAction();
 
-		this.appendCloseButton(Dialog.CANCEL);
-		this.appendAcceptButton('Save');
+		this.appendCloseButton('Close');
 	}
 
-	get value(): ContextMenuConfigurationChanges {
-		return this.editor?.getChanges() ?? {
-			layouts: {},
-			resets: []
-		};
+	get value(): void {
+		return undefined;
 	}
 
 	protected render(): React.ReactNode {
@@ -82,27 +72,84 @@ export class ContextMenuConfigDialog extends ReactDialog<ContextMenuConfiguratio
 				quickCommandService={this.quickCommandService}
 				iconDialogFactory={this.iconDialogFactory}
 				height='520px'
+				autoFocus={true}
 			/>
 		);
 	}
 
-	protected override handleEnter(event: KeyboardEvent): boolean | void {
-		if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
-			return false;
+	protected addOpenInTabTitleAction(): void {
+		const titleBar = this.closeCrossNode.parentElement;
+		if (!titleBar) {
+			return;
 		}
-		return super.handleEnter(event);
+
+		const actions = this.node.ownerDocument.createElement('div');
+		actions.style.alignItems = 'center';
+		actions.style.display = 'flex';
+		actions.style.gap = '8px';
+
+		const openInTab = this.node.ownerDocument.createElement('i');
+		openInTab.className = codicon('open-in-product');
+		openInTab.setAttribute('aria-label', 'Open in Tab');
+		openInTab.setAttribute('role', 'button');
+		openInTab.setAttribute('tabindex', '0');
+		openInTab.title = 'Open in Tab';
+		openInTab.style.cursor = 'pointer';
+		openInTab.style.display = 'inline-flex';
+		openInTab.style.alignItems = 'center';
+		openInTab.style.justifyContent = 'center';
+		openInTab.style.minHeight = '22px';
+		openInTab.style.minWidth = '22px';
+
+		const activate = () => {
+			void this.openInTab();
+		};
+		const activateFromKeyboard = (event: KeyboardEvent) => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				// Keeps the dialog's document level Enter handler from also accepting the dialog.
+				event.stopPropagation();
+				activate();
+			}
+		};
+		openInTab.addEventListener('click', activate);
+		openInTab.addEventListener('keydown', activateFromKeyboard);
+		this.toDispose.push(Disposable.create(() => {
+			openInTab.removeEventListener('click', activate);
+			openInTab.removeEventListener('keydown', activateFromKeyboard);
+		}));
+
+		titleBar.removeChild(this.closeCrossNode);
+		actions.appendChild(openInTab);
+		actions.appendChild(this.closeCrossNode);
+		titleBar.appendChild(actions);
+	}
+
+	/**
+	 * Edits are stored as they happen, so Enter never accepts or closes the dialog.
+	 */
+	protected override handleEnter(): boolean {
+		return false;
 	}
 
 	protected async openInTab(): Promise<void> {
-		await this.service.applyChanges(this.value);
+		const state = this.editor?.captureState();
 		const widget = await this.widgetManager.getOrCreateWidget(ContextMenuConfigWidget.ID);
+		if (!(widget instanceof ContextMenuConfigWidget)) {
+			return;
+		}
+		if (state) {
+			widget.adoptState(state);
+		}
 		if (!widget.isAttached) {
 			await this.shell.addWidget(widget, {
 				area: 'main'
 			});
 		}
-		await this.shell.activateWidget(widget.id);
+		// Close first: the dialog marks the rest of the shell inert and restores the previous focus on close,
+		// so activating the tab while it is open stalls until the shell's activation timeout.
 		this.close();
+		await this.shell.activateWidget(widget.id);
 	}
 }
 

@@ -1,6 +1,6 @@
 {
 	"name": "theia-custom-context-menu",
-	"version": "0.9.0",
+	"version": "0.9.1",
 	"description": "Native Eclipse Theia context menu customization.",
 	"engines": {
 		"node": ">=24"

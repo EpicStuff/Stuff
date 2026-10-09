@@ -836,8 +836,13 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 
 	protected addChoice(choice: AddChoice): void {
 		const destination = this.getInsertionLocation();
-		destination.parent.splice(destination.index, 0, this.cloneEntry(choice.entry));
-		this.selectedKey = choice.entry.key;
+		const entry = this.cloneEntry(choice.entry);
+		if (entry.custom) {
+			entry.storageKey = this.nextCustomStorageKey();
+			entry.key = `custom-command:${entry.storageKey}`;
+		}
+		destination.parent.splice(destination.index, 0, entry);
+		this.selectedKey = entry.key;
 		this.markModified();
 		this.closeAddCommands();
 	}
@@ -874,7 +879,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 			const entry: EditableMenuItem = {
 				type: 'item',
 				key: `custom:${command.id}`,
-				storageKey: command.id,
+				storageKey: '',
 				label: defaultLabel,
 				commandId: command.id,
 				icon: command.iconClass,
@@ -1132,7 +1137,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		};
 	}
 
-	protected nextCustomStorageKey(prefix: string): string {
+	protected nextCustomStorageKey(): string {
 		const used = new Set<string>();
 		const collect = (entries: EditableMenuEntry[]): void => {
 			for (const entry of entries) {
@@ -1145,15 +1150,15 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		collect(this.ensureDraft(this.activeTargetId));
 
 		let index = 1;
-		while (used.has(`${prefix}${index}`)) {
+		while (used.has(`custom:${index}`)) {
 			index++;
 		}
-		return `${prefix}${index}`;
+		return `custom:${index}`;
 	}
 
 	protected addSeparator = (): void => {
 		const destination = this.getInsertionLocation();
-		const storageKey = this.nextCustomStorageKey('sep');
+		const storageKey = this.nextCustomStorageKey();
 		const separator = {
 			type: 'separator' as const,
 			key: `custom-separator:${storageKey}`,
@@ -1168,7 +1173,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 
 	protected addSubmenu = (): void => {
 		const destination = this.getInsertionLocation();
-		const storageKey = this.nextCustomStorageKey('submenu');
+		const storageKey = this.nextCustomStorageKey();
 		const submenu: EditableMenuItem = {
 			type: 'item',
 			key: `custom-submenu:${storageKey}`,
@@ -1223,6 +1228,21 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 			return;
 		}
 		location.parent.splice(location.index, 1);
+		if (location.entry.type === 'item' && location.entry.customSubmenu) {
+			// Default entries moved into a custom submenu return to its position instead of being hidden.
+			const rescued: EditableMenuEntry[] = [];
+			const collectDefaults = (entries: EditableMenuEntry[]): void => {
+				for (const child of entries) {
+					if (!child.custom) {
+						rescued.push(child);
+					} else if (child.type === 'item' && child.children) {
+						collectDefaults(child.children);
+					}
+				}
+			};
+			collectDefaults(location.entry.children ?? []);
+			location.parent.splice(location.index, 0, ...rescued);
+		}
 		this.expandedKeys.delete(key);
 		if (this.selectedKey === key) {
 			this.selectedKey = location.parent[Math.min(location.index, location.parent.length - 1)]?.key;

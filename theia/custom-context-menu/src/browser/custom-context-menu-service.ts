@@ -44,12 +44,14 @@ interface DefaultMenuItem extends EditableMenuItem {
 	node: MenuNode;
 	nodeId: string;
 	sourceIdentity: string;
+	legacyStorageKey?: string;
 }
 
 interface DefaultMenuSeparator extends EditableMenuSeparator {
 	custom: false;
 	group: string;
 	sourceIdentity: string;
+	legacyStorageKey?: string;
 }
 
 type DefaultMenuEntry = DefaultMenuItem | DefaultMenuSeparator;
@@ -161,7 +163,7 @@ export class CustomContextMenuService {
 		const defaults = this.toEditableEntries(snapshot);
 		const layout = this.getStoredLayout(targetId);
 		return layout
-			? this.applyLayoutToEditable(defaults, layout)
+			? this.applyLayoutToEditable(defaults, this.migrateLegacyKeys(layout, snapshot))
 			: defaults;
 	}
 
@@ -205,7 +207,7 @@ export class CustomContextMenuService {
 
 		const snapshot = this.buildDefaultSnapshot(menu, target.path);
 		const defaults = this.toEditableEntries(snapshot);
-		const desired = this.applyLayoutToEditable(defaults, layout);
+		const desired = this.applyLayoutToEditable(defaults, this.migrateLegacyKeys(layout, snapshot));
 		const nodes = this.collectDefaultNodes(snapshot);
 		const resolved = this.resolveEditableEntries(desired, nodes);
 		return this.cloneCompoundWithResolvedEntries(menu, resolved, `root-${target.id}`);
@@ -221,8 +223,8 @@ export class CustomContextMenuService {
 	}
 
 	protected buildDefaultSnapshot(menu: CompoundMenuNode, menuPath: MenuPath): DefaultMenuEntry[] {
-		const entries = this.flattenChildren(menu.children, menuPath);
-		this.assignStorageKeys(entries);
+		const entries = this.flattenChildren(menu.children, menuPath, []);
+		this.assignLegacyStorageKeys(entries);
 		return this.sanitizeDefaultSeparators(entries);
 	}
 
@@ -244,6 +246,49 @@ export class CustomContextMenuService {
 
 	protected getStoredLayout(targetId: string): StoredMenuLayout | undefined {
 		return this.readLayouts()[targetId];
+	}
+
+	protected migrateLegacyKeys(layout: StoredMenuLayout, snapshot: DefaultMenuEntry[]): StoredMenuLayout {
+		const current = new Set(Object.keys(layout.add ?? {}));
+		const legacy = new Map<string, string>();
+		for (const entry of this.walkDefaultEntries(snapshot)) {
+			current.add(entry.storageKey);
+			if (entry.legacyStorageKey !== undefined) {
+				legacy.set(entry.legacyStorageKey, entry.storageKey);
+			}
+		}
+		const migrate = (storageKey: string): string => current.has(storageKey) ? storageKey : legacy.get(storageKey) ?? storageKey;
+		const migratePlacement = <T extends StoredMenuPlacement>(value: T): T => {
+			const result = { ...value };
+			if (typeof result.parent === 'string') {
+				result.parent = migrate(result.parent);
+			}
+			if (result.before !== undefined) {
+				result.before = migrate(result.before);
+			}
+			if (result.after !== undefined) {
+				result.after = migrate(result.after);
+			}
+			return result;
+		};
+
+		const migrated: StoredMenuLayout = {};
+		if (layout.hide) {
+			migrated.hide = layout.hide.map(migrate);
+		}
+		if (layout.edit) {
+			migrated.edit = {};
+			for (const [storageKey, edit] of Object.entries(layout.edit)) {
+				migrated.edit[migrate(storageKey)] ??= migratePlacement(edit);
+			}
+		}
+		if (layout.add) {
+			migrated.add = {};
+			for (const [storageKey, add] of Object.entries(layout.add)) {
+				migrated.add[storageKey] = migratePlacement(add);
+			}
+		}
+		return migrated;
 	}
 
 	protected sanitizeLayout(value: unknown): StoredMenuLayout | undefined {
@@ -345,6 +390,32 @@ export class CustomContextMenuService {
 		const baseline = this.applyLayoutToEditable(defaults, layout);
 		const firstGroups = this.collectFirstGroups(defaults);
 		this.addSparsePlacementRules(layout, baseline, desired, firstGroups);
+
+		// Structural placements cannot express every arrangement, for example when the referenced group
+		// was hidden or a separator moved into another submenu. Those containers fall back to key anchors.
+		const appliedContainers = this.collectContainers(this.applyLayoutToEditable(defaults, layout));
+		const mismatched = new Set<string | null>();
+		for (const [parentKey, desiredEntries] of this.collectContainers(desired)) {
+			const appliedKeys = (appliedContainers.get(parentKey) ?? []).map(entry => entry.storageKey);
+			if (!this.arraysEqual(appliedKeys, desiredEntries.map(entry => entry.storageKey))) {
+				mismatched.add(parentKey);
+				for (const entry of desiredEntries) {
+					const stored: StoredMenuPlacement | undefined = layout.add?.[entry.storageKey] ?? layout.edit?.[entry.storageKey];
+					if (stored) {
+						delete stored.group;
+						delete stored.at;
+						delete stored.before;
+						delete stored.after;
+						delete stored.beforeGroup;
+						delete stored.afterGroup;
+					}
+				}
+			}
+		}
+		if (mismatched.size) {
+			this.addSparsePlacementRules(layout, baseline, desired, firstGroups, mismatched);
+		}
+
 		this.pruneLayout(layout);
 		return layout;
 	}
@@ -447,12 +518,16 @@ export class CustomContextMenuService {
 		layout: StoredMenuLayout,
 		baseline: EditableMenuEntry[],
 		desired: EditableMenuEntry[],
-		firstGroups: Map<string | null, string>
+		firstGroups: Map<string | null, string>,
+		relativeOnlyContainers?: Set<string | null>
 	): void {
 		const baselineContainers = this.collectContainers(baseline);
 		const desiredContainers = this.collectContainers(desired);
 
 		for (const [parentKey, desiredEntries] of desiredContainers) {
+			if (relativeOnlyContainers && !relativeOnlyContainers.has(parentKey)) {
+				continue;
+			}
 			const baselineEntries = baselineContainers.get(parentKey) ?? [];
 			const baselineKeys = baselineEntries.map(entry => entry.storageKey);
 			const desiredKeys = desiredEntries.map(entry => entry.storageKey);
@@ -468,7 +543,7 @@ export class CustomContextMenuService {
 					continue;
 				}
 
-				const placement = this.derivePlacement(desiredEntries, index, stable, placed, firstGroups.get(parentKey));
+				const placement = this.derivePlacement(desiredEntries, index, stable, placed, firstGroups.get(parentKey), !!relativeOnlyContainers);
 				this.assignPlacement(layout, entry.storageKey, placement);
 				placed.add(entry.storageKey);
 			}
@@ -480,7 +555,8 @@ export class CustomContextMenuService {
 		index: number,
 		stable: Set<string>,
 		placed: Set<string>,
-		firstGroup?: string
+		firstGroup: string | undefined,
+		relativeOnly: boolean
 	): StoredMenuPlacement {
 		const entry = entries[index];
 		const targetGroup = this.groupAt(entries, index, firstGroup);
@@ -488,32 +564,41 @@ export class CustomContextMenuService {
 		const immediateNext = entries[index + 1];
 		const immediatePrevious = entries[index - 1];
 
-		if (this.isStructuralSeparator(immediateNext) && (stable.has(immediateNext.storageKey) || placed.has(immediateNext.storageKey))) {
+		// Consecutive moved entries chain on each other so they replay in order.
+		if (immediatePrevious && placed.has(immediatePrevious.storageKey)) {
 			return {
-				beforeGroup: immediateNext.group
+				after: immediatePrevious.storageKey
 			};
 		}
 
-		if (this.isStructuralSeparator(immediatePrevious) && (stable.has(immediatePrevious.storageKey) || placed.has(immediatePrevious.storageKey))) {
-			return {
-				group: immediatePrevious.group,
-				at: 'start'
-			};
-		}
-
-		if (entry.type === 'item' && targetGroup) {
-			const bounds = this.findStructuralGroupBounds(entries, index);
-			if (bounds && index === bounds.start) {
+		if (!relativeOnly) {
+			if (this.isStructuralSeparator(immediateNext) && (stable.has(immediateNext.storageKey) || placed.has(immediateNext.storageKey))) {
 				return {
-					group: targetGroup,
+					beforeGroup: immediateNext.group
+				};
+			}
+
+			if (this.isStructuralSeparator(immediatePrevious) && (stable.has(immediatePrevious.storageKey) || placed.has(immediatePrevious.storageKey))) {
+				return {
+					group: immediatePrevious.group,
 					at: 'start'
 				};
 			}
-			if (bounds && index === bounds.end - 1 && bounds.end === entries.length) {
-				return {
-					group: targetGroup,
-					at: 'end'
-				};
+
+			if (entry.type === 'item' && targetGroup) {
+				const bounds = this.findStructuralGroupBounds(entries, index);
+				if (bounds && index === bounds.start) {
+					return {
+						group: targetGroup,
+						at: 'start'
+					};
+				}
+				if (bounds && index === bounds.end - 1 && bounds.end === entries.length) {
+					return {
+						group: targetGroup,
+						at: 'end'
+					};
+				}
 			}
 		}
 
@@ -521,12 +606,12 @@ export class CustomContextMenuService {
 		const previous = this.findPlacementAnchor(entries, index, -1, stable, placed);
 		const placement: StoredMenuPlacement = {};
 
-		if (targetGroup && targetGroup !== defaultGroup && entry.type === 'item') {
+		if (!relativeOnly && targetGroup && targetGroup !== defaultGroup && entry.type === 'item') {
 			placement.group = targetGroup;
 		}
 
 		if (next) {
-			if (this.isStructuralSeparator(next)) {
+			if (!relativeOnly && this.isStructuralSeparator(next)) {
 				delete placement.group;
 				placement.beforeGroup = next.group;
 			} else {
@@ -536,7 +621,7 @@ export class CustomContextMenuService {
 		}
 
 		if (previous) {
-			if (this.isStructuralSeparator(previous)) {
+			if (!relativeOnly && this.isStructuralSeparator(previous)) {
 				placement.group = previous.group;
 				placement.at = 'start';
 			} else {
@@ -686,6 +771,13 @@ export class CustomContextMenuService {
 			}
 		}
 
+		const placedSeparators = new Map<string, string[]>();
+		for (const { entry } of this.walkEntries(root)) {
+			if (this.isStructuralSeparator(entry) && placements.has(entry.storageKey)) {
+				placedSeparators.set(entry.group, [...placedSeparators.get(entry.group) ?? [], entry.storageKey]);
+			}
+		}
+
 		const applied = new Set<string>();
 		const active = new Set<string>();
 		const applyPlacement = (storageKey: string): void => {
@@ -698,9 +790,14 @@ export class CustomContextMenuService {
 			}
 
 			active.add(storageKey);
+			// Anchors are placed first, including a moved separator that starts the group this entry refers to.
 			const anchor = placement.before ?? placement.after;
-			if (anchor && placements.has(anchor)) {
+			if (anchor) {
 				applyPlacement(anchor);
+			}
+			const group = placement.group ?? placement.beforeGroup ?? placement.afterGroup;
+			for (const separatorKey of group ? placedSeparators.get(group) ?? [] : []) {
+				applyPlacement(separatorKey);
 			}
 			this.moveByPlacement(root, storageKey, placement);
 			active.delete(storageKey);
@@ -711,7 +808,9 @@ export class CustomContextMenuService {
 			applyPlacement(storageKey);
 		}
 
-		return this.sanitizeEditableTree(root);
+		// Separators stay exactly where they were placed. Only the rendered menu collapses
+		// leading, trailing, and adjacent separators, so a later save never turns them into hide entries.
+		return root;
 	}
 
 	protected createEditableAdd(storageKey: string, add: StoredMenuAdd): EditableMenuEntry {
@@ -1167,9 +1266,15 @@ export class CustomContextMenuService {
 		return groups;
 	}
 
+	/**
+	 * Storage keys are the Theia menu path relative to the target menu, for example `navigation/some.command`
+	 * or `separator:1_cut` for the separator before a group. They only depend on where an extension
+	 * contributed the node, so other occurrences of the same command elsewhere never change them.
+	 */
 	protected flattenChildren(
 		children: MenuNode[],
 		parentPath: MenuPath,
+		relativePath: string[],
 		inheritedGroup?: string
 	): DefaultMenuEntry[] {
 		const result: DefaultMenuEntry[] = [];
@@ -1177,12 +1282,13 @@ export class CustomContextMenuService {
 
 		for (const child of children) {
 			const childPath = [...parentPath, child.id];
+			const childRelativePath = [...relativePath, child.id];
 			if (Group.is(child)) {
 				// Theia's menu renderer never shows inline groups in context menus.
 				if (child.id === 'inline') {
 					continue;
 				}
-				const groupEntries = this.flattenChildren(child.children, childPath, child.id);
+				const groupEntries = this.flattenChildren(child.children, childPath, childRelativePath, child.id);
 				if (!groupEntries.length) {
 					continue;
 				}
@@ -1191,7 +1297,7 @@ export class CustomContextMenuService {
 					result.push({
 						type: 'separator',
 						key,
-						storageKey: key,
+						storageKey: `separator:${this.storagePath(childRelativePath)}`,
 						custom: false,
 						group: child.id,
 						sourceIdentity: key
@@ -1205,12 +1311,15 @@ export class CustomContextMenuService {
 			const occurrence = (keyOccurrences.get(baseKey) ?? 0) + 1;
 			keyOccurrences.set(baseKey, occurrence);
 			const key = occurrence === 1 ? baseKey : `${baseKey}#${occurrence}`;
+			const storageKey = occurrence === 1
+				? this.storagePath(childRelativePath)
+				: `${this.storagePath(childRelativePath)}#${occurrence}`;
 
 			if (CommandMenu.is(child)) {
 				result.push({
 					type: 'item',
 					key,
-					storageKey: key,
+					storageKey,
 					label: child.label,
 					commandId: child.id,
 					when: child.when,
@@ -1232,13 +1341,13 @@ export class CustomContextMenuService {
 				result.push({
 					type: 'item',
 					key,
-					storageKey: key,
+					storageKey,
 					label: child.label,
 					when: child.when,
 					icon: child.icon,
 					custom: false,
 					submenu: true,
-					children: this.flattenChildren(child.children, childPath),
+					children: this.flattenChildren(child.children, childPath, childRelativePath),
 					defaultLabel: child.label,
 					defaultWhen: child.when,
 					defaultIcon: child.icon,
@@ -1253,7 +1362,11 @@ export class CustomContextMenuService {
 		return this.sanitizeDefaultSeparators(result);
 	}
 
-	protected assignStorageKeys(entries: DefaultMenuEntry[]): void {
+	/**
+	 * Computes the storage keys written by versions before 0.9, so layouts saved with them keep working
+	 * until the next edit rewrites them with current keys.
+	 */
+	protected assignLegacyStorageKeys(entries: DefaultMenuEntry[]): void {
 		const all = this.walkDefaultEntries(entries);
 		const groups = new Map<string, DefaultMenuEntry[]>();
 
@@ -1268,7 +1381,7 @@ export class CustomContextMenuService {
 
 		for (const [base, bucket] of groups) {
 			if (bucket.length === 1) {
-				bucket[0].storageKey = base;
+				bucket[0].legacyStorageKey = base;
 				continue;
 			}
 
@@ -1280,7 +1393,7 @@ export class CustomContextMenuService {
 					key = `${base}@${this.hash(entry.sourceIdentity)}-${suffix++}`;
 				}
 				used.add(key);
-				entry.storageKey = key;
+				entry.legacyStorageKey = key;
 			}
 		}
 	}
@@ -1469,16 +1582,6 @@ export class CustomContextMenuService {
 		return this.sanitizeSeparators(entries);
 	}
 
-	protected sanitizeEditableTree(entries: EditableMenuEntry[]): EditableMenuEntry[] {
-		const sanitized = this.sanitizeSeparators(entries);
-		for (const entry of sanitized) {
-			if (entry.type === 'item' && entry.children) {
-				entry.children = this.sanitizeEditableTree(entry.children);
-			}
-		}
-		return sanitized;
-	}
-
 	protected sanitizeResolvedSeparators(entries: ResolvedMenuEntry[]): ResolvedMenuEntry[] {
 		return this.sanitizeSeparators(entries);
 	}
@@ -1542,6 +1645,10 @@ export class CustomContextMenuService {
 			hash = Math.imul(hash, 0x01000193);
 		}
 		return (hash >>> 0).toString(36);
+	}
+
+	protected storagePath(path: MenuPath): string {
+		return path.map(segment => segment.replace(/[%/#]/g, character => encodeURIComponent(character))).join('/');
 	}
 
 	protected pathKey(path: MenuPath): string {

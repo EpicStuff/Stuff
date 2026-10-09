@@ -427,31 +427,25 @@ class TheiaIde < Formula
 		root = Pathname(extensions_path).expand_path
 		odie "Native extension path does not exist: #{root}" unless root.directory?
 
-		extension_paths = if (root/'package.json').file?
-			[root]
-		else
-			root.children.select { |path| path.directory? && (path/'package.json').file? }
+		# Copy the whole tree as is, so extensions can reach shared helpers by relative path like in the repo.
+		entries = (root/'package.json').file? ? [root] : root.children
+		entries.each do |entry|
+			target = buildpath/'theia-extensions'/entry.basename
+			odie "Native extension tree entry clashes with Theia IDE's own: #{target}" if target.exist? || target.symlink?
+
+			cp_r entry.realpath, target
 		end
+		extension_paths = entries.map { |entry| buildpath/'theia-extensions'/entry.basename }.select { |path| (path/'package.json').file? }
 		odie "No native Theia extensions found in #{root}" if extension_paths.empty?
 
 		electron_package_path = buildpath/'applications/electron/package.json'
 		electron_package = JSON.parse(electron_package_path.read)
 		dependencies = electron_package.fetch('dependencies')
 
-		extensions = extension_paths.sort.map.with_index do |path, index|
+		extensions = extension_paths.sort.map do |path|
 			manifest = JSON.parse((path/'package.json').read)
 			name = manifest['name']
-			version = manifest['version']
-
-			odie "Native extension is missing a package name: #{path}" if name.to_s.empty?
-			odie "Native extension is missing a package version: #{path}" if version.to_s.empty?
-			odie "Package is not a native Theia extension: #{path}" unless manifest['theiaExtensions']
-
-			workspace_path = buildpath/'theia-extensions'/"local-#{index}-#{path.basename}"
-			odie "Native extension workspace already exists: #{workspace_path}" if workspace_path.exist? || workspace_path.symlink?
-
-			cp_r path.realpath, workspace_path
-			dependencies[name] = version
+			dependencies[name] = manifest['version']
 
 			{
 				name:,

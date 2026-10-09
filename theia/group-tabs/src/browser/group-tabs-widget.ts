@@ -31,7 +31,6 @@ export class GroupTabsWidget extends BaseWidget implements ApplicationShell.Trac
 	protected navigatable?: Navigatable;
 	protected readonly transientPanes = new WeakSet<Widget>();
 	protected readonly rememberedRules = new Set<string>();
-	protected ungroupLayout?: DockPanel.ILayoutConfig;
 
 	constructor(options: GroupTabsWidget.Options, protected readonly shell: ApplicationShell) {
 		super();
@@ -103,14 +102,6 @@ export class GroupTabsWidget extends BaseWidget implements ApplicationShell.Trac
 		return [...this.rememberedRules];
 	}
 
-	setUngroupLayout(layout: DockPanel.ILayoutConfig): void {
-		this.ungroupLayout = this.cloneLayout(layout);
-	}
-
-	getUngroupLayout(): DockPanel.ILayoutConfig | undefined {
-		return this.ungroupLayout && this.cloneLayout(this.ungroupLayout);
-	}
-
 	setGroupLayout(layout: DockPanel.ILayoutConfig): void {
 		this.dockPanel.restoreLayout(this.cloneLayout(layout));
 		this.afterLayoutChanged();
@@ -168,17 +159,19 @@ export class GroupTabsWidget extends BaseWidget implements ApplicationShell.Trac
 	storeState(): GroupTabsWidget.State {
 		return {
 			layout: this.filteredLayout(this.dockPanel.saveLayout()),
-			ungroupLayout: this.ungroupLayout && this.filteredLayout(this.ungroupLayout),
 			rememberedRules: [...this.rememberedRules]
 		};
 	}
 
 	restoreState(oldState: object): void {
 		const state = oldState as GroupTabsWidget.State;
-		this.ungroupLayout = state.ungroupLayout && this.cloneLayout(state.ungroupLayout);
 		this.rememberedRules.clear();
-		for (const rule of state.rememberedRules ?? []) {
-			this.rememberedRules.add(rule);
+		if (Array.isArray(state.rememberedRules)) {
+			for (const rule of state.rememberedRules) {
+				if (typeof rule === 'string') {
+					this.rememberedRules.add(rule);
+				}
+			}
 		}
 		if (state.layout) {
 			this.dockPanel.restoreLayout(this.cloneLayout(state.layout));
@@ -187,7 +180,7 @@ export class GroupTabsWidget extends BaseWidget implements ApplicationShell.Trac
 	}
 
 	getTrackableWidgets(): Widget[] {
-		return toArray(this.dockPanel.widgets());
+		return toArray(this.dockPanel.widgets()).filter(pane => !pane.isDisposed);
 	}
 
 	activateWidget(id: string): Widget | undefined {
@@ -412,7 +405,6 @@ export namespace GroupTabsWidget {
 
 	export interface State {
 		layout?: DockPanel.ILayoutConfig;
-		ungroupLayout?: DockPanel.ILayoutConfig;
 		rememberedRules?: string[];
 	}
 }

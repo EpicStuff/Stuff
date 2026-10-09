@@ -16,7 +16,6 @@ export const MINI_BROWSER_URL_PREVIEW_RELATION = 'mini-browser-url-preview';
 export interface GroupTabsPlacement {
 	ref?: Widget;
 	relation: string;
-	area?: ApplicationShell.Area;
 }
 
 interface LearnedGroupRule {
@@ -100,22 +99,6 @@ export class GroupTabsService {
 		return pair ? [...(this.records.get(pair)?.members ?? pair.getTrackableWidgets())] : widget ? [widget] : [];
 	}
 
-	getGroupableWidgets(primary: Widget): Widget[] {
-		const excluded = new Set(this.getMembers(primary));
-		const result: Widget[] = [];
-		const seen = new Set<Widget>();
-		for (const widget of this.shell.getWidgets('main')) {
-			const widgets = widget instanceof GroupTabsWidget ? widget.getTrackableWidgets() : [widget];
-			for (const candidate of widgets) {
-				if (!candidate.isDisposed && !excluded.has(candidate) && !seen.has(candidate)) {
-					seen.add(candidate);
-					result.push(candidate);
-				}
-			}
-		}
-		return result;
-	}
-
 	async groupManual(primaryInput: Widget, widgets: Widget[]): Promise<GroupTabsWidget | undefined> {
 		const existingMembers = this.getMembers(primaryInput);
 		const family = [...new Set([...existingMembers, primaryInput, ...widgets].filter(widget => !widget.isDisposed))];
@@ -157,8 +140,7 @@ export class GroupTabsService {
 
 			pair = await this.addRelative(source, child, {
 				ref: source,
-				relation,
-				area: placement?.area
+				relation
 			}, {
 				restoreSecondary: !this.isMiniBrowserUrlPreview(child)
 			});
@@ -193,7 +175,6 @@ export class GroupTabsService {
 			}
 		}
 
-		pair.setUngroupLayout(layout);
 		pair.setGroupLayout(layout);
 		this.registerPair(pair);
 
@@ -289,14 +270,6 @@ export class GroupTabsService {
 		return pair;
 	}
 
-	async pair(primary: Widget, secondary: Widget, options: { restoreSecondary?: boolean } = {}): Promise<GroupTabsWidget> {
-		return this.addRelative(primary, secondary, {
-			ref: primary,
-			relation: 'split-right',
-			area: 'main'
-		}, options);
-	}
-
 	async closeSecondary(widget: Widget | undefined): Promise<void> {
 		const pair = this.getPair(widget);
 		const record = pair && this.records.get(pair);
@@ -316,8 +289,7 @@ export class GroupTabsService {
 		}
 		this.provenance.set(widget, {
 			ref: source,
-			relation: MINI_BROWSER_URL_PREVIEW_RELATION,
-			area: 'right'
+			relation: MINI_BROWSER_URL_PREVIEW_RELATION
 		});
 		setTimeout(() => {
 			void this.maybeAutoGroup(widget, collapseRightAfterGrouping);
@@ -329,31 +301,23 @@ export class GroupTabsService {
 			if (!(pair instanceof GroupTabsWidget) || this.records.has(pair)) {
 				continue;
 			}
-			const panes = pair.getTrackableWidgets().filter(pane => !pane.isDisposed);
-			if (panes.length >= 2) {
-				this.registerPair(pair);
-				if (this.shell.mainPanel.findTabBar(pair.title)?.currentTitle === pair.title && pair.primary) {
-					await this.shell.activateWidget(pair.primary.id);
-				}
-				continue;
-			}
-
+			const panes = pair.getTrackableWidgets();
 			const pane = panes[0];
-			if (pane && this.shouldKeepIncompleteGroup(pair, pane)) {
+			if (panes.length >= 2 || (pane && this.shouldKeepIncompleteGroup(pane))) {
 				this.registerPair(pair);
-				if (this.shell.mainPanel.findTabBar(pair.title)?.currentTitle === pair.title) {
-					await this.shell.activateWidget(pane.id);
-				}
 				continue;
 			}
 
 			const current = this.shell.mainPanel.findTabBar(pair.title)?.currentTitle === pair.title;
+			const active = this.shell.activeWidget === pair || this.shell.activeWidget === pane;
 			if (pane) {
 				pair.detachPane(pane);
 				await this.withoutShellCapture(() => this.shell.addWidget(pane, { area: 'main', ref: pair, mode: 'tab-after' }));
 			}
 			pair.dispose();
-			if (current && pane) {
+			if (active && pane) {
+				await this.shell.activateWidget(pane.id);
+			} else if (current && pane) {
 				await this.shell.revealWidget(pane.id);
 			}
 		}
@@ -373,7 +337,6 @@ export class GroupTabsService {
 			const resolvedRef = this.resolveSource(insertion.addOptions.ref);
 			const ref = explicitRef ?? active ?? resolvedRef;
 			const relation = String(options?.mode ?? insertion.addOptions.mode ?? (insertion.area === 'main' ? 'tab-after' : `area:${insertion.area}`));
-			const area = ApplicationShell.isValidArea(insertion.area) ? insertion.area : options?.area;
 
 			await original(widget, options);
 
@@ -384,7 +347,7 @@ export class GroupTabsService {
 			}
 
 			if (ref && ref !== widget) {
-				this.provenance.set(widget, { ref, relation, area });
+				this.provenance.set(widget, { ref, relation });
 				setTimeout(() => {
 					void this.maybeAutoGroup(widget);
 				}, 0);
@@ -473,9 +436,9 @@ export class GroupTabsService {
 		return `${rule.parentKind}\n${rule.childKind}\n${rule.relation}`;
 	}
 
-	protected shouldKeepIncompleteGroup(pair: GroupTabsWidget, primary: Widget): boolean {
-		if (pair.getRememberedRules().length > 0) {
-			return true;
+	protected shouldKeepIncompleteGroup(primary: Widget): boolean {
+		if (!this.rememberGroupsEnabled()) {
+			return false;
 		}
 		const parentKind = this.widgetKind(primary);
 		return this.learnedRules.some(rule =>

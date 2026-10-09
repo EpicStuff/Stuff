@@ -468,7 +468,6 @@ class TheiaIde < Formula
 	def integrate_vscode_cli_usage
 		usage_path = buildpath/'applications/electron/scripts/cli-usage.js'
 		source = usage_path.read
-		return unless source.include?("hasFlag(['--help'])")
 
 		# theia-flags prints the combined help from the Electron main process, so drop Theia's early --help exit.
 		help_block = /^    if \(hasFlag\(\['--help'\]\)\) \{\n.*?^        process\.exit\(0\);\n    \}\n/m

@@ -146,8 +146,10 @@ export class ContextMenuConfigDialog extends ReactDialog<void> {
 				area: 'main'
 			});
 		}
-		await this.shell.activateWidget(widget.id);
+		// Close first: the dialog marks the rest of the shell inert and restores the previous focus on close,
+		// so activating the tab while it is open stalls until the shell's activation timeout.
 		this.close();
+		await this.shell.activateWidget(widget.id);
 	}
 }
 

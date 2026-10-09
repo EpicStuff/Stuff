@@ -112,6 +112,8 @@ export class ContextMenuConfigDialog extends ReactDialog<ContextMenuConfiguratio
 		const activateFromKeyboard = (event: KeyboardEvent) => {
 			if (event.key === 'Enter' || event.key === ' ') {
 				event.preventDefault();
+				// Keeps the dialog's document level Enter handler from also accepting the dialog.
+				event.stopPropagation();
 				activate();
 			}
 		};

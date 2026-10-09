@@ -3,6 +3,7 @@ import {
 	CommandRegistry,
 	CompoundMenuNode,
 	ContextExpressionMatcher,
+	environment,
 	Group,
 	GroupImpl,
 	MenuModelRegistry,
@@ -18,6 +19,8 @@ import {
 	ContextMenuRenderer,
 	RenderContextMenuOptions
 } from '@theia/core/lib/browser/context-menu-renderer';
+import { KeybindingRegistry } from '@theia/core/lib/browser/keybinding';
+import { AcceleratorSource } from '@theia/core/lib/browser/menu/action-menu-node';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import {
 	CONTEXT_MENU_TARGETS,
@@ -84,6 +87,9 @@ export class CustomContextMenuService {
 	@inject(PreferenceService)
 	protected readonly preferenceService!: PreferenceService;
 
+	@inject(KeybindingRegistry)
+	protected readonly keybindingRegistry!: KeybindingRegistry;
+
 	installRendererPatch(): void {
 		activeService = this;
 		if (rendererPatched) {
@@ -103,7 +109,13 @@ export class CustomContextMenuService {
 				return originalRender.call(this, options);
 			}
 
-			const customizedMenu = service.customize(options.menuPath, sourceMenu);
+			let customizedMenu: CompoundMenuNode;
+			try {
+				customizedMenu = service.customize(options.menuPath, sourceMenu);
+			} catch (error) {
+				console.error('Custom Context Menu: failed to apply the stored layout, showing the default menu.', error);
+				return originalRender.call(this, options);
+			}
 			if (customizedMenu === sourceMenu) {
 				return originalRender.call(this, options);
 			}
@@ -214,8 +226,9 @@ export class CustomContextMenuService {
 
 		const layouts: StoredMenuLayouts = {};
 		for (const [targetId, candidate] of Object.entries(value)) {
-			if (this.isSparseLayout(candidate)) {
-				layouts[targetId] = candidate;
+			const layout = this.sanitizeLayout(candidate);
+			if (layout) {
+				layouts[targetId] = layout;
 			}
 		}
 		return layouts;
@@ -225,20 +238,63 @@ export class CustomContextMenuService {
 		return this.readLayouts()[targetId];
 	}
 
-	protected isSparseLayout(value: unknown): value is StoredMenuLayout {
+	protected sanitizeLayout(value: unknown): StoredMenuLayout | undefined {
 		if (!this.isRecord(value) || 'entries' in value || 'knownDefaultKeys' in value) {
-			return false;
+			return undefined;
 		}
-		if (value.hide !== undefined && (!Array.isArray(value.hide) || !value.hide.every(item => typeof item === 'string'))) {
-			return false;
+
+		const layout: StoredMenuLayout = {};
+		if (Array.isArray(value.hide)) {
+			layout.hide = value.hide.filter((key): key is string => typeof key === 'string');
 		}
-		if (value.edit !== undefined && !this.isRecord(value.edit)) {
-			return false;
+		if (this.isRecord(value.edit)) {
+			layout.edit = {};
+			for (const [storageKey, candidate] of Object.entries(value.edit)) {
+				if (this.isRecord(candidate)) {
+					layout.edit[storageKey] = this.sanitizeStoredFields(candidate);
+				}
+			}
 		}
-		if (value.add !== undefined && !this.isRecord(value.add)) {
-			return false;
+		if (this.isRecord(value.add)) {
+			layout.add = {};
+			for (const [storageKey, candidate] of Object.entries(value.add)) {
+				if (!this.isRecord(candidate)) {
+					continue;
+				}
+				const fields = this.sanitizeStoredFields(candidate);
+				if (candidate.type === 'separator') {
+					delete fields.label;
+					delete fields.when;
+					delete fields.icon;
+					layout.add[storageKey] = { ...fields, type: 'separator' };
+				} else if (candidate.type === 'submenu' && fields.label) {
+					layout.add[storageKey] = { ...fields, type: 'submenu', label: fields.label };
+				} else if (candidate.type === 'command' && typeof candidate.command === 'string' && candidate.command) {
+					layout.add[storageKey] = { ...fields, type: 'command', command: candidate.command };
+				}
+			}
 		}
-		return true;
+		return layout;
+	}
+
+	protected sanitizeStoredFields(value: Record<string, unknown>): StoredMenuEdit {
+		const fields: StoredMenuEdit = {};
+		for (const name of ['label', 'group', 'before', 'after', 'beforeGroup', 'afterGroup'] as const) {
+			const field = value[name];
+			if (typeof field === 'string') {
+				fields[name] = field;
+			}
+		}
+		for (const name of ['parent', 'when', 'icon'] as const) {
+			const field = value[name];
+			if (typeof field === 'string' || field === null) {
+				fields[name] = field;
+			}
+		}
+		if (value.at === 'start' || value.at === 'end') {
+			fields.at = value.at;
+		}
+		return fields;
 	}
 
 	protected isRecord(value: unknown): value is Record<string, unknown> {
@@ -924,12 +980,30 @@ export class CustomContextMenuService {
 					submenu.children.push(...this.groupResolvedEntries(children, entry.storageKey));
 					node = submenu;
 				} else if (entry.commandId && this.commandRegistry.getCommand(entry.commandId)) {
-					node = this.menuNodeFactory.createCommandMenu({
-						commandId: entry.commandId,
+					// A plain node instead of MenuNodeFactory.createCommandMenu: ActionMenuNode subscribes to
+					// command handler and context key changes, and nodes built per render are never disposed.
+					const commandId = entry.commandId;
+					const when = entry.when;
+					const commandMenu: CommandMenu & AcceleratorSource = {
+						id: commandId,
 						label: entry.label,
 						icon: entry.icon,
-						when: entry.when
-					});
+						when,
+						sortString: '',
+						isVisible: (_effectiveMenuPath, contextMatcher, context, ...args) =>
+							(!when || contextMatcher.match(when, context)) && this.commandRegistry.isVisible(commandId, ...args),
+						isEnabled: (_effectiveMenuPath, ...args) => this.commandRegistry.isEnabled(commandId, ...args),
+						isToggled: (_effectiveMenuPath, ...args) => this.commandRegistry.isToggled(commandId, ...args),
+						run: async (_effectiveMenuPath, ...args) => {
+							await this.commandRegistry.executeCommand(commandId, ...args);
+						},
+						getAccelerator: context => {
+							const binding = this.keybindingRegistry.getKeybindingsForCommand(commandId)
+								.find(candidate => this.keybindingRegistry.isEnabledInScope(candidate, context));
+							return binding ? this.keybindingRegistry.acceleratorFor(binding, '+', environment.electron.is()) : [];
+						}
+					};
+					node = commandMenu;
 				}
 			} else {
 				node = defaultNodes.get(entry.storageKey);
@@ -1090,6 +1164,10 @@ export class CustomContextMenuService {
 		for (const child of children) {
 			const childPath = [...parentPath, child.id];
 			if (Group.is(child)) {
+				// Theia's menu renderer never shows inline groups in context menus.
+				if (child.id === 'inline') {
+					continue;
+				}
 				const groupEntries = this.flattenChildren(child.children, childPath, child.id);
 				if (!groupEntries.length) {
 					continue;

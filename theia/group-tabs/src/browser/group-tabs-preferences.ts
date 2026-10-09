@@ -8,7 +8,7 @@ export const GroupTabsPreferenceSchema: PreferenceSchema = {
 		[GROUP_TABS_REMEMBER_GROUPS]: {
 			type: 'boolean',
 			default: true,
-			description: 'Remember manually grouped widget relationships and automatically group matching widgets in the future.'
+			description: 'Remember the layout of manually grouped tabs and automatically group matching tabs in the future.'
 		}
 	}
 };

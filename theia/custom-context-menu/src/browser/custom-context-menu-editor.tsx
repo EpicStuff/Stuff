@@ -26,6 +26,13 @@ interface EntryLocation {
 	index: number;
 }
 
+interface EntrySummary {
+	/** Keys of the enclosing submenus, outermost first. */
+	ancestors: string[];
+	previousKey?: string;
+	signature: string;
+}
+
 interface EditHistory {
 	undo: unknown[];
 	redo: unknown[];
@@ -75,6 +82,8 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	protected readonly history = new Map<string, EditHistory>();
 	protected readonly expandedKeys = new Set<string>();
 	protected selectedKey: string | undefined;
+	/** Row to scroll into view after the next render. */
+	protected revealKey: string | undefined;
 	protected draggedKey: string | undefined;
 	protected mode: 'menu' | 'add' | 'edit' = 'menu';
 	protected addFilter = '';
@@ -103,6 +112,14 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		}));
 		if (this.props.autoFocus) {
 			this.focus();
+		}
+	}
+
+	componentDidUpdate(): void {
+		const key = this.revealKey;
+		this.revealKey = undefined;
+		if (key !== undefined) {
+			this.rootNode?.querySelector(`[data-entry-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'nearest' });
 		}
 	}
 
@@ -176,8 +193,10 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		if (!history?.undo.length) {
 			return;
 		}
+		const before = this.summarizeEntries(this.getEntries());
 		history.redo.push(this.props.service.getStoredValue(this.activeTargetId));
 		this.props.service.setStoredValue(this.activeTargetId, history.undo.pop());
+		this.revealChange(before);
 	};
 
 	redo = (): void => {
@@ -185,9 +204,60 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		if (!history?.redo.length) {
 			return;
 		}
+		const before = this.summarizeEntries(this.getEntries());
 		history.undo.push(this.props.service.getStoredValue(this.activeTargetId));
 		this.props.service.setStoredValue(this.activeTargetId, history.redo.pop());
+		this.revealChange(before);
 	};
+
+	/**
+	 * Selects and scrolls to the first row that differs from `before`, expanding the submenus around it.
+	 * A row that no longer exists is represented by its previous sibling, or by its submenu.
+	 */
+	protected revealChange(before: Map<string, EntrySummary>): void {
+		const after = this.summarizeEntries(this.getEntries());
+		let key: string | undefined;
+		for (const [candidate, summary] of after) {
+			if (before.get(candidate)?.signature !== summary.signature) {
+				key = candidate;
+				break;
+			}
+		}
+		if (key === undefined) {
+			for (const [candidate, summary] of before) {
+				if (!after.has(candidate)) {
+					key = [summary.previousKey, ...[...summary.ancestors].reverse()].find(neighbour => neighbour !== undefined && after.has(neighbour));
+					break;
+				}
+			}
+		}
+		if (key === undefined) {
+			return;
+		}
+		for (const ancestor of after.get(key)!.ancestors) {
+			this.expandedKeys.add(ancestor);
+		}
+		this.selectedKey = key;
+		this.revealKey = key;
+		this.forceUpdate();
+	}
+
+	/** Summaries of all entries in display order, used to locate what an undo or redo changed. */
+	protected summarizeEntries(entries: EditableMenuEntry[], ancestors: string[] = [], result = new Map<string, EntrySummary>()): Map<string, EntrySummary> {
+		entries.forEach((entry, index) => {
+			const previousKey = entries[index - 1]?.key;
+			const content = entry.type === 'item' ? [entry.label, entry.when ?? '', entry.icon ?? ''] : [];
+			result.set(entry.key, {
+				ancestors,
+				previousKey,
+				signature: JSON.stringify([ancestors[ancestors.length - 1], previousKey, ...content])
+			});
+			if (entry.type === 'item' && entry.children) {
+				this.summarizeEntries(entry.children, [...ancestors, entry.key], result);
+			}
+		});
+		return result;
+	}
 
 	render(): React.ReactNode {
 		return (
@@ -361,6 +431,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 			return (
 				<div
 					key={entry.key}
+					data-entry-key={entry.key}
 					draggable={true}
 					onDragStart={event => this.startDrag(event, entry.key)}
 					onDragEnd={this.endDrag}
@@ -391,6 +462,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		return (
 			<div
 				key={entry.key}
+				data-entry-key={entry.key}
 				draggable={this.renamingKey !== entry.key}
 				onDragStart={event => this.startDrag(event, entry.key)}
 				onDragEnd={this.endDrag}

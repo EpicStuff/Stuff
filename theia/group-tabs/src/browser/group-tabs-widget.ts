@@ -30,7 +30,7 @@ export class GroupTabsWidget extends BaseWidget implements ApplicationShell.Trac
 	protected titleSource?: Widget;
 	protected navigatable?: Navigatable;
 	protected readonly transientPanes = new WeakSet<Widget>();
-	protected readonly rememberedRules = new Set<string>();
+	protected templateKey?: string;
 
 	constructor(options: GroupTabsWidget.Options, protected readonly shell: ApplicationShell) {
 		super();
@@ -94,12 +94,12 @@ export class GroupTabsWidget extends BaseWidget implements ApplicationShell.Trac
 		this.transientPanes.add(pane);
 	}
 
-	addRememberedRule(rule: string): void {
-		this.rememberedRules.add(rule);
+	setTemplateKey(key: string | undefined): void {
+		this.templateKey = key;
 	}
 
-	getRememberedRules(): readonly string[] {
-		return [...this.rememberedRules];
+	getTemplateKey(): string | undefined {
+		return this.templateKey;
 	}
 
 	setGroupLayout(layout: DockPanel.ILayoutConfig): void {
@@ -159,20 +159,13 @@ export class GroupTabsWidget extends BaseWidget implements ApplicationShell.Trac
 	storeState(): GroupTabsWidget.State {
 		return {
 			layout: this.filteredLayout(this.dockPanel.saveLayout()),
-			rememberedRules: [...this.rememberedRules]
+			templateKey: this.templateKey
 		};
 	}
 
 	restoreState(oldState: object): void {
 		const state = oldState as GroupTabsWidget.State;
-		this.rememberedRules.clear();
-		if (Array.isArray(state.rememberedRules)) {
-			for (const rule of state.rememberedRules) {
-				if (typeof rule === 'string') {
-					this.rememberedRules.add(rule);
-				}
-			}
-		}
+		this.templateKey = typeof state.templateKey === 'string' ? state.templateKey : undefined;
 		if (state.layout) {
 			this.dockPanel.restoreLayout(this.cloneLayout(state.layout));
 		}
@@ -405,6 +398,6 @@ export namespace GroupTabsWidget {
 
 	export interface State {
 		layout?: DockPanel.ILayoutConfig;
-		rememberedRules?: string[];
+		templateKey?: string;
 	}
 }

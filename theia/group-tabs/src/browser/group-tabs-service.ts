@@ -10,24 +10,34 @@ import { WebviewMessageChannels, WebviewWidget } from '@theia/plugin-ext/lib/mai
 import { GROUP_TABS_REMEMBER_GROUPS } from './group-tabs-preferences';
 import { GroupTabsWidget } from './group-tabs-widget';
 
-const LEARNED_RULES_STORAGE_KEY = 'group-tabs.learned-rules';
+const TEMPLATES_STORAGE_KEY = 'group-tabs.templates';
 export const MINI_BROWSER_URL_PREVIEW_RELATION = 'mini-browser-url-preview';
 
-export interface GroupTabsPlacement {
-	ref?: Widget;
-	relation: string;
+// A slot without a how matches any tab of its kind, and a tab without a how fills any slot of its kind.
+interface TemplateSlot {
+	kind: string;
+	how?: string;
 }
 
-interface LearnedGroupRule {
-	parentKind: string;
-	childKind: string;
-	relation: string;
+type TemplateArea = {
+	type: 'tab-area';
+	slots: number[];
+	currentIndex: number;
+} | {
+	type: 'split-area';
+	orientation: 'horizontal' | 'vertical';
+	children: TemplateArea[];
+	sizes: number[];
+};
+
+interface GroupTemplate {
+	slots: TemplateSlot[];
+	layout: TemplateArea;
 }
 
 interface GroupTabsRecord {
 	primary: Widget;
 	members: Set<Widget>;
-	placements: Map<Widget, GroupTabsPlacement>;
 	memberDisposables: Map<Widget, Disposable>;
 	closingActive?: Widget;
 	toDispose: DisposableCollection;
@@ -41,7 +51,7 @@ export class GroupTabsService {
 	@inject(WidgetManager)
 	protected readonly widgetManager!: WidgetManager;
 
-	// Learned rules are device wide; the injected StorageService is per workspace in this app.
+	// Templates are device wide; the injected StorageService is per workspace in this app.
 	@inject(LocalStorageService)
 	protected readonly storageService!: LocalStorageService;
 
@@ -50,8 +60,13 @@ export class GroupTabsService {
 
 	protected readonly pairByChild = new WeakMap<Widget, GroupTabsWidget>();
 	protected readonly records = new Map<GroupTabsWidget, GroupTabsRecord>();
-	protected readonly provenance = new WeakMap<Widget, GroupTabsPlacement>();
-	protected learnedRules: LearnedGroupRule[] = [];
+	protected readonly hows = new WeakMap<Widget, string>();
+	protected readonly openOrder = new WeakMap<Widget, number>();
+	// The shell's own focus tracker is private, so recency is tracked here.
+	protected readonly recency = new WeakMap<Widget, number>();
+	protected sequence = 0;
+	protected templates: GroupTemplate[] = [];
+	protected autoGroupQueue = Promise.resolve();
 	protected started = false;
 	protected suppressShellCapture = 0;
 
@@ -60,10 +75,18 @@ export class GroupTabsService {
 			return;
 		}
 		this.started = true;
-		const stored = await this.storageService.getData<LearnedGroupRule[]>(LEARNED_RULES_STORAGE_KEY, []);
-		this.learnedRules = Array.isArray(stored)
-			? stored.filter(rule => typeof rule?.parentKind === 'string' && typeof rule?.childKind === 'string' && typeof rule?.relation === 'string')
+		const stored = await this.storageService.getData<GroupTemplate[]>(TEMPLATES_STORAGE_KEY, []);
+		this.templates = Array.isArray(stored)
+			? stored.filter(template => Array.isArray(template?.slots)
+				&& template.slots.length > 1
+				&& template.slots.every(slot => typeof slot?.kind === 'string')
+				&& typeof template.layout?.type === 'string')
 			: [];
+		this.shell.onDidChangeActiveWidget(({ newValue }) => {
+			if (newValue) {
+				this.recency.set(newValue, ++this.sequence);
+			}
+		});
 		this.patchShellAddWidget();
 	}
 
@@ -101,58 +124,22 @@ export class GroupTabsService {
 	}
 
 	async groupManual(primaryInput: Widget, widgets: Widget[]): Promise<GroupTabsWidget | undefined> {
-		const existingMembers = this.getMembers(primaryInput);
-		const family = [...new Set([...existingMembers, primaryInput, ...widgets].filter(widget => !widget.isDisposed))];
+		const primary = this.getPrimary(primaryInput) ?? primaryInput;
+		const family = [...new Set([...this.getMembers(primary), primary, ...widgets].filter(widget => !widget.isDisposed))];
 		if (family.length < 2) {
-			return this.getPair(primaryInput);
+			return this.getPair(primary);
 		}
 
-		const familySet = new Set(family);
-		const preferred = this.getPrimary(primaryInput) ?? primaryInput;
-		const roots = family.filter(widget => {
-			const ref = this.resolveSource(this.provenance.get(widget)?.ref);
-			return !ref || !familySet.has(ref);
-		});
-		const primary = roots.length === 1
-			? roots[0]
-			: roots.includes(preferred)
-				? preferred
-				: roots[0] ?? preferred;
-
-		const resolved = new Set<Widget>(this.getMembers(primary));
-		resolved.add(primary);
-		const pending = family.filter(widget => widget !== primary && !resolved.has(widget));
 		let pair = this.getPair(primary);
-
-		while (pending.length > 0) {
-			let index = pending.findIndex(widget => {
-				const ref = this.resolveSource(this.provenance.get(widget)?.ref);
-				return !!ref && resolved.has(ref);
-			});
-			if (index < 0) {
-				index = 0;
+		for (const child of family) {
+			if (child !== primary) {
+				pair = await this.addRelative(primary, child, this.hows.get(child) ?? 'split-right', {
+					restoreSecondary: !this.isMiniBrowserUrlPreview(child)
+				});
 			}
-
-			const child = pending.splice(index, 1)[0];
-			const placement = this.provenance.get(child);
-			const rememberedRef = this.resolveSource(placement?.ref);
-			const source = rememberedRef && resolved.has(rememberedRef) ? rememberedRef : primary;
-			const relation = placement?.relation ?? 'split-right';
-
-			pair = await this.addRelative(source, child, {
-				ref: source,
-				relation
-			}, {
-				restoreSecondary: !this.isMiniBrowserUrlPreview(child)
-			});
-
-			if (placement?.ref && rememberedRef && source === rememberedRef) {
-				const rememberedRule = await this.learnRule(source, child, relation);
-				if (rememberedRule) {
-					pair.addRememberedRule(rememberedRule);
-				}
-			}
-			resolved.add(child);
+		}
+		if (pair) {
+			await this.learnTemplate(pair);
 		}
 		return pair;
 	}
@@ -165,7 +152,7 @@ export class GroupTabsService {
 
 		const existingPair = widgets.map(widget => this.getPair(widget)).find((pair): pair is GroupTabsWidget => !!pair);
 		if (existingPair) {
-			return this.groupManual(widgets[0], widgets.slice(1));
+			return this.groupManual(this.getPrimary(existingPair) ?? widgets[0], widgets);
 		}
 
 		const primary = widgets[0];
@@ -178,25 +165,13 @@ export class GroupTabsService {
 
 		pair.setGroupLayout(layout);
 		this.registerPair(pair);
-
-		const family = new Set(widgets);
 		for (const widget of widgets) {
-			const placement = this.provenance.get(widget);
-			if (placement) {
-				this.registerMember(pair, widget, placement);
-				const source = this.resolveSource(placement.ref);
-				if (source && family.has(source)) {
-					const rememberedRule = await this.learnRule(source, widget, placement.relation);
-					if (rememberedRule) {
-						pair.addRememberedRule(rememberedRule);
-					}
-				}
-			}
 			if (widget !== primary && this.isMiniBrowserUrlPreview(widget)) {
 				pair.markTransient(widget);
 			}
 			this.redeliverWebviewContent(widget);
 		}
+		await this.learnTemplate(pair);
 		await this.shell.activateWidget(primary.id);
 		return pair;
 	}
@@ -208,7 +183,7 @@ export class GroupTabsService {
 			return;
 		}
 
-		await this.forgetRules(pair, record);
+		await this.forgetTemplate(pair);
 		const layout = this.pruneLayout(pair.getGroupLayout());
 		const primary = record.primary;
 		pair.releasePanes();
@@ -235,7 +210,7 @@ export class GroupTabsService {
 		}
 	}
 
-	async addRelative(sourceInput: Widget, widget: Widget, placement: GroupTabsPlacement, options: { restoreSecondary?: boolean } = {}): Promise<GroupTabsWidget> {
+	async addRelative(sourceInput: Widget, widget: Widget, relation: string, options: { restoreSecondary?: boolean } = {}): Promise<GroupTabsWidget> {
 		const source = this.resolveSource(sourceInput);
 		if (!source || source.isDisposed || widget.isDisposed) {
 			throw new Error('Cannot group disposed widgets');
@@ -261,8 +236,8 @@ export class GroupTabsService {
 		if (this.shell.getAreaFor(widget)) {
 			widget.parent = null;
 		}
-		pair.addRelativePane(widget, source, placement.relation);
-		this.registerMember(pair, widget, placement);
+		pair.addRelativePane(widget, source, relation);
+		this.registerMember(pair, widget);
 		if (options.restoreSecondary === false) {
 			pair.markTransient(widget);
 		}
@@ -285,16 +260,8 @@ export class GroupTabsService {
 
 	noteMiniBrowserUrlPreview(widget: MiniBrowser, sourceInput: Widget | undefined, collapseRightAfterGrouping = false): void {
 		const source = this.resolveSource(sourceInput);
-		if (!source || source === widget || source.isDisposed) {
-			return;
-		}
-		this.provenance.set(widget, {
-			ref: source,
-			relation: MINI_BROWSER_URL_PREVIEW_RELATION
-		});
-		setTimeout(() => {
-			void this.maybeAutoGroup(widget, collapseRightAfterGrouping);
-		}, 0);
+		this.hows.set(widget, MINI_BROWSER_URL_PREVIEW_RELATION);
+		this.maybeAutoGroup(widget, source && source !== widget && !source.isDisposed ? source : undefined, collapseRightAfterGrouping);
 	}
 
 	async adoptRestored(): Promise<void> {
@@ -304,7 +271,7 @@ export class GroupTabsService {
 			}
 			const panes = pair.getTrackableWidgets();
 			const pane = panes[0];
-			if (panes.length >= 2 || (pane && this.shouldKeepIncompleteGroup(pane))) {
+			if (panes.length >= 2 || (pane && this.shouldKeepIncompleteGroup(pair, pane))) {
 				this.registerPair(pair);
 				continue;
 			}
@@ -332,12 +299,8 @@ export class GroupTabsService {
 				return;
 			}
 
-			const insertion = this.shell.getInsertionOptions(options);
-			const active = this.resolveSource(this.shell.activeWidget ?? this.shell.currentWidget);
-			const explicitRef = this.resolveSource(options?.ref);
-			const resolvedRef = this.resolveSource(insertion.addOptions.ref);
-			const ref = explicitRef ?? active ?? resolvedRef;
-			const relation = String(options?.mode ?? insertion.addOptions.mode ?? (insertion.area === 'main' ? 'tab-after' : `area:${insertion.area}`));
+			const area = this.shell.getInsertionOptions(options).area;
+			const how = area !== 'main' ? `area:${area}` : options?.mode ? String(options.mode) : 'open';
 
 			await original(widget, options);
 
@@ -347,106 +310,241 @@ export class GroupTabsService {
 				return;
 			}
 
-			if (ref && ref !== widget) {
-				this.provenance.set(widget, { ref, relation });
-				setTimeout(() => {
-					void this.maybeAutoGroup(widget);
-				}, 0);
+			this.hows.set(widget, how);
+			this.openOrder.set(widget, ++this.sequence);
+			this.recency.set(widget, this.sequence);
+			if (this.shell.getAreaFor(widget) === 'main') {
+				this.maybeAutoGroup(widget);
 			}
 		};
 	}
 
-	protected async maybeAutoGroup(widget: Widget, collapseRightAfterGrouping = false): Promise<void> {
-		if (!this.rememberGroupsEnabled() || widget.isDisposed) {
-			return;
-		}
-		const placement = this.provenance.get(widget);
-		const source = this.resolveSource(placement?.ref);
-		if (!placement || !source || source.isDisposed || source === widget) {
-			return;
-		}
+	// Runs one at a time so tabs opened together are not claimed by two groups.
+	protected maybeAutoGroup(widget: Widget, source?: Widget, collapseRightAfterGrouping = false): void {
+		setTimeout(() => {
+			this.autoGroupQueue = this.autoGroupQueue
+				.then(() => this.autoGroup(widget, source, collapseRightAfterGrouping))
+				.catch(error => console.error('Failed to apply remembered tab group', error));
+		}, 0);
+	}
 
-		const rule = this.learnedRules.find(candidate =>
-			candidate.parentKind === this.widgetKind(source)
-			&& candidate.childKind === this.widgetKind(widget)
-			&& candidate.relation === placement.relation
-		);
-		if (!rule) {
+	protected async autoGroup(widget: Widget, source: Widget | undefined, collapseRightAfterGrouping: boolean): Promise<void> {
+		if (!this.rememberGroupsEnabled() || widget.isDisposed || this.templates.length === 0) {
 			return;
 		}
-
+		const urlPreview = this.isMiniBrowserUrlPreview(widget) && this.hows.get(widget) === MINI_BROWSER_URL_PREVIEW_RELATION;
 		const area = this.shell.getAreaFor(widget);
-		const rememberedUrlPreview = this.isMiniBrowserUrlPreview(widget)
-			&& placement.relation === MINI_BROWSER_URL_PREVIEW_RELATION;
-		if (area !== 'main' && !(rememberedUrlPreview && area === 'right')) {
+		if (area !== 'main' && !(urlPreview && area === 'right')) {
+			return;
+		}
+		const widgetPair = this.getPair(widget);
+		if (widgetPair && (!urlPreview || (source && widgetPair === this.getPair(source)))) {
 			return;
 		}
 
-		try {
-			const pair = await this.addRelative(source, widget, placement, {
-				restoreSecondary: !rememberedUrlPreview
-			});
-			pair.addRememberedRule(this.ruleKey(rule));
-			if (rememberedUrlPreview && collapseRightAfterGrouping) {
-				await this.shell.collapsePanel('right');
+		let pair: GroupTabsWidget | undefined;
+		const sourcePair = source && this.getPair(source);
+		if (sourcePair) {
+			// A restored group that lost its URL preview takes the preview back.
+			const template = this.templates.find(candidate => this.templateKey(candidate.slots) === sourcePair.getTemplateKey());
+			const members = this.getMembers(sourcePair);
+			const assigned = urlPreview && template && template.slots.length === members.length + 1
+				? this.matchTemplate(template, [widget, ...members], members.length + 1)
+				: undefined;
+			if (!template || !assigned) {
+				return;
 			}
-		} catch (error) {
-			console.error('Failed to restore remembered tab group', error);
+			pair = await this.applyTemplate(template, assigned, sourcePair);
+		} else {
+			const ungrouped = this.shell.getWidgets('main').filter(candidate =>
+				candidate !== widget && candidate !== source && !candidate.isDisposed && !(candidate instanceof GroupTabsWidget) && !this.getPair(candidate));
+			ungrouped.sort((a, b) => (this.recency.get(b) ?? 0) - (this.recency.get(a) ?? 0));
+			// A preview shows its source, so a preview group must include that source.
+			const required = source && this.shell.getAreaFor(source) === 'main' && !(source instanceof GroupTabsWidget) ? [widget, source] : [widget];
+			const candidates = [...required, ...ungrouped];
+			for (const template of [...this.templates].reverse()) {
+				const assigned = this.matchTemplate(template, candidates, required.length);
+				if (assigned) {
+					pair = await this.applyTemplate(template, assigned);
+					break;
+				}
+			}
+		}
+		if (!pair) {
+			return;
+		}
+
+		await this.shell.activateWidget((source && pair.containsPane(source) ? source : widget).id);
+		if (urlPreview && collapseRightAfterGrouping) {
+			await this.shell.collapsePanel('right');
 		}
 	}
 
-	protected async learnRule(parent: Widget, child: Widget, relation: string): Promise<string | undefined> {
-		if (!this.rememberGroupsEnabled()) {
+	// Returns the chosen widgets by slot index, or undefined when the slots cannot all be filled.
+	protected matchTemplate(template: GroupTemplate, candidates: Widget[], required: number): Widget[] | undefined {
+		const slots = template.slots;
+		const kinds = candidates.map(candidate => this.widgetKind(candidate));
+		const hows = candidates.map(candidate => this.hows.get(candidate));
+		const fits = (candidate: number, slot: number): boolean => kinds[candidate] === slots[slot].kind
+			&& (hows[candidate] === undefined || slots[slot].how === undefined || hows[candidate] === slots[slot].how);
+		const owners: (number | undefined)[] = slots.map(() => undefined);
+		// Kuhn's augmenting paths, taking candidates in priority order so the most recent tabs win.
+		const augment = (candidate: number, seen: Set<number>): boolean => {
+			for (let slot = 0; slot < slots.length; slot++) {
+				if (seen.has(slot) || !fits(candidate, slot)) {
+					continue;
+				}
+				seen.add(slot);
+				const owner = owners[slot];
+				if (owner === undefined || augment(owner, seen)) {
+					owners[slot] = candidate;
+					return true;
+				}
+			}
+			return false;
+		};
+		let matched = 0;
+		for (let candidate = 0; candidate < candidates.length && matched < slots.length; candidate++) {
+			if (augment(candidate, new Set())) {
+				matched++;
+			} else if (candidate < required) {
+				return undefined;
+			}
+		}
+		if (matched < slots.length) {
 			return undefined;
 		}
-		const rule: LearnedGroupRule = {
-			parentKind: this.widgetKind(parent),
-			childKind: this.widgetKind(child),
-			relation
-		};
-		const key = this.ruleKey(rule);
-		if (!this.learnedRules.some(candidate => this.ruleKey(candidate) === key)) {
-			this.learnedRules.push(rule);
-			await this.storageService.setData(LEARNED_RULES_STORAGE_KEY, this.learnedRules);
+
+		// Interchangeable slots take their tabs in opening order, so the oldest lands first in the layout.
+		const assigned = owners.map(owner => candidates[owner!]);
+		const bySignature = new Map<string, number[]>();
+		slots.forEach((slot, index) => {
+			const signature = this.slotSignature(slot);
+			bySignature.set(signature, [...bySignature.get(signature) ?? [], index]);
+		});
+		for (const indices of bySignature.values()) {
+			const widgets = indices.map(index => assigned[index]).sort((a, b) => (this.openOrder.get(a) ?? 0) - (this.openOrder.get(b) ?? 0));
+			indices.forEach((index, position) => assigned[index] = widgets[position]);
 		}
-		return key;
+		return assigned;
 	}
 
-	protected async forgetRules(pair: GroupTabsWidget, record: GroupTabsRecord): Promise<void> {
-		const members = new Set(record.members);
-		const removed = new Set(pair.getRememberedRules());
-		for (const [child, placement] of record.placements) {
-			const parent = this.resolveSource(placement.ref);
-			if (!parent || !members.has(parent)) {
-				continue;
+	protected async applyTemplate(template: GroupTemplate, assigned: Widget[], existing?: GroupTabsWidget): Promise<GroupTabsWidget> {
+		for (const widget of assigned) {
+			const widgetPair = this.getPair(widget);
+			if (widgetPair && widgetPair !== existing) {
+				await this.detachMember(widgetPair, widget);
 			}
-			removed.add(this.ruleKey({
-				parentKind: this.widgetKind(parent),
-				childKind: this.widgetKind(child),
-				relation: placement.relation
-			}));
 		}
-		if (removed.size === 0) {
+		const pair = existing ?? await this.createGroupContainer(assigned.find(widget => this.shell.getAreaFor(widget) === 'main') ?? assigned[0]);
+		pair.releasePanes();
+		for (const widget of assigned) {
+			if (this.shell.getAreaFor(widget)) {
+				widget.parent = null;
+			}
+		}
+
+		pair.setGroupLayout({ main: this.fromTemplateArea(template.layout, assigned) });
+		if (existing) {
+			for (const widget of assigned) {
+				this.registerMember(pair, widget);
+			}
+		} else {
+			this.registerPair(pair);
+		}
+		for (const widget of assigned) {
+			if (widget !== pair.primary && this.isMiniBrowserUrlPreview(widget)) {
+				pair.markTransient(widget);
+			}
+			this.redeliverWebviewContent(widget);
+		}
+		pair.setTemplateKey(this.templateKey(template.slots));
+		return pair;
+	}
+
+	// Keeps the slots of the group's own template while its panes still fill them, so a resized layout replaces it under the same key.
+	protected async learnTemplate(pair: GroupTabsWidget): Promise<void> {
+		if (!this.rememberGroupsEnabled()) {
 			return;
 		}
-		this.learnedRules = this.learnedRules.filter(rule => !removed.has(this.ruleKey(rule)));
-		await this.storageService.setData(LEARNED_RULES_STORAGE_KEY, this.learnedRules);
+		const main = pair.getGroupLayout().main;
+		const panes = this.areaWidgets(main);
+		const current = this.templates.find(template => this.templateKey(template.slots) === pair.getTemplateKey());
+		const assigned = current && current.slots.length === panes.length ? this.matchTemplate(current, panes, panes.length) : undefined;
+		const slots: TemplateSlot[] = current && assigned ? current.slots : [];
+		const layout = this.toTemplateArea(main, widget => assigned
+			? assigned.indexOf(widget)
+			: slots.push({ kind: this.widgetKind(widget), how: this.hows.get(widget) }) - 1);
+		if (!layout || slots.length < 2) {
+			return;
+		}
+		const key = this.templateKey(slots);
+		this.templates = [...this.templates.filter(template => this.templateKey(template.slots) !== key), { slots, layout }];
+		await this.storageService.setData(TEMPLATES_STORAGE_KEY, this.templates);
+		pair.setTemplateKey(key);
 	}
 
-	protected ruleKey(rule: LearnedGroupRule): string {
-		return `${rule.parentKind}\n${rule.childKind}\n${rule.relation}`;
+	protected async forgetTemplate(pair: GroupTabsWidget): Promise<void> {
+		const key = pair.getTemplateKey();
+		const templates = this.templates.filter(template => this.templateKey(template.slots) !== key);
+		if (!key || templates.length === this.templates.length) {
+			return;
+		}
+		this.templates = templates;
+		await this.storageService.setData(TEMPLATES_STORAGE_KEY, this.templates);
 	}
 
-	protected shouldKeepIncompleteGroup(primary: Widget): boolean {
+	protected templateKey(slots: TemplateSlot[]): string {
+		return JSON.stringify(slots.map(slot => this.slotSignature(slot)).sort());
+	}
+
+	protected slotSignature(slot: TemplateSlot): string {
+		return `${slot.kind}\n${slot.how ?? ''}`;
+	}
+
+	protected toTemplateArea(area: DockLayout.AreaConfig | null, slotOf: (widget: Widget) => number): TemplateArea | undefined {
+		if (!area) {
+			return undefined;
+		}
+		if (area.type === 'tab-area') {
+			return {
+				type: 'tab-area',
+				slots: area.widgets.map(widget => slotOf(widget)),
+				currentIndex: area.currentIndex
+			};
+		}
+		return {
+			type: 'split-area',
+			orientation: area.orientation,
+			children: area.children.map(child => this.toTemplateArea(child, slotOf)!),
+			sizes: [...area.sizes]
+		};
+	}
+
+	protected fromTemplateArea(area: TemplateArea, assigned: Widget[]): DockLayout.AreaConfig {
+		if (area.type === 'tab-area') {
+			return {
+				type: 'tab-area',
+				widgets: area.slots.map(slot => assigned[slot]),
+				currentIndex: area.currentIndex
+			};
+		}
+		return {
+			type: 'split-area',
+			orientation: area.orientation,
+			children: area.children.map(child => this.fromTemplateArea(child, assigned)),
+			sizes: [...area.sizes]
+		};
+	}
+
+	// A one-pane group survives a restart only when its template can refill it with a URL preview.
+	protected shouldKeepIncompleteGroup(pair: GroupTabsWidget, pane: Widget): boolean {
 		if (!this.rememberGroupsEnabled()) {
 			return false;
 		}
-		const parentKind = this.widgetKind(primary);
-		return this.learnedRules.some(rule =>
-			rule.parentKind === parentKind
-			&& rule.childKind === 'mini-browser:url-preview'
-			&& rule.relation === MINI_BROWSER_URL_PREVIEW_RELATION
-		);
+		const template = this.templates.find(candidate => this.templateKey(candidate.slots) === pair.getTemplateKey());
+		const lasting = template?.slots.filter(slot => slot.how !== MINI_BROWSER_URL_PREVIEW_RELATION) ?? [];
+		return !!template && template.slots.length > 1 && lasting.length === 1 && lasting[0].kind === this.widgetKind(pane);
 	}
 
 	protected rememberGroupsEnabled(): boolean {
@@ -629,7 +727,6 @@ export class GroupTabsService {
 		const record: GroupTabsRecord = {
 			primary: panes[0],
 			members: new Set(),
-			placements: new Map(),
 			memberDisposables: new Map(),
 			toDispose: new DisposableCollection()
 		};
@@ -644,24 +741,14 @@ export class GroupTabsService {
 		}
 	}
 
-	protected registerMember(pair: GroupTabsWidget, widget: Widget, placement?: GroupTabsPlacement): void {
+	protected registerMember(pair: GroupTabsWidget, widget: Widget): void {
 		const record = this.records.get(pair);
-		if (!record) {
-			return;
-		}
-
-		if (record.members.has(widget)) {
-			if (placement) {
-				record.placements.set(widget, placement);
-			}
+		if (!record || record.members.has(widget)) {
 			return;
 		}
 
 		record.members.add(widget);
 		this.pairByChild.set(widget, pair);
-		if (placement) {
-			record.placements.set(widget, placement);
-		}
 
 		const onDisposed = (): void => {
 			if (!pair.isClosing && !pair.isDisposed) {
@@ -697,7 +784,6 @@ export class GroupTabsService {
 		record.memberDisposables.get(widget)?.dispose();
 		record.memberDisposables.delete(widget);
 		record.members.delete(widget);
-		record.placements.delete(widget);
 		this.pairByChild.delete(widget);
 
 		if (pair.containsPane(widget)) {
@@ -748,9 +834,7 @@ export class GroupTabsService {
 			return;
 		}
 
-		const placement = record.placements.get(widget);
-		const source = placement?.ref && record.members.has(placement.ref) ? placement.ref : record.primary;
-		pair.addRelativePane(widget, source, placement?.relation ?? 'split-right');
+		pair.addRelativePane(widget, record.primary, 'split-right');
 		this.redeliverWebviewContent(widget);
 		void this.shell.revealWidget(widget.id);
 	}

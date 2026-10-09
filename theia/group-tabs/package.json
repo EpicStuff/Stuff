@@ -1,7 +1,7 @@
 {
 	"name": "theia-group-tabs",
-	"version": "0.2.0",
-	"description": "Generic paired tab support for Eclipse Theia previews.",
+	"version": "0.5.5",
+	"description": "Generic remembered tab grouping for Eclipse Theia.",
 	"engines": {
 		"node": ">=24"
 	},
@@ -16,7 +16,7 @@
 		"./lib/browser/group-tabs-service": "./lib/browser/group-tabs-service.js"
 	},
 	"scripts": {
-		"build": "tsc -p tsconfig.json",
+		"build": "tsc -p tsconfig.json && node build/verify.mjs",
 		"clean": "rm -rf lib"
 	},
 	"peerDependencies": {

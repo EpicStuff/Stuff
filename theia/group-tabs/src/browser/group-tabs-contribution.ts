@@ -1,22 +1,25 @@
-import { Command, CommandContribution, CommandRegistry, nls } from '@theia/core';
-import URI from '@theia/core/lib/common/uri';
-import { ApplicationShell, FrontendApplicationContribution, NavigatableWidget, Widget, codicon } from '@theia/core/lib/browser';
+import { Command, CommandContribution, CommandRegistry } from '@theia/core';
+import { ApplicationShell, DockLayout, DockPanel, FrontendApplicationContribution, Widget, codicon } from '@theia/core/lib/browser';
 import { TabBarToolbarContribution, TabBarToolbarRegistry } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 import { inject, injectable } from '@theia/core/shared/inversify';
-import { LocationMapperService } from '@theia/mini-browser/lib/browser/location-mapper-service';
-import { MiniBrowserCommands, MiniBrowserOpenHandler } from '@theia/mini-browser/lib/browser/mini-browser-open-handler';
-import { WebviewWidget } from '@theia/plugin-ext/lib/main/browser/webview/webview';
+import { MiniBrowserOpenHandler } from '@theia/mini-browser/lib/browser/mini-browser-open-handler';
 import { GroupTabsService } from './group-tabs-service';
+import { GroupTabsWidget } from './group-tabs-widget';
 
 export namespace GroupTabsCommands {
-	export const CLOSE_SECONDARY: Command = {
-		id: 'group-tabs.closeSecondary',
-		label: 'Close Preview'
+	export const GROUP: Command = {
+		id: 'group-tabs.group',
+		label: 'Group Tabs'
 	};
 
-	export const OPEN_PREVIEW_URL: Command = {
-		id: 'group-tabs.openPreviewUrl',
-		label: 'Open Grouped Preview URL'
+	export const CLOSE_SECONDARY: Command = {
+		id: 'group-tabs.closeSecondary',
+		label: 'Close Grouped Pane'
+	};
+
+	export const UNGROUP: Command = {
+		id: 'group-tabs.ungroup',
+		label: 'Ungroup Tabs'
 	};
 }
 
@@ -31,27 +34,9 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 	@inject(MiniBrowserOpenHandler)
 	protected readonly miniBrowserOpenHandler!: MiniBrowserOpenHandler;
 
-	@inject(LocationMapperService)
-	protected readonly locationMapperService!: LocationMapperService;
-
-	onStart(): void {
-		this.shell.onDidAddWidget(widget => {
-			// A preview that is already grouped is being moved by Theia; the service puts it back.
-			if (!this.isMarkdownPreview(widget) || this.groupTabsService.getPair(widget)) {
-				return;
-			}
-
-			const primary = this.findMarkdownPrimary();
-			if (!primary) {
-				return;
-			}
-
-			setTimeout(() => {
-				if (!primary.isDisposed && !widget.isDisposed) {
-					void this.groupTabsService.pair(primary, widget).catch(error => console.error('Failed to group Markdown preview', error));
-				}
-			}, 0);
-		});
+	async onStart(): Promise<void> {
+		await this.groupTabsService.start();
+		this.patchMiniBrowserUrlPreview();
 	}
 
 	async onDidInitializeLayout(): Promise<void> {
@@ -59,15 +44,21 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 	}
 
 	registerCommands(commands: CommandRegistry): void {
-		commands.registerCommand(GroupTabsCommands.CLOSE_SECONDARY, {
-			execute: (widget?: Widget) => this.groupTabsService.closeSecondary(widget ?? this.shell.activeWidget),
-			isEnabled: (widget?: Widget) => !!this.groupTabsService.getPair(widget ?? this.shell.activeWidget),
-			isVisible: (widget?: Widget) => !!this.groupTabsService.getPair(widget ?? this.shell.activeWidget)
+		commands.registerCommand(GroupTabsCommands.GROUP, {
+			execute: () => this.groupTabs(),
+			isEnabled: () => this.getCurrentTabs().length > 1
 		});
 
-		commands.registerCommand(GroupTabsCommands.OPEN_PREVIEW_URL, {
-			execute: async (url: string, sourceUri?: string) => this.openGroupedPreviewUrl(url, sourceUri),
-			isEnabled: (url: string) => typeof url === 'string' && url.length > 0
+		commands.registerCommand(GroupTabsCommands.UNGROUP, {
+			execute: (widget?: Widget) => this.groupTabsService.ungroup(widget ?? this.shell.activeWidget ?? this.shell.currentWidget),
+			isEnabled: (widget?: Widget) => !!this.groupTabsService.getPair(widget ?? this.shell.activeWidget ?? this.shell.currentWidget),
+			isVisible: (widget?: Widget) => !!this.groupTabsService.getPair(widget ?? this.shell.activeWidget ?? this.shell.currentWidget)
+		});
+
+		commands.registerCommand(GroupTabsCommands.CLOSE_SECONDARY, {
+			execute: (widget?: Widget) => this.groupTabsService.closeSecondary(widget ?? this.shell.activeWidget),
+			isEnabled: (widget?: Widget) => this.groupTabsService.getMembers(widget ?? this.shell.activeWidget).length > 1,
+			isVisible: (widget?: Widget) => this.groupTabsService.getMembers(widget ?? this.shell.activeWidget).length > 1
 		});
 	}
 
@@ -76,75 +67,109 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 			id: GroupTabsCommands.CLOSE_SECONDARY.id,
 			command: GroupTabsCommands.CLOSE_SECONDARY.id,
 			icon: codicon('close'),
-			tooltip: 'Close Preview',
+			tooltip: 'Close Grouped Pane',
 			priority: 100,
-			isVisible: widget => !!this.groupTabsService.getPair(widget)
+			isVisible: widget => this.groupTabsService.getMembers(widget).length > 1
 		});
 	}
 
-	protected async openGroupedPreviewUrl(url: string, sourceUri?: string): Promise<void> {
-		if (typeof url !== 'string' || url.length === 0) {
+	protected async groupTabs(): Promise<void> {
+		const layout = this.visibleMainLayout();
+		if (!layout || this.layoutWidgetCount(layout.main) < 2) {
 			return;
 		}
 
-		const active = this.findPrimary(sourceUri);
-		if (!active || active.isDisposed) {
-			throw new Error(sourceUri ? `No open source widget matches ${sourceUri}` : 'No source widget is active for the preview');
-		}
-
-		// Same props as MiniBrowserOpenHandler.openPreview, which always opens in (and widens) the right side panel.
-		// Mini Browser widgets are keyed by URI and every preview shares PREVIEW_URI, so a per source query keeps
-		// this preview from taking over Open URL's widget or another group's preview.
-		const previewUri = MiniBrowserOpenHandler.PREVIEW_URI.withQuery(`group-tabs=${active.id}`);
-		const preview = await this.miniBrowserOpenHandler.open(previewUri, {
-			name: nls.localize(MiniBrowserCommands.PREVIEW_CATEGORY_KEY, MiniBrowserCommands.PREVIEW_CATEGORY),
-			startPage: await this.locationMapperService.map(url),
-			toolbar: 'read-only',
-			resetBackground: true,
-			iconClass: codicon('preview'),
-			openFor: 'preview',
-			mode: 'reveal',
-			widgetOptions: { area: 'main', ref: active, mode: 'tab-after' }
-		});
-		// The preview server does not survive a reload, so a restored group falls back to the source.
-		await this.groupTabsService.pair(active, preview, { restoreSecondary: false });
+		await this.groupTabsService.groupLayout(layout);
 	}
 
-	protected findPrimary(sourceUri?: string): Widget | undefined {
-		if (!sourceUri) {
-			return this.groupTabsService.getPrimary(this.shell.activeWidget ?? this.shell.currentWidget);
+	protected visibleMainLayout(): DockPanel.ILayoutConfig | undefined {
+		const saved = this.shell.mainPanel.saveLayout();
+		const main = this.visibleArea(saved.main);
+		return main ? { main } : undefined;
+	}
+
+	protected visibleArea(area: DockLayout.AreaConfig | null): DockLayout.AreaConfig | null {
+		if (!area) {
+			return null;
+		}
+		if (area.type === 'tab-area') {
+			const current = area.widgets[area.currentIndex];
+			if (!current || current.isDisposed) {
+				return null;
+			}
+			if (current instanceof GroupTabsWidget) {
+				return current.getGroupLayout().main;
+			}
+			return {
+				type: 'tab-area',
+				widgets: [current],
+				currentIndex: 0
+			};
 		}
 
-		const requestedUri = new URI(sourceUri);
+		const children: DockLayout.AreaConfig[] = [];
+		const sizes: number[] = [];
+		for (let index = 0; index < area.children.length; index++) {
+			const child = this.visibleArea(area.children[index]);
+			if (child) {
+				children.push(child);
+				sizes.push(area.sizes[index] ?? 1);
+			}
+		}
+		if (children.length === 0) {
+			return null;
+		}
+		if (children.length === 1) {
+			return children[0];
+		}
+		const total = sizes.reduce((sum, size) => sum + size, 0);
+		return {
+			type: 'split-area',
+			orientation: area.orientation,
+			children,
+			sizes: total > 0 ? sizes.map(size => size / total) : sizes
+		};
+	}
+
+	protected layoutWidgetCount(area: DockLayout.AreaConfig | null): number {
+		if (!area) {
+			return 0;
+		}
+		if (area.type === 'tab-area') {
+			return area.widgets.length;
+		}
+		return area.children.reduce((count, child) => count + this.layoutWidgetCount(child), 0);
+	}
+
+	protected getCurrentTabs(): Widget[] {
+		const result: Widget[] = [];
 		const seen = new Set<Widget>();
-		for (const candidate of [this.shell.activeWidget, this.shell.currentWidget, ...this.shell.getWidgets('main')]) {
-			const primary = this.groupTabsService.getPrimary(candidate);
-			if (!primary || seen.has(primary)) {
-				continue;
+		const add = (widget: Widget | undefined): void => {
+			if (!widget || widget.isDisposed) {
+				return;
 			}
-			seen.add(primary);
+			for (const member of this.groupTabsService.getMembers(widget)) {
+				if (!member.isDisposed && !seen.has(member)) {
+					seen.add(member);
+					result.push(member);
+				}
+			}
+		};
 
-			const uri = NavigatableWidget.getUri(primary);
-			if (uri?.isEqual(requestedUri)) {
-				return primary;
-			}
+		for (const tabBar of this.shell.mainPanel.tabBars()) {
+			add(tabBar.currentTitle?.owner);
 		}
-		return undefined;
+		return result;
 	}
 
-	protected findMarkdownPrimary(): Widget | undefined {
-		for (const candidate of [this.shell.activeWidget, this.shell.currentWidget]) {
-			const primary = this.groupTabsService.getPrimary(candidate);
-			const uri = NavigatableWidget.getUri(primary);
-			if (primary && uri && (uri.path.ext === '.md' || uri.path.ext === '.markdown')) {
-				return primary;
-			}
-		}
-		return undefined;
-	}
-
-	protected isMarkdownPreview(widget: Widget): widget is WebviewWidget {
-		return widget instanceof WebviewWidget
-			&& (widget.viewType === 'markdown.preview' || widget.viewType === 'vscode.markdown.preview.editor');
+	protected patchMiniBrowserUrlPreview(): void {
+		const original = this.miniBrowserOpenHandler.openPreview.bind(this.miniBrowserOpenHandler);
+		this.miniBrowserOpenHandler.openPreview = async startPage => {
+			const source = this.groupTabsService.resolveSource(this.shell.activeWidget ?? this.shell.currentWidget);
+			const rightWasExpanded = this.shell.isExpanded('right');
+			const preview = await original(startPage);
+			this.groupTabsService.noteMiniBrowserUrlPreview(preview, source, !rightWasExpanded);
+			return preview;
+		};
 	}
 }

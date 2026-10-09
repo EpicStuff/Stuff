@@ -1,7 +1,7 @@
 import { Disposable, DisposableCollection, generateUuid } from '@theia/core';
 import { PreferenceService } from '@theia/core/lib/common/preferences';
 import { ApplicationShell, DockLayout, DockPanel, Widget, WidgetManager } from '@theia/core/lib/browser';
-import { StorageService } from '@theia/core/lib/browser/storage-service';
+import { LocalStorageService } from '@theia/core/lib/browser/storage-service';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { Message, MessageLoop } from '@theia/core/shared/@lumino/messaging';
 import { MiniBrowser } from '@theia/mini-browser/lib/browser/mini-browser';
@@ -41,8 +41,9 @@ export class GroupTabsService {
 	@inject(WidgetManager)
 	protected readonly widgetManager!: WidgetManager;
 
-	@inject(StorageService)
-	protected readonly storageService!: StorageService;
+	// Learned rules are device wide; the injected StorageService is per workspace in this app.
+	@inject(LocalStorageService)
+	protected readonly storageService!: LocalStorageService;
 
 	@inject(PreferenceService)
 	protected readonly preferenceService!: PreferenceService;

@@ -1,6 +1,6 @@
 # theia-flags
 
-Native Eclipse Theia Electron startup extension verified against Theia 1.75.0.
+Native Eclipse Theia Electron startup extension verified against Theia 1.75.0. The build fails if the upstream Theia Electron startup, window, and extension install code it overrides or relies on changes from that version.
 
 It adds resident startup behavior plus a VS Code compatible CLI layer.
 

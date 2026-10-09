@@ -123,36 +123,15 @@ export class GroupTabsService {
 		return pair ? [...(this.records.get(pair)?.members ?? pair.getTrackableWidgets())] : widget ? [widget] : [];
 	}
 
-	async groupManual(primaryInput: Widget, widgets: Widget[]): Promise<GroupTabsWidget | undefined> {
-		const primary = this.getPrimary(primaryInput) ?? primaryInput;
-		const family = [...new Set([...this.getMembers(primary), primary, ...widgets].filter(widget => !widget.isDisposed))];
-		if (family.length < 2) {
-			return this.getPair(primary);
-		}
-
-		let pair = this.getPair(primary);
-		for (const child of family) {
-			if (child !== primary) {
-				pair = await this.addRelative(primary, child, this.hows.get(child) ?? 'split-right', {
-					restoreSecondary: !this.isMiniBrowserUrlPreview(child)
-				});
-			}
-		}
-		if (pair) {
-			await this.learnTemplate(pair);
-		}
-		return pair;
-	}
-
 	async groupLayout(layout: DockPanel.ILayoutConfig): Promise<GroupTabsWidget | undefined> {
 		const widgets = this.layoutWidgets(layout).filter(widget => !widget.isDisposed);
 		if (widgets.length < 2) {
 			return widgets[0] ? this.getPair(widgets[0]) : undefined;
 		}
 
-		const existingPair = widgets.map(widget => this.getPair(widget)).find((pair): pair is GroupTabsWidget => !!pair);
-		if (existingPair) {
-			return this.groupManual(this.getPrimary(existingPair) ?? widgets[0], widgets);
+		const existingPairs = [...new Set(widgets.map(widget => this.getPair(widget)).filter((pair): pair is GroupTabsWidget => !!pair))];
+		if (existingPairs.length > 0) {
+			return this.regroupLayout(existingPairs, widgets, layout);
 		}
 
 		const primary = widgets[0];
@@ -173,6 +152,47 @@ export class GroupTabsService {
 		}
 		await this.learnTemplate(pair);
 		await this.shell.activateWidget(primary.id);
+		return pair;
+	}
+
+	// The visible layout already holds each group's inner layout, so the merged group keeps what is on screen.
+	protected async regroupLayout(existingPairs: GroupTabsWidget[], widgets: Widget[], layout: DockPanel.ILayoutConfig): Promise<GroupTabsWidget> {
+		const [pair] = existingPairs;
+		const grows = existingPairs.length > 1 || widgets.some(widget => this.getPair(widget) !== pair);
+		if (grows) {
+			// A merged group replaces the templates of the groups it absorbed.
+			for (const existing of existingPairs) {
+				await this.forgetTemplate(existing);
+			}
+			pair.setTemplateKey(undefined);
+		}
+		for (const widget of widgets) {
+			const widgetPair = this.getPair(widget);
+			if (widgetPair && widgetPair !== pair) {
+				await this.detachMember(widgetPair, widget);
+			}
+		}
+		pair.releasePanes();
+		for (const widget of widgets) {
+			if (this.shell.getAreaFor(widget)) {
+				widget.parent = null;
+			}
+		}
+
+		pair.setGroupLayout(layout);
+		for (const widget of widgets) {
+			this.registerMember(pair, widget);
+			if (widget !== pair.primary && this.isMiniBrowserUrlPreview(widget)) {
+				pair.markTransient(widget);
+			}
+			this.redeliverWebviewContent(widget);
+		}
+		const record = this.records.get(pair);
+		if (record) {
+			record.primary = pair.primary ?? widgets[0];
+		}
+		await this.learnTemplate(pair);
+		await this.shell.activateWidget(pair.id);
 		return pair;
 	}
 

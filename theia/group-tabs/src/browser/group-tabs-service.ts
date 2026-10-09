@@ -374,7 +374,8 @@ export class GroupTabsService {
 			return;
 		}
 
-		await this.shell.activateWidget((this.firstLayoutWidget(pair.getGroupLayout().main) ?? widget).id);
+		const first = this.getMembers(pair).reduce((a, b) => this.openedAt(b) < this.openedAt(a) ? b : a, widget);
+		await this.shell.activateWidget(first.id);
 		if (urlPreview && collapseRightAfterGrouping) {
 			await this.shell.collapsePanel('right');
 		}
@@ -564,6 +565,11 @@ export class GroupTabsService {
 			return `factory:${description.factoryId}`;
 		}
 		return `widget:${widget.constructor.name}`;
+	}
+
+	// Tabs restored at startup have no open order, so the first focus stands in for it.
+	protected openedAt(widget: Widget): number {
+		return this.openOrder.get(widget) ?? this.recency.get(widget) ?? 0;
 	}
 
 	protected isMiniBrowserUrlPreview(widget: Widget): widget is MiniBrowser {

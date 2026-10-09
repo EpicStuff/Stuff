@@ -421,9 +421,9 @@ class TheiaIde < Formula
 		root = Pathname(extensions_path).expand_path
 		odie "Native extension path does not exist: #{root}" unless root.directory?
 
-		# Copy the whole tree as is, so extensions can reach shared helpers by relative path like in the repo.
+		# Copy the folders as is, so extensions can reach shared helpers by relative path like in the repo.
 		# VS Code extensions go to the built-in plugins instead, in install_local_vscode_extensions.
-		entries = root.children.reject { |entry| vscode_extension?(entry) }
+		entries = root.children.select { |entry| entry.directory? && !vscode_extension?(entry) }
 		entries.each do |entry|
 			target = buildpath/'theia-extensions'/entry.basename
 			odie "Native extension tree entry clashes with Theia IDE's own: #{target}" if target.exist? || target.symlink?

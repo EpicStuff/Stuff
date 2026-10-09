@@ -1,6 +1,6 @@
 {
 	"name": "theia-group-tabs",
-	"version": "0.5.0",
+	"version": "0.5.1",
 	"description": "Generic remembered tab grouping for Eclipse Theia.",
 	"engines": {
 		"node": ">=24"

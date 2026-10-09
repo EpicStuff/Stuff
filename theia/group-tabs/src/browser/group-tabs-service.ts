@@ -374,7 +374,7 @@ export class GroupTabsService {
 			return;
 		}
 
-		await this.shell.activateWidget((source && pair.containsPane(source) ? source : widget).id);
+		await this.shell.activateWidget((this.firstLayoutWidget(pair.getGroupLayout().main) ?? widget).id);
 		if (urlPreview && collapseRightAfterGrouping) {
 			await this.shell.collapsePanel('right');
 		}

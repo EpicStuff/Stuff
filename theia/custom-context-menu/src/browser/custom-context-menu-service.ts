@@ -43,15 +43,11 @@ interface DefaultMenuItem extends EditableMenuItem {
 	custom: false;
 	node: MenuNode;
 	nodeId: string;
-	sourceIdentity: string;
-	legacyStorageKey?: string;
 }
 
 interface DefaultMenuSeparator extends EditableMenuSeparator {
 	custom: false;
 	group: string;
-	sourceIdentity: string;
-	legacyStorageKey?: string;
 }
 
 type DefaultMenuEntry = DefaultMenuItem | DefaultMenuSeparator;
@@ -187,7 +183,7 @@ export class CustomContextMenuService {
 		const defaults = this.toEditableEntries(snapshot);
 		const layout = this.getStoredLayout(targetId);
 		return layout
-			? this.applyLayoutToEditable(defaults, this.migrateLegacyKeys(layout, snapshot))
+			? this.applyLayoutToEditable(defaults, layout)
 			: defaults;
 	}
 
@@ -204,7 +200,7 @@ export class CustomContextMenuService {
 		const defaults = this.toEditableEntries(snapshot);
 		const stored = this.getStoredLayout(targetId);
 		const entries = stored
-			? this.applyLayoutToEditable(defaults, this.migrateLegacyKeys(stored, snapshot))
+			? this.applyLayoutToEditable(defaults, stored)
 			: this.cloneEntries(defaults);
 		if (!mutate(entries)) {
 			return false;
@@ -289,7 +285,7 @@ export class CustomContextMenuService {
 
 		const snapshot = this.buildDefaultSnapshot(menu, target.path);
 		const defaults = this.toEditableEntries(snapshot);
-		const desired = this.applyLayoutToEditable(defaults, this.migrateLegacyKeys(layout, snapshot));
+		const desired = this.applyLayoutToEditable(defaults, layout);
 		const nodes = this.collectDefaultNodes(snapshot);
 		const resolved = this.resolveEditableEntries(desired, nodes);
 		return this.cloneCompoundWithResolvedEntries(menu, resolved, `root-${target.id}`);
@@ -306,55 +302,11 @@ export class CustomContextMenuService {
 
 	protected buildDefaultSnapshot(menu: CompoundMenuNode, menuPath: MenuPath): DefaultMenuEntry[] {
 		const entries = this.flattenChildren(menu.children, menuPath, []);
-		this.assignLegacyStorageKeys(entries);
 		return this.sanitizeDefaultSeparators(entries);
 	}
 
 	protected getStoredLayout(targetId: string): StoredMenuLayout | undefined {
 		return this.sanitizeLayout(this.getStoredValue(targetId));
-	}
-
-	protected migrateLegacyKeys(layout: StoredMenuLayout, snapshot: DefaultMenuEntry[]): StoredMenuLayout {
-		const current = new Set(Object.keys(layout.add ?? {}));
-		const legacy = new Map<string, string>();
-		for (const entry of this.walkDefaultEntries(snapshot)) {
-			current.add(entry.storageKey);
-			if (entry.legacyStorageKey !== undefined) {
-				legacy.set(entry.legacyStorageKey, entry.storageKey);
-			}
-		}
-		const migrate = (storageKey: string): string => current.has(storageKey) ? storageKey : legacy.get(storageKey) ?? storageKey;
-		const migratePlacement = <T extends StoredMenuPlacement>(value: T): T => {
-			const result = { ...value };
-			if (typeof result.parent === 'string') {
-				result.parent = migrate(result.parent);
-			}
-			if (result.before !== undefined) {
-				result.before = migrate(result.before);
-			}
-			if (result.after !== undefined) {
-				result.after = migrate(result.after);
-			}
-			return result;
-		};
-
-		const migrated: StoredMenuLayout = {};
-		if (layout.hide) {
-			migrated.hide = layout.hide.map(migrate);
-		}
-		if (layout.edit) {
-			migrated.edit = {};
-			for (const [storageKey, edit] of Object.entries(layout.edit)) {
-				migrated.edit[migrate(storageKey)] ??= migratePlacement(edit);
-			}
-		}
-		if (layout.add) {
-			migrated.add = {};
-			for (const [storageKey, add] of Object.entries(layout.add)) {
-				migrated.add[storageKey] = migratePlacement(add);
-			}
-		}
-		return migrated;
 	}
 
 	protected sanitizeLayout(value: unknown): StoredMenuLayout | undefined {
@@ -1365,8 +1317,7 @@ export class CustomContextMenuService {
 						key,
 						storageKey: `separator:${this.storagePath(childRelativePath)}`,
 						custom: false,
-						group: child.id,
-						sourceIdentity: key
+						group: child.id
 					});
 				}
 				result.push(...groupEntries);
@@ -1397,8 +1348,7 @@ export class CustomContextMenuService {
 					defaultIcon: child.icon,
 					defaultGroup: inheritedGroup,
 					node: child,
-					nodeId: child.id,
-					sourceIdentity: `${key}|${child.when ?? ''}`
+					nodeId: child.id
 				});
 				continue;
 			}
@@ -1419,60 +1369,12 @@ export class CustomContextMenuService {
 					defaultIcon: child.icon,
 					defaultGroup: inheritedGroup,
 					node: child,
-					nodeId: child.id,
-					sourceIdentity: `${key}|${child.when ?? ''}`
+					nodeId: child.id
 				});
 			}
 		}
 
 		return this.sanitizeDefaultSeparators(result);
-	}
-
-	/**
-	 * Computes the storage keys written by versions before 0.9, so layouts saved with them keep working
-	 * until the next edit rewrites them with current keys.
-	 */
-	protected assignLegacyStorageKeys(entries: DefaultMenuEntry[]): void {
-		const all = this.walkDefaultEntries(entries);
-		const groups = new Map<string, DefaultMenuEntry[]>();
-
-		for (const entry of all) {
-			const base = entry.type === 'separator'
-				? `separator:${entry.group}`
-				: entry.commandId ?? `submenu:${entry.nodeId}`;
-			const bucket = groups.get(base) ?? [];
-			bucket.push(entry);
-			groups.set(base, bucket);
-		}
-
-		for (const [base, bucket] of groups) {
-			if (bucket.length === 1) {
-				bucket[0].legacyStorageKey = base;
-				continue;
-			}
-
-			const used = new Set<string>();
-			for (const entry of bucket) {
-				let key = `${base}@${this.hash(entry.sourceIdentity)}`;
-				let suffix = 2;
-				while (used.has(key)) {
-					key = `${base}@${this.hash(entry.sourceIdentity)}-${suffix++}`;
-				}
-				used.add(key);
-				entry.legacyStorageKey = key;
-			}
-		}
-	}
-
-	protected walkDefaultEntries(entries: DefaultMenuEntry[]): DefaultMenuEntry[] {
-		const result: DefaultMenuEntry[] = [];
-		for (const entry of entries) {
-			result.push(entry);
-			if (entry.type === 'item' && entry.children) {
-				result.push(...this.walkDefaultEntries(entry.children as DefaultMenuEntry[]));
-			}
-		}
-		return result;
 	}
 
 	protected toEditableEntries(entries: DefaultMenuEntry[]): EditableMenuEntry[] {
@@ -1702,15 +1604,6 @@ export class CustomContextMenuService {
 
 	protected arraysEqual(left: string[], right: string[]): boolean {
 		return left.length === right.length && left.every((value, index) => value === right[index]);
-	}
-
-	protected hash(value: string): string {
-		let hash = 0x811c9dc5;
-		for (let index = 0; index < value.length; index++) {
-			hash ^= value.charCodeAt(index);
-			hash = Math.imul(hash, 0x01000193);
-		}
-		return (hash >>> 0).toString(36);
 	}
 
 	protected storagePath(path: MenuPath): string {

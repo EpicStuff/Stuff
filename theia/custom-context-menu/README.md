@@ -89,7 +89,7 @@ Structural separators use `separator:` followed by the path of the group they st
 
 Entries added through the configurator use keys `custom:1`, `custom:2`, and so on, which never collide with contributed entries. If an extension later contributes the same command, both the added and the contributed entry are shown.
 
-Layouts written by versions before 0.9 used command ids, `submenu:` ids, and `separator:` group ids as keys. They keep working: the old keys are translated when the layout is read and are rewritten in the current format with the next edit of that menu. Old keys for commands that appeared more than once in a menu carried a hash, and they only resolve while the menu still has the same duplicates.
+Layouts written by versions before 0.9 used command ids, `submenu:` ids, and `separator:` group ids as keys. They are not migrated: entries whose keys no longer match are ignored. Clear the old value for the affected menu and recreate the changes through the configurator.
 
 ### Fields
 

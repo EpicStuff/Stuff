@@ -26,14 +26,17 @@ module FormulaSandboxAccess
 	private
 
 	def uses_xdg_data_loader?
-		formula.name == 'xdg-data-loader' || formula.deps.any? { |dependency| dependency.name == 'xdg-data-loader' }
+		# Dependency names keep their tap prefix, e.g. epic/stuff/xdg-data-loader.
+		formula.name == 'xdg-data-loader' || formula.deps.any? { |dependency| dependency.name.split('/').last == 'xdg-data-loader' }
 	end
 
 	def ensure_xdg_data_loader_link
-		config_home = if ENV['XDG_CONFIG_HOME'].to_s.empty?
+		# brew only passes XDG_CONFIG_HOME through as HOMEBREW_XDG_CONFIG_HOME.
+		xdg_config_home = ENV['HOMEBREW_XDG_CONFIG_HOME'] || ENV['XDG_CONFIG_HOME']
+		config_home = if xdg_config_home.to_s.empty?
 			Pathname(Etc.getpwuid(Process.uid).dir)/'.config'
 		else
-			Pathname(ENV['XDG_CONFIG_HOME']).expand_path
+			Pathname(xdg_config_home).expand_path
 		end
 		config_dir = config_home/'plasma-workspace/env'
 		loader = config_dir/'homebrew-xdg-data-dirs.sh'
@@ -72,7 +75,8 @@ module FormulaSandboxAccess
 		path = Pathname(extensions_path).expand_path
 		raise ArgumentError, "Native extension path does not exist: #{path}" unless path.directory?
 
-		allow_build_path(sandbox, path.realpath)
+		# The build only copies the extension tree, so it never needs to write there.
+		sandbox.allow_read(path: path.realpath, type: :subpath)
 	end
 
 	def allow_fish_loader_path(sandbox)

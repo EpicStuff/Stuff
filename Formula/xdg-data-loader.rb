@@ -5,7 +5,7 @@ class XdgDataLoader < Formula
 	homepage 'https://codeberg.org/EpicStuff/stuff'
 	url 'https://raw.githubusercontent.com/Homebrew/brew/34c40c18ffa2029b611b61c73273e32c003d0842/Library/Homebrew/.ruby-version', using: :nounzip
 	sha256 '2e9fe584010a41f374317eb891684ccaab818403e8fa8eb7b2053c1810a8c00a'
-	version '1.0.6'
+	version '1.0.7'
 
 	livecheck do
 		skip 'No upstream'
@@ -28,8 +28,6 @@ class XdgDataLoader < Formula
 		refresh = bin/'xdg-data-refresh'
 		refresh.write <<~SH
 			#!/bin/sh
-			. '#{opt_prefix}/xdg-data-dirs.sh'
-
 			homebrew_share='#{HOMEBREW_PREFIX}/share'
 			restart_plasma=false
 			restart_dolphin=false
@@ -51,13 +49,23 @@ class XdgDataLoader < Formula
 				export DBUS_SESSION_BUS_ADDRESS
 			fi
 
+			systemd_xdg_data_dirs=
 			if command -v systemctl >/dev/null 2>&1; then
 				systemd_xdg_data_dirs="$(systemctl --user show-environment 2>/dev/null | sed -n 's/^XDG_DATA_DIRS=//p')"
 				case ":$systemd_xdg_data_dirs:" in
 					*":$homebrew_share:"*) ;;
 					*) restart_plasma=true ;;
 				esac
+			fi
 
+			# brew drops XDG_DATA_DIRS from its environment, so extend the session's search path instead of the defaults.
+			if [ -z "${XDG_DATA_DIRS:-}" ] && [ -n "$systemd_xdg_data_dirs" ]; then
+				XDG_DATA_DIRS="$systemd_xdg_data_dirs"
+				export XDG_DATA_DIRS
+			fi
+			. '#{opt_prefix}/xdg-data-dirs.sh'
+
+			if command -v systemctl >/dev/null 2>&1; then
 				systemctl --user import-environment XDG_DATA_DIRS || status=1
 			fi
 
@@ -88,7 +96,8 @@ class XdgDataLoader < Formula
 	end
 
 	def caveats
-		config_home = ENV['XDG_CONFIG_HOME'].to_s.empty? ? '~/.config' : ENV['XDG_CONFIG_HOME']
+		xdg_config_home = ENV['HOMEBREW_XDG_CONFIG_HOME'] || ENV['XDG_CONFIG_HOME']
+		config_home = xdg_config_home.to_s.empty? ? '~/.config' : xdg_config_home
 		<<~EOS
 			Make sure to remove #{config_home}/plasma-workspace/env/homebrew-xdg-data-dirs.sh before uninstalling xdg-data-loader.
 		EOS

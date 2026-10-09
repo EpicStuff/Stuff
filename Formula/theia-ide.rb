@@ -11,7 +11,7 @@ class TheiaIde < Formula
 	url 'https://github.com/eclipse-theia/theia-ide.git',
 		tag: 'v1.75.0',
 		revision: '9145abe093659217ef2967cc2955abdc37c16408'
-	revision 7
+	revision 8
 
 	livecheck do
 		url :stable
@@ -42,8 +42,10 @@ class TheiaIde < Formula
 		ENV['CHILD_CONCURRENCY'] = child_jobs.to_s
 		ENV['JOBS'] = [(build_jobs.to_f/child_jobs).ceil, 1].max.to_s
 		extensions = prepare_native_extensions
+		integrate_vscode_cli_usage if extensions.any? { |extension| extension[:name] == 'theia-flags' }
 
-		if extensions.empty?
+		# A system Electron rewrites the pinned electron version, which the lockfile does not contain.
+		if extensions.empty? && !system_electron
 			system 'yarn', 'install', '--frozen-lockfile'
 		else
 			system 'yarn', 'install'
@@ -52,7 +54,7 @@ class TheiaIde < Formula
 
 		system 'yarn', 'build:extensions'
 		extensions.each do |extension|
-			next if extension[:built_by_default] || !extension[:has_build_script]
+			next unless extension[:has_build_script]
 
 			system 'yarn', 'workspace', extension[:name], 'build'
 		end
@@ -72,8 +74,7 @@ class TheiaIde < Formula
 		odie 'Could not find the packaged Theia IDE launcher' unless launcher.executable?
 
 		libexec.install app_dir.children
-		bin.write_exec_script libexec/'theia-ide-electron-app'
-		mv bin/'theia-ide-electron-app', bin/'theia'
+		install_cli_launcher
 		install_desktop_entry
 	end
 
@@ -83,6 +84,59 @@ class TheiaIde < Formula
 	end
 
 	private
+
+	def install_cli_launcher
+		launcher = libexec/'theia-ide-electron-app'
+		electron_node = libexec/'theia-ide-electron-app.bin'
+		backend_main = libexec/'resources/app.asar/lib/backend/main.js'
+		bundled_plugins = libexec/'resources/app/plugins'
+
+		script = <<~SH
+			#!/bin/sh
+			backend_cli=0
+			user_data_dir=
+			previous=
+			for arg do
+				if [ "$previous" = --user-data-dir ]; then
+					user_data_dir=$arg
+				fi
+				previous=$arg
+				case "$arg" in
+					--install-extension|--install-extension=*|--install-plugin|--install-plugin=*|--uninstall-extension|--uninstall-extension=*|--list-extensions|--show-versions)
+						backend_cli=1
+						;;
+					--user-data-dir=*)
+						user_data_dir=${arg#--user-data-dir=}
+						;;
+					--)
+						break
+						;;
+				esac
+			done
+
+			if [ "$backend_cli" -eq 1 ]; then
+				export THEIA_BACKEND_CLI=1
+				export ELECTRON_RUN_AS_NODE=1
+				# The backend resolves its config directory before CLI contributions see --user-data-dir.
+				if [ -n "$user_data_dir" ]; then
+					case "$user_data_dir" in
+						/*) ;;
+						*) user_data_dir="$PWD/$user_data_dir" ;;
+					esac
+					export THEIA_CONFIG_DIR="$user_data_dir"
+				fi
+				if [ -z "${THEIA_DEFAULT_PLUGINS:-}" ]; then
+					export THEIA_DEFAULT_PLUGINS="local-dir:#{bundled_plugins}"
+				fi
+				exec "#{electron_node}" "#{backend_main}" "$@"
+			fi
+
+			exec "#{launcher}" "$@"
+		SH
+
+		(bin/'theia').write(script)
+		chmod 0755, bin/'theia'
+	end
 
 	def install_desktop_entry
 		desktop_dir = buildpath/'desktop-entry'
@@ -173,30 +227,24 @@ class TheiaIde < Formula
 		end
 	end
 
+	# Runs after the plugin cache is stored, so local VS Code extensions are never cached as downloaded plugins.
 	def install_local_vscode_extensions
 		extensions_path = ENV['HOMEBREW_THEIA_EXTENSIONS']
 		return if extensions_path.to_s.empty?
 
-		root = Pathname(extensions_path).expand_path/'vscode-extensions'
-		return unless root.directory?
-
 		plugin_dir = buildpath/'plugins'
 		plugin_dir.mkpath
-		extension_paths = root.children.select { |path| path.directory? && (path/'package.json').file? }.sort
-
-		extension_paths.each do |path|
-			manifest = JSON.parse((path/'package.json').read)
-			name = manifest['name']
-			publisher = manifest['publisher']
-
-			odie "VS Code extension is missing a package name: #{path}" if name.to_s.empty?
-			odie "VS Code extension is missing a publisher: #{path}" if publisher.to_s.empty?
-
-			destination = plugin_dir/"local-#{publisher}.#{name}"
-			odie "VS Code extension destination already exists: #{destination}" if destination.exist?
+		Pathname(extensions_path).expand_path.children.select { |path| vscode_extension?(path) }.each do |path|
+			destination = plugin_dir/path.basename
+			odie "VS Code extension clashes with a downloaded plugin: #{destination}" if destination.exist? || destination.symlink?
 
 			cp_r path.realpath, destination
 		end
+	end
+
+	def vscode_extension?(path)
+		manifest_path = path/'package.json'
+		manifest_path.file? && JSON.parse(manifest_path.read).dig('engines', 'vscode')
 	end
 
 	def prepare_ffmpeg_cache(cache_root)
@@ -230,9 +278,13 @@ class TheiaIde < Formula
 		plugins = buildpath/'plugins'
 		return unless plugins.directory?
 
+		# download:plugins skips plugins that already exist, so never leave a partially copied cache behind.
+		staging = cache.sub_ext('.tmp')
+		rm_rf staging
+		staging.mkpath
+		system 'cp', '-a', '--reflink=auto', "#{plugins}/.", staging
 		rm_rf cache
-		cache.mkpath
-		system 'cp', '-a', '--reflink=auto', "#{plugins}/.", cache
+		staging.rename(cache)
 	end
 
 	def prepare_build_manifests
@@ -368,35 +420,29 @@ class TheiaIde < Formula
 		root = Pathname(extensions_path).expand_path
 		odie "Native extension path does not exist: #{root}" unless root.directory?
 
-		extension_paths = if (root/'package.json').file?
-			[root]
-		else
-			root.children.select { |path| path.directory? && (path/'package.json').file? }
+		# Copy the folders as is, so extensions can reach shared helpers by relative path like in the repo.
+		# VS Code extensions go to the built-in plugins instead, in install_local_vscode_extensions.
+		entries = root.children.select { |entry| entry.directory? && !vscode_extension?(entry) }
+		entries.each do |entry|
+			target = buildpath/'theia-extensions'/entry.basename
+			odie "Native extension tree entry clashes with Theia IDE's own: #{target}" if target.exist? || target.symlink?
+
+			cp_r entry.realpath, target
 		end
+		extension_paths = entries.map { |entry| buildpath/'theia-extensions'/entry.basename }.select { |path| (path/'package.json').file? }
 		odie "No native Theia extensions found in #{root}" if extension_paths.empty?
 
 		electron_package_path = buildpath/'applications/electron/package.json'
 		electron_package = JSON.parse(electron_package_path.read)
 		dependencies = electron_package.fetch('dependencies')
 
-		extensions = extension_paths.sort.map.with_index do |path, index|
+		extensions = extension_paths.sort.map do |path|
 			manifest = JSON.parse((path/'package.json').read)
 			name = manifest['name']
-			version = manifest['version']
-
-			odie "Native extension is missing a package name: #{path}" if name.to_s.empty?
-			odie "Native extension is missing a package version: #{path}" if version.to_s.empty?
-			odie "Package is not a native Theia extension: #{path}" unless manifest['theiaExtensions']
-
-			workspace_path = buildpath/'theia-extensions'/"local-#{index}-#{path.basename}"
-			odie "Native extension workspace already exists: #{workspace_path}" if workspace_path.exist? || workspace_path.symlink?
-
-			cp_r path.realpath, workspace_path
-			dependencies[name] = version
+			dependencies[name] = manifest['version']
 
 			{
 				name:,
-				built_by_default: name.match?(/\Atheia-ide.*ext\z/),
 				has_build_script: manifest.dig('scripts', 'build').to_s.length.positive?,
 			}
 		end
@@ -404,6 +450,16 @@ class TheiaIde < Formula
 		electron_package_path.atomic_write(JSON.pretty_generate(electron_package) + "\n")
 		integrate_webview_context_fix if extensions.any? { |extension| extension[:name] == 'theia-webview-context-fix' }
 		extensions
+	end
+
+	def integrate_vscode_cli_usage
+		usage_path = buildpath/'applications/electron/scripts/cli-usage.js'
+		source = usage_path.read
+
+		# theia-flags prints the combined help from the Electron main process, so drop Theia's early --help exit.
+		help_block = /^    if \(hasFlag\(\['--help'\]\)\) \{\n.*?^        process\.exit\(0\);\n    \}\n/m
+		odie 'Unsupported Theia CLI help layout' unless source.match?(help_block)
+		usage_path.atomic_write(source.sub(help_block, ''))
 	end
 
 	def integrate_webview_context_fix

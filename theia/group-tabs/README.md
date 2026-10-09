@@ -4,7 +4,7 @@ A native Eclipse Theia extension that groups related widgets into one top level 
 
 The extension is generic. It does not contain Markdown or Typst matching. The first time a combination is used, open the widgets normally and run `Group Tabs`. The command automatically groups the currently shown tab from each visible main editor split. Background tabs and side or bottom panel widgets are ignored.
 
-Groups can contain more than two panes. The Group Tabs command snapshots the actual visible main area dock tree and restores that tree inside a nested DockPanel, so mixed horizontal and vertical layouts keep the same nesting and relative sizes. If one of the visible tabs is already a group, the other visible tabs are added to that group instead, each placed beside the group's first pane according to how it was opened, so the snapshot's nesting and sizes are not kept in that case. Dragging another tab onto a group does not add it to the group; the drop lands in the main area as it would on any other tab.
+Groups can contain more than two panes. The Group Tabs command snapshots the actual visible main area dock tree and restores that tree inside a nested DockPanel, so mixed horizontal and vertical layouts keep the same nesting and relative sizes. If one of the visible tabs is already a group, its inner layout takes the group's place in that snapshot, so the other visible tabs join it exactly as arranged on screen. The merged group is remembered as one template and replaces the templates of the groups it absorbed. Dragging another tab onto a group does not add it to the group; the drop lands in the main area as it would on any other tab.
 
 ## Remembered layouts
 

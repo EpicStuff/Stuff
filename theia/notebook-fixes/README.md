@@ -15,4 +15,4 @@ It currently provides:
 - KaTeX math rendering in notebook Markdown cells for inline `$...$` and display `$$...$$` expressions.
 - Compatibility updates for notebook context keys used by VS Code extensions, including cell resource, collapse state, kernel count, and interruptibility.
 
-The package uses the Theia packages supplied by the application through peer dependencies.
+The package uses the Theia packages supplied by the application through peer dependencies. The build fails if the upstream Theia notebook code these fixes patch or rely on changes from Theia 1.75.0.

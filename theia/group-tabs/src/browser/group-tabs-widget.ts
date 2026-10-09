@@ -60,7 +60,11 @@ export class GroupTabsWidget extends BaseWidget implements ApplicationShell.Trac
 				return;
 			}
 			this.focusedPane = pane;
-			pane.activate();
+			// Focus already inside the pane needs no activate-request. Re-activating on focusin makes two panes whose
+			// activate-requests were queued together steal focus from each other forever.
+			if (!pane.node.contains(document.activeElement)) {
+				pane.activate();
+			}
 		};
 		this.addEventListener(this.node, 'focusin', activatePaneFromEvent);
 		this.addEventListener(this.node, 'pointerdown', activatePaneFromEvent, true);

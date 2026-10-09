@@ -1,10 +1,8 @@
 import fs from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import path from 'node:path';
+import { baselineTheiaVersion, countOccurrences, requireExactlyOnce, theiaSourcePath } from '../../shared/theia-source-check.mjs';
 
-export const baselineTheiaVersion = '1.75.0';
-
-const require = createRequire(import.meta.url);
+export { baselineTheiaVersion };
 
 const originalCall = 'context: findVscodeContext(e.composedPath(), 0)';
 const fixedCall = 'context: findVscodeContext(e.composedPath())';
@@ -100,25 +98,6 @@ const electronNativeContextMenu = `        if (this.useNativeStyle) {
             return new ElectronContextMenuAccess(menuHandle);
         } else {`;
 
-function countOccurrences(source, needle) {
-	let count = 0;
-	let offset = 0;
-
-	while ((offset = source.indexOf(needle, offset)) !== -1) {
-		count += 1;
-		offset += needle.length;
-	}
-
-	return count;
-}
-
-function requireExactlyOnce(source, needle, message) {
-	const count = countOccurrences(source, needle);
-	if (count !== 1) {
-		throw new Error(`${message} Expected exactly one implementation verified against Theia ${baselineTheiaVersion}, found ${count}.`);
-	}
-}
-
 function buildError(error) {
 	return {
 		errors: [{
@@ -194,17 +173,12 @@ export function patchWebviewPreloadSource(source) {
 	};
 }
 
-function resolvePackageSourcePath(packageName, relativePath) {
-	const packageJsonPath = require.resolve(`${packageName}/package.json`);
-	return path.join(path.dirname(packageJsonPath), relativePath);
-}
-
 export function webviewContextFixPlugin(options = {}) {
 	const preloadPath = options.preloadPath ?? path.resolve(process.cwd(), 'lib/webview/pre/main.js');
-	const hostSourcePath = options.hostSourcePath ?? resolvePackageSourcePath('@theia/plugin-ext', 'src/main/browser/webview/webview.ts');
-	const browserMenuSourcePath = options.browserMenuSourcePath ?? resolvePackageSourcePath('@theia/core', 'src/browser/menu/browser-menu-plugin.ts');
-	const electronContextMenuSourcePath = options.electronContextMenuSourcePath ?? resolvePackageSourcePath('@theia/core', 'src/electron-browser/menu/electron-context-menu-renderer.ts');
-	const webviewsMainSourcePath = options.webviewsMainSourcePath ?? resolvePackageSourcePath('@theia/plugin-ext', 'src/main/browser/webviews-main.ts');
+	const hostSourcePath = options.hostSourcePath ?? theiaSourcePath(import.meta.url, '@theia/plugin-ext', 'src/main/browser/webview/webview.ts');
+	const browserMenuSourcePath = options.browserMenuSourcePath ?? theiaSourcePath(import.meta.url, '@theia/core', 'src/browser/menu/browser-menu-plugin.ts');
+	const electronContextMenuSourcePath = options.electronContextMenuSourcePath ?? theiaSourcePath(import.meta.url, '@theia/core', 'src/electron-browser/menu/electron-context-menu-renderer.ts');
+	const webviewsMainSourcePath = options.webviewsMainSourcePath ?? theiaSourcePath(import.meta.url, '@theia/plugin-ext', 'src/main/browser/webviews-main.ts');
 
 	return {
 		name: 'theia-webview-context-fix',

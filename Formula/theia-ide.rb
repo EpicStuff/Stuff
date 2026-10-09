@@ -55,7 +55,7 @@ class TheiaIde < Formula
 
 		system 'yarn', 'build:extensions'
 		extensions.each do |extension|
-			next if extension[:built_by_default] || !extension[:has_build_script]
+			next unless extension[:has_build_script]
 
 			system 'yarn', 'workspace', extension[:name], 'build'
 		end
@@ -428,7 +428,7 @@ class TheiaIde < Formula
 		odie "Native extension path does not exist: #{root}" unless root.directory?
 
 		# Copy the whole tree as is, so extensions can reach shared helpers by relative path like in the repo.
-		entries = (root/'package.json').file? ? [root] : root.children
+		entries = root.children
 		entries.each do |entry|
 			target = buildpath/'theia-extensions'/entry.basename
 			odie "Native extension tree entry clashes with Theia IDE's own: #{target}" if target.exist? || target.symlink?
@@ -449,7 +449,6 @@ class TheiaIde < Formula
 
 			{
 				name:,
-				built_by_default: name.match?(/\Atheia-ide.*ext\z/),
 				has_build_script: manifest.dig('scripts', 'build').to_s.length.positive?,
 			}
 		end

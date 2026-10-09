@@ -16,4 +16,4 @@ The package contributes this default:
 
 An explicit user or workspace value for `tinymist.previewer` still takes priority. Remove that explicit value, or set it to `epicstuff.tinymist-theia-preview`.
 
-When `HOMEBREW_THEIA_EXTENSIONS` points at the repository's `theia` directory, the custom Homebrew formula bundles extensions from `theia/vscode-extensions` into the packaged Theia plugin directory.
+When `HOMEBREW_THEIA_EXTENSIONS` points at the repository's `theia` directory, the custom Homebrew formula bundles the VS Code extensions in `theia` into the packaged Theia plugin directory.

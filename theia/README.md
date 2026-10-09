@@ -9,8 +9,8 @@ Native Eclipse Theia extensions are direct child packages:
 - `keep-warm` adds resident Electron startup controls including `--keep-warm`, `--daemon`, and `--quit`.
 - `window-focus-fix` keeps the plugin window focused while focus is inside a webview.
 
-VS Code compatibility extensions live under `vscode-extensions`:
+VS Code compatibility extensions sit beside them; the formula tells them apart by `engines.vscode` in their `package.json`:
 
 - `tinymist-theia-preview` keeps Tinymist's existing preview command but renders it in Theia's Mini Browser.
 
-The Homebrew `theia-ide` formula can point `HOMEBREW_THEIA_EXTENSIONS` at this directory. It discovers the native extension packages directly and bundles unpacked VS Code extensions from `vscode-extensions`.
+The Homebrew `theia-ide` formula can point `HOMEBREW_THEIA_EXTENSIONS` at this directory. Native extensions are built into the app, and unpacked VS Code extensions are bundled as built-in plugins.

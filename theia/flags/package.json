@@ -1,6 +1,6 @@
 {
-	"name": "theia-keep-warm",
-	"version": "0.2.0",
+	"name": "theia-flags",
+	"version": "0.5.1",
 	"description": "Keeps the Eclipse Theia Electron backend warm between windows.",
 	"engines": {
 		"node": ">=24"
@@ -13,15 +13,18 @@
 	],
 	"exports": {
 		"./lib/electron-main/theia-keep-warm-electron-main-module": "./lib/electron-main/theia-keep-warm-electron-main-module.js",
-		"./lib/electron-browser/theia-keep-warm-frontend-module": "./lib/electron-browser/theia-keep-warm-frontend-module.js"
+		"./lib/electron-browser/theia-keep-warm-frontend-module": "./lib/electron-browser/theia-keep-warm-frontend-module.js",
+		"./lib/node/theia-keep-warm-backend-module": "./lib/node/theia-keep-warm-backend-module.js"
 	},
 	"scripts": {
-		"build": "tsc -p tsconfig.json",
+		"build": "tsc -p tsconfig.json && node build/verify.mjs",
 		"clean": "rm -rf lib"
 	},
 	"peerDependencies": {
 		"@theia/core": ">=1.75.0 <2.0.0",
-		"@theia/plugin-ext": ">=1.75.0 <2.0.0"
+		"@theia/plugin-ext": ">=1.75.0 <2.0.0",
+		"@theia/workspace": ">=1.75.0 <2.0.0",
+		"@theia/vsx-registry": ">=1.75.0 <2.0.0"
 	},
 	"devDependencies": {
 		"typescript": "~5.9.3"
@@ -29,7 +32,8 @@
 	"theiaExtensions": [
 		{
 			"frontendElectron": "lib/electron-browser/theia-keep-warm-frontend-module",
-			"electronMain": "lib/electron-main/theia-keep-warm-electron-main-module"
+			"electronMain": "lib/electron-main/theia-keep-warm-electron-main-module",
+			"backend": "lib/node/theia-keep-warm-backend-module"
 		}
 	],
 	"keywords": [

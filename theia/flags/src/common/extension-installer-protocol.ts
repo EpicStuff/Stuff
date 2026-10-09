@@ -3,8 +3,11 @@ import { RpcServer } from '@theia/core/lib/common/messaging/proxy-factory';
 export const KeepWarmExtensionInstallerPath = '/services/keep-warm-extension-installer';
 
 export interface KeepWarmExtensionInstallerClient {
-	installExtension(extensionPath: string): Promise<void>;
+	getWindowId(): Promise<number>;
+	getWorkspacePath(): Promise<string | undefined>;
 	openWorkspace(workspacePath: string): Promise<void>;
+	openFile(filePath: string, line?: number, column?: number): Promise<void>;
+	openDiff(leftPath: string, rightPath: string): Promise<void>;
 }
 
 export const KeepWarmExtensionInstallerService = Symbol('KeepWarmExtensionInstallerService');

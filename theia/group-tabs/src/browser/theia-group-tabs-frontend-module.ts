@@ -1,5 +1,5 @@
 import { CommandContribution } from '@theia/core';
-import { FrontendApplicationContribution, WidgetFactory } from '@theia/core/lib/browser';
+import { ApplicationShell, FrontendApplicationContribution, WidgetFactory } from '@theia/core/lib/browser';
 import { PreferenceContribution } from '@theia/core/lib/common/preferences/preference-schema';
 import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 import { ContainerModule } from '@theia/core/shared/inversify';
@@ -12,10 +12,10 @@ export default new ContainerModule(bind => {
 	bind(PreferenceContribution).toConstantValue({ schema: GroupTabsPreferenceSchema });
 
 	bind(GroupTabsService).toSelf().inSingletonScope();
-	bind(WidgetFactory).toConstantValue({
+	bind(WidgetFactory).toDynamicValue(({ container }) => ({
 		id: GroupTabsWidget.FACTORY_ID,
-		createWidget: (options: GroupTabsWidget.Options) => new GroupTabsWidget(options)
-	});
+		createWidget: (options: GroupTabsWidget.Options) => new GroupTabsWidget(options, container.get(ApplicationShell))
+	})).inSingletonScope();
 
 	bind(GroupTabsContribution).toSelf().inSingletonScope();
 	bind(FrontendApplicationContribution).toService(GroupTabsContribution);

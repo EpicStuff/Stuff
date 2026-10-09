@@ -303,7 +303,7 @@ export class GroupTabsService {
 		}
 		const secondary = [...record.members].reverse().find(member => member !== record.primary);
 		if (secondary && !secondary.isDisposed) {
-			secondary.dispose();
+			secondary.close();
 		}
 	}
 

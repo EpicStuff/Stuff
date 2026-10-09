@@ -228,30 +228,24 @@ class TheiaIde < Formula
 		end
 	end
 
+	# Runs after the plugin cache is stored, so local VS Code extensions are never cached as downloaded plugins.
 	def install_local_vscode_extensions
 		extensions_path = ENV['HOMEBREW_THEIA_EXTENSIONS']
 		return if extensions_path.to_s.empty?
 
-		root = Pathname(extensions_path).expand_path/'vscode-extensions'
-		return unless root.directory?
-
 		plugin_dir = buildpath/'plugins'
 		plugin_dir.mkpath
-		extension_paths = root.children.select { |path| path.directory? && (path/'package.json').file? }.sort
-
-		extension_paths.each do |path|
-			manifest = JSON.parse((path/'package.json').read)
-			name = manifest['name']
-			publisher = manifest['publisher']
-
-			odie "VS Code extension is missing a package name: #{path}" if name.to_s.empty?
-			odie "VS Code extension is missing a publisher: #{path}" if publisher.to_s.empty?
-
-			destination = plugin_dir/"local-#{publisher}.#{name}"
-			odie "VS Code extension destination already exists: #{destination}" if destination.exist?
+		Pathname(extensions_path).expand_path.children.select { |path| vscode_extension?(path) }.each do |path|
+			destination = plugin_dir/path.basename
+			odie "VS Code extension clashes with a downloaded plugin: #{destination}" if destination.exist? || destination.symlink?
 
 			cp_r path.realpath, destination
 		end
+	end
+
+	def vscode_extension?(path)
+		manifest_path = path/'package.json'
+		manifest_path.file? && JSON.parse(manifest_path.read).dig('engines', 'vscode')
 	end
 
 	def prepare_ffmpeg_cache(cache_root)
@@ -428,7 +422,8 @@ class TheiaIde < Formula
 		odie "Native extension path does not exist: #{root}" unless root.directory?
 
 		# Copy the whole tree as is, so extensions can reach shared helpers by relative path like in the repo.
-		entries = root.children
+		# VS Code extensions go to the built-in plugins instead, in install_local_vscode_extensions.
+		entries = root.children.reject { |entry| vscode_extension?(entry) }
 		entries.each do |entry|
 			target = buildpath/'theia-extensions'/entry.basename
 			odie "Native extension tree entry clashes with Theia IDE's own: #{target}" if target.exist? || target.symlink?

@@ -91,11 +91,7 @@ export class CustomContextMenuContribution implements FrontendApplicationContrib
 	}
 
 	protected async openConfigDialog(): Promise<void> {
-		const dialog = this.dialogFactory();
-		const changes = await dialog.open();
-		if (changes) {
-			await this.service.applyChanges(changes);
-		}
+		await this.dialogFactory().open();
 	}
 
 	protected async openConfigTab(): Promise<void> {

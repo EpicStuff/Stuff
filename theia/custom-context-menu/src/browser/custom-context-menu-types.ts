@@ -165,9 +165,7 @@ export interface StoredMenuLayout {
 	add?: Record<string, StoredMenuAdd>;
 }
 
-export type StoredMenuLayouts = Record<string, StoredMenuLayout>;
-
-export interface ContextMenuConfigurationChanges {
-	layouts: Record<string, EditableMenuEntry[]>;
-	resets: string[];
+export interface ContextMenuWriteStatus {
+	saving: boolean;
+	error?: string;
 }

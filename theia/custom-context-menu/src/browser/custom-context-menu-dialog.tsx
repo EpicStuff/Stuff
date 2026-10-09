@@ -2,7 +2,6 @@ import { Disposable } from '@theia/core';
 import {
 	ApplicationShell,
 	codicon,
-	Dialog,
 	DialogProps,
 	WidgetManager
 } from '@theia/core/lib/browser';
@@ -13,7 +12,6 @@ import * as React from '@theia/core/shared/react';
 import { ToolbarIconDialogFactory } from '@theia/toolbar/lib/browser/toolbar-icon-selector-dialog';
 import { ContextMenuConfigEditor } from './custom-context-menu-editor';
 import { CustomContextMenuService } from './custom-context-menu-service';
-import { ContextMenuConfigurationChanges } from './custom-context-menu-types';
 import { ContextMenuConfigWidget } from './custom-context-menu-widget';
 
 export const ContextMenuConfigDialogFactory = Symbol('ContextMenuConfigDialogFactory');
@@ -22,7 +20,7 @@ export interface ContextMenuConfigDialogFactory {
 }
 
 @injectable()
-export class ContextMenuConfigDialog extends ReactDialog<ContextMenuConfigurationChanges> {
+export class ContextMenuConfigDialog extends ReactDialog<void> {
 	@inject(CustomContextMenuService)
 	protected readonly service!: CustomContextMenuService;
 
@@ -57,15 +55,11 @@ export class ContextMenuConfigDialog extends ReactDialog<ContextMenuConfiguratio
 
 		this.addOpenInTabTitleAction();
 
-		this.appendCloseButton(Dialog.CANCEL);
-		this.appendAcceptButton('Save');
+		this.appendCloseButton('Close');
 	}
 
-	get value(): ContextMenuConfigurationChanges {
-		return this.editor?.getChanges() ?? {
-			layouts: {},
-			resets: []
-		};
+	get value(): void {
+		return undefined;
 	}
 
 	protected render(): React.ReactNode {
@@ -78,6 +72,7 @@ export class ContextMenuConfigDialog extends ReactDialog<ContextMenuConfiguratio
 				quickCommandService={this.quickCommandService}
 				iconDialogFactory={this.iconDialogFactory}
 				height='520px'
+				autoFocus={true}
 			/>
 		);
 	}
@@ -130,11 +125,11 @@ export class ContextMenuConfigDialog extends ReactDialog<ContextMenuConfiguratio
 		titleBar.appendChild(actions);
 	}
 
-	protected override handleEnter(event: KeyboardEvent): boolean | void {
-		if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
-			return false;
-		}
-		return super.handleEnter(event);
+	/**
+	 * Edits are stored as they happen, so Enter never accepts or closes the dialog.
+	 */
+	protected override handleEnter(): boolean {
+		return false;
 	}
 
 	protected async openInTab(): Promise<void> {

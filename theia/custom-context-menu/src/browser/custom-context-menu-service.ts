@@ -3,6 +3,7 @@ import {
 	CommandRegistry,
 	CompoundMenuNode,
 	ContextExpressionMatcher,
+	Emitter,
 	environment,
 	Group,
 	GroupImpl,
@@ -21,21 +22,20 @@ import {
 } from '@theia/core/lib/browser/context-menu-renderer';
 import { KeybindingRegistry } from '@theia/core/lib/browser/keybinding';
 import { AcceleratorSource } from '@theia/core/lib/browser/menu/action-menu-node';
-import { inject, injectable } from '@theia/core/shared/inversify';
+import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
 import { PluginMenuCommandAdapter } from '@theia/plugin-ext/lib/main/browser/menus/plugin-menu-command-adapter';
 import { PluginContributionHandler } from '@theia/plugin-ext/lib/main/browser/plugin-contribution-handler';
 import {
 	CONTEXT_MENU_TARGETS,
 	CUSTOM_CONTEXT_MENU_LAYOUTS,
-	ContextMenuConfigurationChanges,
 	ContextMenuTarget,
+	ContextMenuWriteStatus,
 	EditableMenuEntry,
 	EditableMenuItem,
 	EditableMenuSeparator,
 	StoredMenuAdd,
 	StoredMenuEdit,
 	StoredMenuLayout,
-	StoredMenuLayouts,
 	StoredMenuPlacement
 } from './custom-context-menu-types';
 
@@ -100,6 +100,30 @@ export class CustomContextMenuService {
 	@inject(PluginMenuCommandAdapter)
 	protected readonly pluginMenuCommandAdapter!: PluginMenuCommandAdapter;
 
+	protected readonly pendingValues = new Map<string, unknown>();
+	protected writeTimer: ReturnType<typeof setTimeout> | undefined;
+	protected writing = Promise.resolve();
+
+	protected readonly onDidChangeEmitter = new Emitter<void>();
+	/**
+	 * Fires when contributed menus, the stored layouts, or edits that are not written yet change.
+	 */
+	readonly onDidChange = this.onDidChangeEmitter.event;
+
+	protected readonly onDidChangeWriteStatusEmitter = new Emitter<ContextMenuWriteStatus>();
+	readonly onDidChangeWriteStatus = this.onDidChangeWriteStatusEmitter.event;
+
+	@postConstruct()
+	protected init(): void {
+		this.menuRegistry.onDidChange(() => this.onDidChangeEmitter.fire());
+		this.commandRegistry.onCommandsChanged(() => this.onDidChangeEmitter.fire());
+		this.preferenceService.onPreferenceChanged(change => {
+			if (change.preferenceName === CUSTOM_CONTEXT_MENU_LAYOUTS) {
+				this.onDidChangeEmitter.fire();
+			}
+		});
+	}
+
 	installRendererPatch(): void {
 		activeService = this;
 		if (rendererPatched) {
@@ -154,7 +178,7 @@ export class CustomContextMenuService {
 		return snapshot ? this.toEditableEntries(snapshot) : [];
 	}
 
-	getDraftEntries(targetId: string): EditableMenuEntry[] {
+	getEntries(targetId: string): EditableMenuEntry[] {
 		const snapshot = this.getDefaultSnapshot(targetId);
 		if (!snapshot) {
 			return [];
@@ -167,31 +191,89 @@ export class CustomContextMenuService {
 			: defaults;
 	}
 
-	async applyChanges(changes: ContextMenuConfigurationChanges): Promise<void> {
-		const layouts: StoredMenuLayouts = {
-			...this.readLayouts()
-		};
-
-		for (const targetId of changes.resets) {
-			delete layouts[targetId];
+	/**
+	 * Applies an edit to the current contributed menu plus the stored layout and stores the difference from
+	 * the defaults contributed right now. Returns false when nothing changed.
+	 */
+	updateEntries(targetId: string, mutate: (entries: EditableMenuEntry[]) => boolean): boolean {
+		const snapshot = this.getDefaultSnapshot(targetId);
+		if (!snapshot) {
+			return false;
 		}
 
-		for (const [targetId, entries] of Object.entries(changes.layouts)) {
-			const snapshot = this.getDefaultSnapshot(targetId);
-			if (!snapshot) {
-				continue;
-			}
+		const defaults = this.toEditableEntries(snapshot);
+		const stored = this.getStoredLayout(targetId);
+		const entries = stored
+			? this.applyLayoutToEditable(defaults, this.migrateLegacyKeys(stored, snapshot))
+			: this.cloneEntries(defaults);
+		if (!mutate(entries)) {
+			return false;
+		}
 
-			const defaults = this.toEditableEntries(snapshot);
-			const layout = this.createSparseLayout(defaults, this.cloneEntries(entries));
-			if (this.isLayoutEmpty(layout)) {
+		const layout = this.createSparseLayout(defaults, entries);
+		const value = this.isLayoutEmpty(layout) ? undefined : layout;
+		if (JSON.stringify(value) === JSON.stringify(this.getStoredValue(targetId))) {
+			return false;
+		}
+		this.setStoredValue(targetId, value);
+		return true;
+	}
+
+	/**
+	 * The raw stored value for one target, including edits that are not written yet.
+	 */
+	getStoredValue(targetId: string): unknown {
+		if (this.pendingValues.has(targetId)) {
+			return this.pendingValues.get(targetId);
+		}
+		const layouts = this.preferenceService.get<unknown>(CUSTOM_CONTEXT_MENU_LAYOUTS, {});
+		return this.isRecord(layouts) ? layouts[targetId] : undefined;
+	}
+
+	/**
+	 * Stores a raw value for one target, `undefined` removes it. Bursts of edits are coalesced into one write.
+	 */
+	setStoredValue(targetId: string, value: unknown): void {
+		this.pendingValues.set(targetId, value);
+		this.onDidChangeEmitter.fire();
+		this.onDidChangeWriteStatusEmitter.fire({ saving: true });
+		clearTimeout(this.writeTimer);
+		this.writeTimer = setTimeout(() => {
+			this.writeTimer = undefined;
+			this.writing = this.writing.then(() => this.writePendingValues());
+		}, 250);
+	}
+
+	protected async writePendingValues(): Promise<void> {
+		if (!this.pendingValues.size) {
+			return;
+		}
+		const written = new Map(this.pendingValues);
+		// Only the user scope is written, and targets without pending edits keep their raw values.
+		const current = this.preferenceService.inspect(CUSTOM_CONTEXT_MENU_LAYOUTS)?.globalValue;
+		const layouts: Record<string, unknown> = this.isRecord(current) ? { ...current } : {};
+		for (const [targetId, value] of written) {
+			if (value === undefined) {
 				delete layouts[targetId];
 			} else {
-				layouts[targetId] = layout;
+				layouts[targetId] = value;
 			}
 		}
 
-		await this.preferenceService.set(CUSTOM_CONTEXT_MENU_LAYOUTS, layouts, PreferenceScope.User);
+		let error: string | undefined;
+		try {
+			await this.preferenceService.set(CUSTOM_CONTEXT_MENU_LAYOUTS, layouts, PreferenceScope.User);
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : String(cause);
+			console.error('Custom Context Menu: failed to write customContextMenu.layouts.', cause);
+		}
+		for (const [targetId, value] of written) {
+			if (this.pendingValues.get(targetId) === value) {
+				this.pendingValues.delete(targetId);
+			}
+		}
+		this.onDidChangeEmitter.fire();
+		this.onDidChangeWriteStatusEmitter.fire({ saving: this.pendingValues.size > 0, error });
 	}
 
 	customize(menuPath: MenuPath, menu: CompoundMenuNode): CompoundMenuNode {
@@ -228,24 +310,8 @@ export class CustomContextMenuService {
 		return this.sanitizeDefaultSeparators(entries);
 	}
 
-	protected readLayouts(): StoredMenuLayouts {
-		const value = this.preferenceService.get<unknown>(CUSTOM_CONTEXT_MENU_LAYOUTS, {});
-		if (!this.isRecord(value)) {
-			return {};
-		}
-
-		const layouts: StoredMenuLayouts = {};
-		for (const [targetId, candidate] of Object.entries(value)) {
-			const layout = this.sanitizeLayout(candidate);
-			if (layout) {
-				layouts[targetId] = layout;
-			}
-		}
-		return layouts;
-	}
-
 	protected getStoredLayout(targetId: string): StoredMenuLayout | undefined {
-		return this.readLayouts()[targetId];
+		return this.sanitizeLayout(this.getStoredValue(targetId));
 	}
 
 	protected migrateLegacyKeys(layout: StoredMenuLayout, snapshot: DefaultMenuEntry[]): StoredMenuLayout {

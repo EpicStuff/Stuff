@@ -1,4 +1,5 @@
 import { codicon, ReactWidget } from '@theia/core/lib/browser';
+import { Message } from '@theia/core/shared/@lumino/messaging';
 import { QuickCommandService } from '@theia/core/lib/browser/quick-input/quick-command-service';
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
 import * as React from '@theia/core/shared/react';
@@ -34,7 +35,17 @@ export class ContextMenuConfigWidget extends ReactWidget {
 		this.title.iconClass = codicon('list-tree');
 		this.title.closable = true;
 		this.node.style.height = '100%';
+		this.node.tabIndex = -1;
 		this.update();
+	}
+
+	protected override onActivateRequest(msg: Message): void {
+		super.onActivateRequest(msg);
+		if (this.editor) {
+			this.editor.focus();
+		} else {
+			this.node.focus();
+		}
 	}
 
 	adoptState(state: ContextMenuConfigEditorState): void {
@@ -64,12 +75,14 @@ export class ContextMenuConfigWidget extends ReactWidget {
 							this.pendingState = undefined;
 							this.editor.restoreState(state);
 						}
+						if (this.editor && this.node.ownerDocument.activeElement === this.node) {
+							this.editor.focus();
+						}
 					}}
 					service={this.service}
 					quickCommandService={this.quickCommandService}
 					iconDialogFactory={this.iconDialogFactory}
 					height='100%'
-					showApply={true}
 				/>
 			</div>
 		);

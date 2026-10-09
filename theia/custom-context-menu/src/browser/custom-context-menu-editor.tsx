@@ -1,11 +1,12 @@
-import { Command } from '@theia/core';
-import { codicon } from '@theia/core/lib/browser';
+import { Command, DisposableCollection } from '@theia/core';
+import { codicon, UndoRedoHandler } from '@theia/core/lib/browser';
 import { SelectComponent, SelectOption } from '@theia/core/lib/browser/widgets/select-component';
 import { QuickCommandService } from '@theia/core/lib/browser/quick-input/quick-command-service';
+import { isOSX } from '@theia/core/lib/common/os';
+import { injectable } from '@theia/core/shared/inversify';
 import * as React from '@theia/core/shared/react';
 import { ToolbarIconDialogFactory } from '@theia/toolbar/lib/browser/toolbar-icon-selector-dialog';
 import {
-	ContextMenuConfigurationChanges,
 	EditableMenuEntry,
 	EditableMenuItem
 } from './custom-context-menu-types';
@@ -25,19 +26,24 @@ interface EntryLocation {
 	index: number;
 }
 
+interface EditHistory {
+	undo: unknown[];
+	redo: unknown[];
+}
+
 export interface ContextMenuConfigEditorProps {
 	service: CustomContextMenuService;
 	quickCommandService: QuickCommandService;
 	iconDialogFactory: ToolbarIconDialogFactory;
 	height: string;
-	showApply?: boolean;
+	autoFocus?: boolean;
 }
 
+/**
+ * UI state only. Every edit is stored immediately, so there is nothing unsaved to transfer.
+ */
 export interface ContextMenuConfigEditorState {
 	activeTargetId: string;
-	drafts: Record<string, EditableMenuEntry[]>;
-	dirtyTargets: string[];
-	resetTargets: string[];
 	expandedKeys: string[];
 	selectedKey?: string;
 	mode: 'menu' | 'add' | 'edit';
@@ -49,14 +55,24 @@ export interface ContextMenuConfigEditorState {
 	selectedAddKey?: string;
 	renamingKey?: string;
 	renameValue: string;
-	applyStatus: string;
+}
+
+function isTextInput(element: EventTarget | null): boolean {
+	return element instanceof HTMLInputElement
+		|| element instanceof HTMLTextAreaElement
+		|| (element instanceof HTMLElement && element.isContentEditable);
 }
 
 export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEditorProps> {
+	static readonly mounted = new Set<ContextMenuConfigEditor>();
+
+	protected readonly toDispose = new DisposableCollection();
+	protected rootNode: HTMLDivElement | null = null;
 	protected activeTargetId = 'editor';
-	protected readonly drafts = new Map<string, EditableMenuEntry[]>();
-	protected readonly dirtyTargets = new Set<string>();
-	protected readonly resetTargets = new Set<string>();
+	/** View of the contributed menu plus the stored layout, rebuilt whenever either changes. */
+	protected entries: EditableMenuEntry[] | undefined;
+	/** Undo and redo stacks of stored layout values, per target menu. */
+	protected readonly history = new Map<string, EditHistory>();
 	protected readonly expandedKeys = new Set<string>();
 	protected selectedKey: string | undefined;
 	protected draggedKey: string | undefined;
@@ -71,34 +87,44 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	protected selectedAddKey: string | undefined;
 	protected renamingKey: string | undefined;
 	protected renameValue = '';
-	protected applyStatus = '';
+	protected status = '';
 
 	componentDidMount(): void {
-		this.ensureDraft(this.activeTargetId);
+		ContextMenuConfigEditor.mounted.add(this);
+		this.toDispose.push(this.props.service.onDidChange(() => {
+			this.entries = undefined;
+			this.forceUpdate();
+		}));
+		this.toDispose.push(this.props.service.onDidChangeWriteStatus(status => {
+			this.status = status.error
+				? `Could not save: ${status.error}`
+				: status.saving ? 'Saving...' : 'Saved';
+			this.forceUpdate();
+		}));
+		if (this.props.autoFocus) {
+			this.focus();
+		}
 	}
 
-	getChanges(): ContextMenuConfigurationChanges {
-		this.flushPendingItemEdit();
-		const layouts: Record<string, EditableMenuEntry[]> = {};
-		for (const targetId of this.dirtyTargets) {
-			layouts[targetId] = this.cloneEntries(this.ensureDraft(targetId));
+	componentWillUnmount(): void {
+		ContextMenuConfigEditor.mounted.delete(this);
+		this.toDispose.dispose();
+	}
+
+	focus(): void {
+		if (this.rootNode && !this.rootNode.contains(this.rootNode.ownerDocument.activeElement)) {
+			this.rootNode.focus();
 		}
-		return {
-			layouts,
-			resets: [...this.resetTargets]
-		};
+	}
+
+	hasFocus(): boolean {
+		const activeElement = this.rootNode?.ownerDocument.activeElement ?? null;
+		return !!this.rootNode?.contains(activeElement) && !isTextInput(activeElement);
 	}
 
 	captureState(): ContextMenuConfigEditorState {
-		const drafts: Record<string, EditableMenuEntry[]> = {};
-		for (const [targetId, entries] of this.drafts) {
-			drafts[targetId] = this.cloneEntries(entries);
-		}
 		return {
 			activeTargetId: this.activeTargetId,
-			drafts,
-			dirtyTargets: [...this.dirtyTargets],
-			resetTargets: [...this.resetTargets],
 			expandedKeys: [...this.expandedKeys],
 			selectedKey: this.selectedKey,
 			mode: this.mode,
@@ -109,28 +135,13 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 			editIcon: this.editIcon,
 			selectedAddKey: this.selectedAddKey,
 			renamingKey: this.renamingKey,
-			renameValue: this.renameValue,
-			applyStatus: this.applyStatus
+			renameValue: this.renameValue
 		};
 	}
 
 	restoreState(state: ContextMenuConfigEditorState): void {
 		this.activeTargetId = state.activeTargetId;
-		this.drafts.clear();
-		for (const [targetId, entries] of Object.entries(state.drafts)) {
-			this.drafts.set(targetId, this.cloneEntries(entries));
-		}
-
-		this.dirtyTargets.clear();
-		for (const targetId of state.dirtyTargets) {
-			this.dirtyTargets.add(targetId);
-		}
-
-		this.resetTargets.clear();
-		for (const targetId of state.resetTargets) {
-			this.resetTargets.add(targetId);
-		}
-
+		this.entries = undefined;
 		this.expandedKeys.clear();
 		for (const key of state.expandedKeys) {
 			this.expandedKeys.add(key);
@@ -146,29 +157,77 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		this.selectedAddKey = state.selectedAddKey;
 		this.renamingKey = state.renamingKey;
 		this.renameValue = state.renameValue;
-		this.applyStatus = state.applyStatus;
 		this.draggedKey = undefined;
 		this.dragOverKey = undefined;
 		this.dragOverPosition = undefined;
-		this.ensureDraft(this.activeTargetId);
 		this.forceUpdate();
 	}
 
-	render(): React.ReactNode {
-		if (this.mode === 'add') {
-			return this.renderAddCommands();
-		}
-		if (this.mode === 'edit') {
-			return this.renderItemEditor();
-		}
-		return this.renderMenuEditor();
+	canUndo(): boolean {
+		return !!this.history.get(this.activeTargetId)?.undo.length;
 	}
+
+	canRedo(): boolean {
+		return !!this.history.get(this.activeTargetId)?.redo.length;
+	}
+
+	undo = (): void => {
+		const history = this.history.get(this.activeTargetId);
+		if (!history?.undo.length) {
+			return;
+		}
+		history.redo.push(this.props.service.getStoredValue(this.activeTargetId));
+		this.props.service.setStoredValue(this.activeTargetId, history.undo.pop());
+	};
+
+	redo = (): void => {
+		const history = this.history.get(this.activeTargetId);
+		if (!history?.redo.length) {
+			return;
+		}
+		history.undo.push(this.props.service.getStoredValue(this.activeTargetId));
+		this.props.service.setStoredValue(this.activeTargetId, history.redo.pop());
+	};
+
+	render(): React.ReactNode {
+		return (
+			<div
+				ref={node => {
+					this.rootNode = node;
+				}}
+				tabIndex={-1}
+				onKeyDown={this.handleKeyDown}
+				style={{ height: this.props.height, minHeight: 0, outline: 'none' }}
+			>
+				{this.mode === 'add'
+					? this.renderAddCommands()
+					: this.mode === 'edit' ? this.renderItemEditor() : this.renderMenuEditor()}
+			</div>
+		);
+	}
+
+	/**
+	 * Ctrl+Z is routed through Theia's undo command to ContextMenuConfigUndoRedoHandler. This handles
+	 * Ctrl+Shift+Z, which Theia only binds to redo on macOS. Text inputs keep their native undo.
+	 */
+	protected handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+		if (!(isOSX ? event.metaKey : event.ctrlKey) || event.altKey || event.key.toLowerCase() !== 'z' || isTextInput(event.target)) {
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		if (event.shiftKey) {
+			this.redo();
+		} else {
+			this.undo();
+		}
+	};
 
 	protected renderMenuEditor(): React.ReactNode {
 		const targets = this.props.service.getTargets();
-		const entries = this.ensureDraft(this.activeTargetId);
+		const entries = this.getEntries();
 		return (
-			<div style={{ display: 'flex', flexDirection: 'column', gap: '12px', height: this.props.height, minHeight: 0 }}>
+			<div style={{ display: 'flex', flexDirection: 'column', gap: '12px', height: '100%', minHeight: 0 }}>
 				<div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '0 0 auto' }}>
 					<label style={{ minWidth: '52px' }}>Menu:</label>
 					<div style={{ width: '280px' }}>
@@ -205,21 +264,20 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 					{this.renderActionButton('folder', 'Submenu', this.addSubmenu)}
 					{this.renderActionButton('arrow-up', 'Move Up', () => this.moveSelected(-1), !this.canMoveSelected(-1))}
 					{this.renderActionButton('arrow-down', 'Move Down', () => this.moveSelected(1), !this.canMoveSelected(1))}
+					{/* Focus moves to the editor so it is not lost when the button becomes disabled. */}
+					{this.renderActionButton('discard', 'Undo', () => {
+						this.undo();
+						this.rootNode?.focus();
+					}, !this.canUndo())}
+					{this.renderActionButton('redo', 'Redo', () => {
+						this.redo();
+						this.rootNode?.focus();
+					}, !this.canRedo())}
 					<div style={{ flex: 1 }} />
-					{this.applyStatus && <span style={{ opacity: 0.7 }}>{this.applyStatus}</span>}
+					{this.status && <span style={{ opacity: 0.7 }}>{this.status}</span>}
 					<button type='button' className='theia-button secondary' onClick={this.restoreDefaults}>
 						Restore Defaults
 					</button>
-					{this.props.showApply && (
-						<button
-							type='button'
-							className='theia-button main'
-							disabled={!this.hasChanges()}
-							onClick={this.applyChanges}
-						>
-							Apply
-						</button>
-					)}
 				</div>
 			</div>
 		);
@@ -516,7 +574,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 
 	protected renderItemEditor(): React.ReactNode {
 		const key = this.editingKey;
-		const location = key ? this.findLocation(this.ensureDraft(this.activeTargetId), key) : undefined;
+		const location = key ? this.findLocation(this.getEntries(), key) : undefined;
 		if (!location || location.entry.type !== 'item') {
 			this.mode = 'menu';
 			this.editingKey = undefined;
@@ -528,7 +586,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		const inheritedIcon = entry.defaultIcon ?? '';
 
 		return (
-			<div style={{ display: 'flex', flexDirection: 'column', gap: '14px', height: this.props.height, minHeight: 0 }}>
+			<div style={{ display: 'flex', flexDirection: 'column', gap: '14px', height: '100%', minHeight: 0 }}>
 				<div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
 					<button
 						type='button'
@@ -637,7 +695,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	}
 
 	protected openItemEditor(key: string): void {
-		const location = this.findLocation(this.ensureDraft(this.activeTargetId), key);
+		const location = this.findLocation(this.getEntries(), key);
 		if (!location || location.entry.type !== 'item') {
 			return;
 		}
@@ -677,20 +735,17 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	}
 
 	protected saveItemEditor(entry: EditableMenuItem): void {
-		this.applyItemEditorValues(entry);
+		this.edit(entries => {
+			const location = this.findLocation(entries, entry.key);
+			if (location?.entry.type !== 'item') {
+				return false;
+			}
+			this.applyItemEditorValues(location.entry);
+			return true;
+		});
 		this.mode = 'menu';
 		this.editingKey = undefined;
 		this.forceUpdate();
-	}
-
-	protected flushPendingItemEdit(): void {
-		if (this.mode !== 'edit' || !this.editingKey) {
-			return;
-		}
-		const location = this.findLocation(this.ensureDraft(this.activeTargetId), this.editingKey);
-		if (location?.entry.type === 'item') {
-			this.applyItemEditorValues(location.entry);
-		}
 	}
 
 	protected applyItemEditorValues(entry: EditableMenuItem): void {
@@ -715,13 +770,12 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 			entry.whenOverride = when === defaultWhen ? undefined : when;
 			entry.iconOverride = icon === defaultIcon ? undefined : icon;
 		}
-		this.markModified();
 	}
 
 	protected renderAddCommands(): React.ReactNode {
 		const choices = this.getAddChoices();
 		return (
-			<div style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: this.props.height, minHeight: 0 }}>
+			<div style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: '100%', minHeight: 0 }}>
 				<div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '0 0 auto' }}>
 					<button
 						type='button'
@@ -806,7 +860,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		this.activeTargetId = option.value;
 		this.selectedKey = undefined;
 		this.renamingKey = undefined;
-		this.ensureDraft(this.activeTargetId);
+		this.entries = undefined;
 		this.forceUpdate();
 	};
 
@@ -835,20 +889,22 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	};
 
 	protected addChoice(choice: AddChoice): void {
-		const destination = this.getInsertionLocation();
-		const entry = this.cloneEntry(choice.entry);
-		if (entry.custom) {
-			entry.storageKey = this.nextCustomStorageKey();
-			entry.key = `custom-command:${entry.storageKey}`;
-		}
-		destination.parent.splice(destination.index, 0, entry);
-		this.selectedKey = entry.key;
-		this.markModified();
+		this.edit(entries => {
+			const destination = this.getInsertionLocation(entries);
+			const entry = this.cloneEntry(choice.entry);
+			if (entry.custom) {
+				entry.storageKey = this.nextCustomStorageKey(entries);
+				entry.key = `custom-command:${entry.storageKey}`;
+			}
+			destination.parent.splice(destination.index, 0, entry);
+			this.selectedKey = entry.key;
+			return true;
+		});
 		this.closeAddCommands();
 	}
 
 	protected getAddChoices(): AddChoice[] {
-		const entries = this.ensureDraft(this.activeTargetId);
+		const entries = this.getEntries();
 		const existingKeys = new Set<string>();
 		const existingCommandIds = new Set<string>();
 		this.collectExisting(entries, existingKeys, existingCommandIds);
@@ -944,13 +1000,27 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		});
 	}
 
-	protected ensureDraft(targetId: string): EditableMenuEntry[] {
-		let entries = this.drafts.get(targetId);
-		if (!entries) {
-			entries = this.cloneEntries(this.props.service.getDraftEntries(targetId));
-			this.drafts.set(targetId, entries);
+	protected getEntries(): EditableMenuEntry[] {
+		return this.entries ??= this.props.service.getEntries(this.activeTargetId);
+	}
+
+	/**
+	 * Applies an edit to the current menu of the active target, stores it, and records the previous
+	 * stored value for undo. The view is rebuilt from the stored layout afterwards.
+	 */
+	protected edit(mutate: (entries: EditableMenuEntry[]) => boolean): void {
+		const targetId = this.activeTargetId;
+		const previous = this.props.service.getStoredValue(targetId);
+		if (this.props.service.updateEntries(targetId, mutate)) {
+			this.recordUndo(targetId, previous);
 		}
-		return entries;
+	}
+
+	protected recordUndo(targetId: string, previous: unknown): void {
+		const history = this.history.get(targetId) ?? { undo: [], redo: [] };
+		history.undo.push(previous);
+		history.redo = [];
+		this.history.set(targetId, history);
 	}
 
 	protected cloneEntries(entries: EditableMenuEntry[]): EditableMenuEntry[] {
@@ -1022,37 +1092,29 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		event.preventDefault();
 		event.stopPropagation();
 		const draggedKey = this.getDraggedKey(event);
-		if (!draggedKey || draggedKey === targetKey) {
-			this.endDrag();
-			return;
-		}
-
-		const root = this.ensureDraft(this.activeTargetId);
-		const source = this.findLocation(root, draggedKey);
-		const target = this.findLocation(root, targetKey);
-		if (!source || !target || this.entryContainsKey(source.entry, targetKey)) {
-			this.endDrag();
-			return;
-		}
-
 		const bounds = event.currentTarget.getBoundingClientRect();
 		const position = this.dragOverKey === targetKey && this.dragOverPosition
 			? this.dragOverPosition
 			: event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after';
-		const [entry] = source.parent.splice(source.index, 1);
-		const refreshedTarget = this.findLocation(root, targetKey);
-		if (!refreshedTarget) {
-			source.parent.splice(source.index, 0, entry);
-			this.endDrag();
+		this.endDrag();
+		if (!draggedKey || draggedKey === targetKey) {
 			return;
 		}
-		const insertionIndex = refreshedTarget.index + (position === 'after' ? 1 : 0);
-		refreshedTarget.parent.splice(insertionIndex, 0, entry);
+
+		this.edit(entries => {
+			const source = this.findLocation(entries, draggedKey);
+			if (!source || !this.findLocation(entries, targetKey) || this.entryContainsKey(source.entry, targetKey)) {
+				return false;
+			}
+			const [entry] = source.parent.splice(source.index, 1);
+			const target = this.findLocation(entries, targetKey);
+			if (!target) {
+				return false;
+			}
+			target.parent.splice(target.index + (position === 'after' ? 1 : 0), 0, entry);
+			return true;
+		});
 		this.selectedKey = draggedKey;
-		this.draggedKey = undefined;
-		this.dragOverKey = undefined;
-		this.dragOverPosition = undefined;
-		this.markModified();
 		this.forceUpdate();
 	}
 
@@ -1060,29 +1122,24 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		event.preventDefault();
 		event.stopPropagation();
 		const draggedKey = this.getDraggedKey(event);
+		this.endDrag();
 		if (!draggedKey || draggedKey === submenuKey) {
 			return;
 		}
 
-		const root = this.ensureDraft(this.activeTargetId);
-		const source = this.findLocation(root, draggedKey);
-		const submenuLocation = this.findLocation(root, submenuKey);
-		if (!source || !submenuLocation || submenuLocation.entry.type !== 'item' || !submenuLocation.entry.submenu) {
-			return;
-		}
-		if (this.entryContainsKey(source.entry, submenuKey)) {
-			return;
-		}
-
-		const [entry] = source.parent.splice(source.index, 1);
-		submenuLocation.entry.children ??= [];
-		submenuLocation.entry.children.push(entry);
+		this.edit(entries => {
+			const source = this.findLocation(entries, draggedKey);
+			const submenu = this.findLocation(entries, submenuKey);
+			if (!source || submenu?.entry.type !== 'item' || !submenu.entry.submenu || this.entryContainsKey(source.entry, submenuKey)) {
+				return false;
+			}
+			const [entry] = source.parent.splice(source.index, 1);
+			submenu.entry.children ??= [];
+			submenu.entry.children.push(entry);
+			return true;
+		});
 		this.expandedKeys.add(submenuKey);
 		this.selectedKey = draggedKey;
-		this.draggedKey = undefined;
-		this.dragOverKey = undefined;
-		this.dragOverPosition = undefined;
-		this.markModified();
 		this.forceUpdate();
 	}
 
@@ -1116,19 +1173,12 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		return undefined;
 	}
 
-	protected getInsertionLocation(): { parent: EditableMenuEntry[], index: number } {
-		const root = this.ensureDraft(this.activeTargetId);
-		if (!this.selectedKey) {
-			return {
-				parent: root,
-				index: root.length
-			};
-		}
-		const selected = this.findLocation(root, this.selectedKey);
+	protected getInsertionLocation(entries: EditableMenuEntry[]): { parent: EditableMenuEntry[], index: number } {
+		const selected = this.selectedKey ? this.findLocation(entries, this.selectedKey) : undefined;
 		if (!selected) {
 			return {
-				parent: root,
-				index: root.length
+				parent: entries,
+				index: entries.length
 			};
 		}
 		return {
@@ -1137,17 +1187,21 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		};
 	}
 
-	protected nextCustomStorageKey(): string {
+	/**
+	 * Keys of added entries use their own namespace, so they never collide with contributed entries,
+	 * even when an extension later contributes the same command.
+	 */
+	protected nextCustomStorageKey(entries: EditableMenuEntry[]): string {
 		const used = new Set<string>();
-		const collect = (entries: EditableMenuEntry[]): void => {
-			for (const entry of entries) {
+		const collect = (children: EditableMenuEntry[]): void => {
+			for (const entry of children) {
 				used.add(entry.storageKey);
 				if (entry.type === 'item' && entry.children) {
 					collect(entry.children);
 				}
 			}
 		};
-		collect(this.ensureDraft(this.activeTargetId));
+		collect(entries);
 
 		let index = 1;
 		while (used.has(`custom:${index}`)) {
@@ -1157,39 +1211,46 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	}
 
 	protected addSeparator = (): void => {
-		const destination = this.getInsertionLocation();
-		const storageKey = this.nextCustomStorageKey();
-		const separator = {
-			type: 'separator' as const,
-			key: `custom-separator:${storageKey}`,
-			storageKey,
-			custom: true
-		};
-		destination.parent.splice(destination.index, 0, separator);
-		this.selectedKey = separator.key;
-		this.markModified();
+		this.edit(entries => {
+			const destination = this.getInsertionLocation(entries);
+			const storageKey = this.nextCustomStorageKey(entries);
+			const separator = {
+				type: 'separator' as const,
+				key: `custom-separator:${storageKey}`,
+				storageKey,
+				custom: true
+			};
+			destination.parent.splice(destination.index, 0, separator);
+			this.selectedKey = separator.key;
+			return true;
+		});
 		this.forceUpdate();
 	};
 
 	protected addSubmenu = (): void => {
-		const destination = this.getInsertionLocation();
-		const storageKey = this.nextCustomStorageKey();
-		const submenu: EditableMenuItem = {
-			type: 'item',
-			key: `custom-submenu:${storageKey}`,
-			storageKey,
-			label: 'New Submenu',
-			custom: true,
-			submenu: true,
-			customSubmenu: true,
-			children: [],
-			defaultLabel: 'New Submenu'
-		};
-		destination.parent.splice(destination.index, 0, submenu);
-		this.selectedKey = submenu.key;
-		this.expandedKeys.add(submenu.key);
-		this.markModified();
-		this.startRename(submenu);
+		let submenu: EditableMenuItem | undefined;
+		this.edit(entries => {
+			const destination = this.getInsertionLocation(entries);
+			const storageKey = this.nextCustomStorageKey(entries);
+			submenu = {
+				type: 'item',
+				key: `custom-submenu:${storageKey}`,
+				storageKey,
+				label: 'New Submenu',
+				custom: true,
+				submenu: true,
+				customSubmenu: true,
+				children: [],
+				defaultLabel: 'New Submenu'
+			};
+			destination.parent.splice(destination.index, 0, submenu);
+			return true;
+		});
+		if (submenu) {
+			this.selectedKey = submenu.key;
+			this.expandedKeys.add(submenu.key);
+			this.startRename(submenu);
+		}
 	};
 
 	protected startRename(entry: EditableMenuItem): void {
@@ -1206,12 +1267,18 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 			return;
 		}
 		const value = this.renameValue.trim();
-		if (value) {
-			entry.label = value;
-			this.markModified();
-		}
 		this.renamingKey = undefined;
 		this.renameValue = '';
+		if (value) {
+			this.edit(entries => {
+				const location = this.findLocation(entries, entry.key);
+				if (location?.entry.type !== 'item') {
+					return false;
+				}
+				location.entry.label = value;
+				return true;
+			});
+		}
 		this.forceUpdate();
 	}
 
@@ -1222,41 +1289,38 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	}
 
 	protected removeEntry(key: string): void {
-		const entries = this.ensureDraft(this.activeTargetId);
-		const location = this.findLocation(entries, key);
-		if (!location) {
-			return;
-		}
-		location.parent.splice(location.index, 1);
-		if (location.entry.type === 'item' && location.entry.customSubmenu) {
-			// Default entries moved into a custom submenu return to its position instead of being hidden.
-			const rescued: EditableMenuEntry[] = [];
-			const collectDefaults = (entries: EditableMenuEntry[]): void => {
-				for (const child of entries) {
-					if (!child.custom) {
-						rescued.push(child);
-					} else if (child.type === 'item' && child.children) {
-						collectDefaults(child.children);
+		this.edit(entries => {
+			const location = this.findLocation(entries, key);
+			if (!location) {
+				return false;
+			}
+			location.parent.splice(location.index, 1);
+			if (location.entry.type === 'item' && location.entry.customSubmenu) {
+				// Default entries moved into a custom submenu return to its position instead of being hidden.
+				const rescued: EditableMenuEntry[] = [];
+				const collectDefaults = (children: EditableMenuEntry[]): void => {
+					for (const child of children) {
+						if (!child.custom) {
+							rescued.push(child);
+						} else if (child.type === 'item' && child.children) {
+							collectDefaults(child.children);
+						}
 					}
-				}
-			};
-			collectDefaults(location.entry.children ?? []);
-			location.parent.splice(location.index, 0, ...rescued);
-		}
+				};
+				collectDefaults(location.entry.children ?? []);
+				location.parent.splice(location.index, 0, ...rescued);
+			}
+			if (this.selectedKey === key) {
+				this.selectedKey = location.parent[Math.min(location.index, location.parent.length - 1)]?.key;
+			}
+			return true;
+		});
 		this.expandedKeys.delete(key);
-		if (this.selectedKey === key) {
-			this.selectedKey = location.parent[Math.min(location.index, location.parent.length - 1)]?.key;
-		}
-		this.markModified();
 		this.forceUpdate();
 	}
 
 	protected canMoveSelected(direction: -1 | 1): boolean {
-		if (!this.selectedKey) {
-			return false;
-		}
-		const entries = this.ensureDraft(this.activeTargetId);
-		const location = this.findLocation(entries, this.selectedKey);
+		const location = this.selectedKey ? this.findLocation(this.getEntries(), this.selectedKey) : undefined;
 		if (!location) {
 			return false;
 		}
@@ -1265,53 +1329,52 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	}
 
 	protected moveSelected(direction: -1 | 1): void {
-		if (!this.selectedKey) {
+		const selectedKey = this.selectedKey;
+		if (!selectedKey) {
 			return;
 		}
-		const entries = this.ensureDraft(this.activeTargetId);
-		const location = this.findLocation(entries, this.selectedKey);
-		if (!location) {
-			return;
-		}
-		const destination = location.index + direction;
-		if (destination < 0 || destination >= location.parent.length) {
-			return;
-		}
-		[location.parent[location.index], location.parent[destination]] = [location.parent[destination], location.parent[location.index]];
-		this.markModified();
+		this.edit(entries => {
+			const location = this.findLocation(entries, selectedKey);
+			const destination = location ? location.index + direction : -1;
+			if (!location || destination < 0 || destination >= location.parent.length) {
+				return false;
+			}
+			[location.parent[location.index], location.parent[destination]] = [location.parent[destination], location.parent[location.index]];
+			return true;
+		});
 		this.forceUpdate();
 	}
 
 	protected restoreDefaults = (): void => {
-		this.drafts.set(this.activeTargetId, this.cloneEntries(this.props.service.getDefaultEntries(this.activeTargetId)));
-		this.resetTargets.add(this.activeTargetId);
-		this.dirtyTargets.delete(this.activeTargetId);
+		const targetId = this.activeTargetId;
+		const previous = this.props.service.getStoredValue(targetId);
+		if (previous !== undefined) {
+			this.recordUndo(targetId, previous);
+			this.props.service.setStoredValue(targetId, undefined);
+		}
 		this.selectedKey = undefined;
 		this.renamingKey = undefined;
-		this.applyStatus = '';
 		this.forceUpdate();
 	};
+}
 
-	protected hasChanges(): boolean {
-		return this.dirtyTargets.size > 0 || this.resetTargets.size > 0;
+/**
+ * Routes Theia's Undo and Redo commands to the configurator that has focus. Text inputs are handled
+ * first by Theia's DOM input handler, so they keep their native undo.
+ */
+@injectable()
+export class ContextMenuConfigUndoRedoHandler implements UndoRedoHandler<ContextMenuConfigEditor> {
+	readonly priority = 500;
+
+	select(): ContextMenuConfigEditor | undefined {
+		return [...ContextMenuConfigEditor.mounted].find(editor => editor.hasFocus());
 	}
 
-	protected applyChanges = async (): Promise<void> => {
-		if (!this.hasChanges()) {
-			return;
-		}
-		this.applyStatus = 'Applying...';
-		this.forceUpdate();
-		await this.props.service.applyChanges(this.getChanges());
-		this.dirtyTargets.clear();
-		this.resetTargets.clear();
-		this.applyStatus = 'Applied';
-		this.forceUpdate();
-	};
+	undo(editor: ContextMenuConfigEditor): void {
+		editor.undo();
+	}
 
-	protected markModified(): void {
-		this.resetTargets.delete(this.activeTargetId);
-		this.dirtyTargets.add(this.activeTargetId);
-		this.applyStatus = '';
+	redo(editor: ContextMenuConfigEditor): void {
+		editor.redo();
 	}
 }

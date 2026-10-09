@@ -36,6 +36,8 @@ Webview customization uses Theia's normal `WEBVIEW_CONTEXT_MENU`, which is the t
 
 The additional targets use the same renderer interception for Theia's terminal context menu, VS Code `view/item/context`, `scm/historyItem/context`, `scm/historyItemRef/context`, and `timeline/item/context` contribution points. Their original context keys and command argument adapters are preserved.
 
+Commands added through the configurator that are contributed by extensions receive the same argument conversion Theia applies to extension menu items in that menu, for example only the first argument in `webview/context` or only the tree item references in `view/item/context`. Built-in Theia commands receive the menu's arguments unchanged.
+
 The extension leaves Theia's `MenuModelRegistry` untouched. It applies the saved layout to a temporary menu model immediately before `ContextMenuRenderer` renders it. Original command behavior and extension supplied conditions remain active unless a condition is explicitly overridden.
 
 ## Storage

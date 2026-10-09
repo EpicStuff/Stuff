@@ -22,6 +22,8 @@ import {
 import { KeybindingRegistry } from '@theia/core/lib/browser/keybinding';
 import { AcceleratorSource } from '@theia/core/lib/browser/menu/action-menu-node';
 import { inject, injectable } from '@theia/core/shared/inversify';
+import { PluginMenuCommandAdapter } from '@theia/plugin-ext/lib/main/browser/menus/plugin-menu-command-adapter';
+import { PluginContributionHandler } from '@theia/plugin-ext/lib/main/browser/plugin-contribution-handler';
 import {
 	CONTEXT_MENU_TARGETS,
 	CUSTOM_CONTEXT_MENU_LAYOUTS,
@@ -89,6 +91,12 @@ export class CustomContextMenuService {
 
 	@inject(KeybindingRegistry)
 	protected readonly keybindingRegistry!: KeybindingRegistry;
+
+	@inject(PluginContributionHandler)
+	protected readonly pluginContributionHandler!: PluginContributionHandler;
+
+	@inject(PluginMenuCommandAdapter)
+	protected readonly pluginMenuCommandAdapter!: PluginMenuCommandAdapter;
 
 	installRendererPatch(): void {
 		activeService = this;
@@ -982,20 +990,26 @@ export class CustomContextMenuService {
 				} else if (entry.commandId && this.commandRegistry.getCommand(entry.commandId)) {
 					// A plain node instead of MenuNodeFactory.createCommandMenu: ActionMenuNode subscribes to
 					// command handler and context key changes, and nodes built per render are never disposed.
+					// Extension commands get the same argument conversion as extension contributed menu items.
 					const commandId = entry.commandId;
 					const when = entry.when;
+					const adaptArgs = (effectiveMenuPath: MenuPath, args: unknown[]): unknown[] =>
+						this.pluginContributionHandler.hasCommand(commandId)
+							? this.pluginMenuCommandAdapter.getArgumentAdapter(effectiveMenuPath)(...args)
+							: args;
 					const commandMenu: CommandMenu & AcceleratorSource = {
 						id: commandId,
 						label: entry.label,
 						icon: entry.icon,
 						when,
 						sortString: '',
-						isVisible: (_effectiveMenuPath, contextMatcher, context, ...args) =>
-							(!when || contextMatcher.match(when, context)) && this.commandRegistry.isVisible(commandId, ...args),
-						isEnabled: (_effectiveMenuPath, ...args) => this.commandRegistry.isEnabled(commandId, ...args),
-						isToggled: (_effectiveMenuPath, ...args) => this.commandRegistry.isToggled(commandId, ...args),
-						run: async (_effectiveMenuPath, ...args) => {
-							await this.commandRegistry.executeCommand(commandId, ...args);
+						isVisible: (effectiveMenuPath, contextMatcher, context, ...args) =>
+							(!when || contextMatcher.match(when, context))
+							&& this.commandRegistry.isVisible(commandId, ...adaptArgs(effectiveMenuPath, args)),
+						isEnabled: (effectiveMenuPath, ...args) => this.commandRegistry.isEnabled(commandId, ...adaptArgs(effectiveMenuPath, args)),
+						isToggled: (effectiveMenuPath, ...args) => this.commandRegistry.isToggled(commandId, ...adaptArgs(effectiveMenuPath, args)),
+						run: async (effectiveMenuPath, ...args) => {
+							await this.commandRegistry.executeCommand(commandId, ...adaptArgs(effectiveMenuPath, args));
 						},
 						getAccelerator: context => {
 							const binding = this.keybindingRegistry.getKeybindingsForCommand(commandId)

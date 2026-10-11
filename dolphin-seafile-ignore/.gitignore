@@ -1,0 +1,8 @@
+# the root .gitignore ignores extensionless files
+!PKGBUILD
+
+# makepkg and CMake output
+src/
+pkg/
+build/
+*.pkg.tar.*

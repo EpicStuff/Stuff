@@ -1,5 +1,5 @@
 pkgname=dolphin-seafile-ignore
-pkgver=0.1.2
+pkgver=0.1.3
 pkgrel=1
 pkgdesc='Dolphin action for adding Seafile files and folders to seafile-ignore.txt'
 arch=('x86_64')

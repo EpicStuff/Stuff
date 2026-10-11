@@ -125,18 +125,10 @@ Draw.loadPlugin(function(ui)
 
 	function getFamily(cell, prefixMap)
 	{
-		var shape = getShapeName(cell).toLowerCase();
+		// P&ID shapes are named mxgraph.pid.<family>.<shape>
+		var match = /\.pid\.([^.]+)/.exec(getShapeName(cell).toLowerCase());
 
-		for (var family in prefixMap)
-		{
-			if (shape.indexOf('.pid.' + family + '.') >= 0 ||
-				shape.indexOf('.pid.' + family) == shape.length - family.length - 5)
-			{
-				return family;
-			}
-		}
-
-		return null;
+		return match != null && prefixMap.hasOwnProperty(match[1]) ? match[1] : null;
 	}
 
 	function getObjectValue(cell)

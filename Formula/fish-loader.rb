@@ -6,7 +6,7 @@ class FishLoader < Formula
 	url 'https://raw.githubusercontent.com/Homebrew/brew/34c40c18ffa2029b611b61c73273e32c003d0842/Library/Homebrew/.ruby-version', using: :nounzip
 	sha256 '2e9fe584010a41f374317eb891684ccaab818403e8fa8eb7b2053c1810a8c00a'
 	license 'MIT'
-	version '1.1.3'
+	version '1.1.4'
 
 	livecheck do
 		skip 'No upstream'
@@ -49,8 +49,9 @@ class FishLoader < Formula
 			functions --erase __homebrew_order_fish_path
 
 			# Fish has no configurable search path for conf.d files,
-			# so source Homebrew vendor configuration files directly.
-			if test -d $homebrew_fish_share/vendor_conf.d
+			# so source Homebrew vendor configuration files directly,
+			# unless Fish already did because Homebrew's share directory is in XDG_DATA_DIRS.
+			if test -d $homebrew_fish_share/vendor_conf.d; and not contains -- $homebrew_fish_share/vendor_conf.d $__fish_vendor_confdirs
 				for file in (command find -L $homebrew_fish_share/vendor_conf.d -maxdepth 1 -type f -name '*.fish' | sort)
 					source $file
 				end

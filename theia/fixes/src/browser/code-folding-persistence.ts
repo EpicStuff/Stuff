@@ -6,7 +6,6 @@ import { MonacoEditor } from '@theia/monaco/lib/browser/monaco-editor';
 import { FOLDING_CONTRIBUTION_ID, mergeFoldingIntoViewState, readFoldingFromViewState, sanitizeStoredFoldingStates, StoredFoldingStates } from './folding-state';
 
 const STORAGE_KEY = 'theia-fixes.source-folding.v1';
-const SAVE_DELAY_MS = 250;
 
 interface FoldingController {
 	dispose(): void;
@@ -23,7 +22,6 @@ export class CodeFoldingPersistenceContribution implements FrontendApplicationCo
 
 	private states: StoredFoldingStates = Object.create(null) as StoredFoldingStates;
 	private readonly tracked = new Map<EditorWidget, () => void>();
-	private saveTimer: ReturnType<typeof setTimeout> | undefined;
 	private pendingWrite: Promise<void> = Promise.resolve();
 
 	async onStart(): Promise<void> {
@@ -40,11 +38,12 @@ export class CodeFoldingPersistenceContribution implements FrontendApplicationCo
 		}
 	}
 
-	async onStop(): Promise<void> {
+	onStop(): void {
+		// Theia does not wait for promises from this hook at page unload.
+		// Fold changes are written as they happen, so this is only a final snapshot.
 		for (const capture of this.tracked.values()) {
 			capture();
 		}
-		await this.flush();
 	}
 
 	private track(widget: EditorWidget): void {
@@ -75,12 +74,19 @@ export class CodeFoldingPersistenceContribution implements FrontendApplicationCo
 			if (!state) {
 				return;
 			}
+			const previous = this.states[uri];
 			if (state.collapsedRegions?.length) {
+				if (previous && JSON.stringify(previous) === JSON.stringify(state)) {
+					return;
+				}
 				this.states[uri] = state;
 			} else {
+				if (!previous) {
+					return;
+				}
 				delete this.states[uri];
 			}
-			this.scheduleSave();
+			this.enqueueSave();
 		};
 
 		const restore = async (): Promise<void> => {
@@ -142,26 +148,12 @@ export class CodeFoldingPersistenceContribution implements FrontendApplicationCo
 		void restore();
 	}
 
-	private scheduleSave(): void {
-		if (this.saveTimer !== undefined) {
-			clearTimeout(this.saveTimer);
-		}
-		this.saveTimer = setTimeout(() => {
-			this.saveTimer = undefined;
-			void this.flush().catch(error => console.error('Unable to persist source code folds:', error));
-		}, SAVE_DELAY_MS);
-	}
-
-	private flush(): Promise<void> {
-		if (this.saveTimer !== undefined) {
-			clearTimeout(this.saveTimer);
-			this.saveTimer = undefined;
-		}
+	private enqueueSave(): void {
 		const snapshot = { ...this.states };
-		// Serialize writes so an older write cannot replace a more recent one.
+		// Serialize writes so an older state cannot replace a newer one.
 		this.pendingWrite = this.pendingWrite.catch(error => {
 			console.error('Unable to persist source code folds:', error);
 		}).then(() => this.storageService.setData(STORAGE_KEY, snapshot));
-		return this.pendingWrite;
+		void this.pendingWrite.catch(error => console.error('Unable to persist source code folds:', error));
 	}
 }

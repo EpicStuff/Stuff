@@ -3,7 +3,7 @@ import { DisposableCollection } from '@theia/core/lib/common';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { EditorManager, EditorWidget } from '@theia/editor/lib/browser';
 import { MonacoEditor } from '@theia/monaco/lib/browser/monaco-editor';
-import { FOLDING_CONTRIBUTION_ID, FoldingState, mergeFoldingIntoViewState, readFoldingFromViewState, sanitizeStoredFoldingStates, StoredFoldingStates } from './folding-state';
+import { FOLDING_CONTRIBUTION_ID, mergeFoldingIntoViewState, readFoldingFromViewState, sanitizeStoredFoldingStates, StoredFoldingStates } from './folding-state';
 
 const STORAGE_KEY = 'theia-fixes.source-folding.v1';
 const SAVE_DELAY_MS = 250;
@@ -111,6 +111,12 @@ export class CodeFoldingPersistenceContribution implements FrontendApplicationCo
 				ready = true;
 			} finally {
 				restoring = false;
+				// A hidden tab can lose its Monaco model during the await above.
+				// If the tab became visible again in the meantime, retry with
+				// its new model instead of leaving the initial restore unfinished.
+				if (!ready && !disposed && control.getModel()) {
+					void restore();
+				}
 			}
 		};
 

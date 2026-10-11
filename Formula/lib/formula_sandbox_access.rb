@@ -5,9 +5,10 @@ require 'formula_installer'
 module FormulaSandboxAccess
 	def finish
 		super
+		link_loader(config_home/'fish/conf.d/homebrew-loader.fish', HOMEBREW_PREFIX/'opt/fish-loader/fish-loader.fish') if formula.name == 'fish-loader'
 		return unless uses_xdg_data_loader?
 
-		ensure_xdg_data_loader_link
+		link_loader(config_home/'plasma-workspace/env/homebrew-xdg-data-dirs.sh', HOMEBREW_PREFIX/'opt/xdg-data-loader/xdg-data-dirs.sh')
 		refresh_xdg_data(restart_dolphin: true)
 	end
 
@@ -15,12 +16,7 @@ module FormulaSandboxAccess
 		super
 		return unless log_name == 'build'
 
-		case formula.name
-		when 'theia-ide'
-			allow_theia_extension_path(sandbox)
-		when 'fish-loader'
-			allow_fish_loader_path(sandbox)
-		end
+		allow_theia_extension_path(sandbox) if formula.name == 'theia-ide'
 	end
 
 	private
@@ -30,32 +26,28 @@ module FormulaSandboxAccess
 		formula.name == 'xdg-data-loader' || formula.deps.any? { |dependency| dependency.name.split('/').last == 'xdg-data-loader' }
 	end
 
-	def ensure_xdg_data_loader_link
-		# brew only passes XDG_CONFIG_HOME through as HOMEBREW_XDG_CONFIG_HOME.
+	def config_home
+		# brew only passes XDG_CONFIG_HOME through as HOMEBREW_XDG_CONFIG_HOME, and HOME points into the build directory during installs.
 		xdg_config_home = ENV['HOMEBREW_XDG_CONFIG_HOME'] || ENV['XDG_CONFIG_HOME']
-		config_home = if xdg_config_home.to_s.empty?
-			Pathname(Etc.getpwuid(Process.uid).dir)/'.config'
-		else
-			Pathname(xdg_config_home).expand_path
-		end
-		config_dir = config_home/'plasma-workspace/env'
-		loader = config_dir/'homebrew-xdg-data-dirs.sh'
-		target = HOMEBREW_PREFIX/'opt/xdg-data-loader/xdg-data-dirs.sh'
+		return Pathname(Etc.getpwuid(Process.uid).dir)/'.config' if xdg_config_home.to_s.empty?
 
+		Pathname(xdg_config_home).expand_path
+	end
+
+	def link_loader(loader, target)
 		if loader.symlink?
-			return false if loader.readlink == target
+			return if loader.readlink == target
 
-			opoo "Refusing to overwrite existing XDG data loader symlink: #{loader} -> #{loader.readlink}"
-			return false
+			opoo "Refusing to overwrite existing loader symlink: #{loader} -> #{loader.readlink}"
+			return
 		end
 		if loader.exist?
-			opoo "Refusing to overwrite existing XDG data loader path: #{loader}"
-			return false
+			opoo "Refusing to overwrite existing loader path: #{loader}"
+			return
 		end
 
-		FileUtils.mkdir_p(config_dir)
+		FileUtils.mkdir_p(loader.dirname)
 		File.symlink(target, loader)
-		true
 	end
 
 	def refresh_xdg_data(restart_dolphin:)
@@ -77,15 +69,6 @@ module FormulaSandboxAccess
 
 		# The build only copies the extension tree, so it never needs to write there.
 		sandbox.allow_read(path: path.realpath, type: :subpath)
-	end
-
-	def allow_fish_loader_path(sandbox)
-		allow_build_path(sandbox, Pathname(Dir.home)/'.config/fish/conf.d')
-	end
-
-	def allow_build_path(sandbox, path)
-		sandbox.allow_read(path:, type: :subpath)
-		sandbox.allow_write_path(path)
 	end
 end
 

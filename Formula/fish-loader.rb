@@ -6,7 +6,7 @@ class FishLoader < Formula
 	url 'https://raw.githubusercontent.com/Homebrew/brew/34c40c18ffa2029b611b61c73273e32c003d0842/Library/Homebrew/.ruby-version', using: :nounzip
 	sha256 '2e9fe584010a41f374317eb891684ccaab818403e8fa8eb7b2053c1810a8c00a'
 	license 'MIT'
-	version '1.1.2'
+	version '1.1.3'
 
 	livecheck do
 		skip 'No upstream'
@@ -56,8 +56,6 @@ class FishLoader < Formula
 				end
 			end
 		FISH
-
-		install_loader_link
 	end
 
 	def caveats
@@ -81,22 +79,4 @@ class FishLoader < Formula
 		assert_match 'vendor_conf.d', loader.read
 	end
 
-	private
-
-	def install_loader_link
-		config_dir = Pathname(Dir.home)/'.config/fish/conf.d'
-		loader = config_dir/'homebrew-loader.fish'
-		target = opt_prefix/'fish-loader.fish'
-
-		config_dir.mkpath
-
-		if loader.symlink?
-			return if loader.readlink == target
-
-			odie "Refusing to overwrite existing symlink: #{loader} -> #{loader.readlink}"
-		end
-		odie "Refusing to overwrite existing path: #{loader}" if loader.exist?
-
-		ln_s target, loader
-	end
 end

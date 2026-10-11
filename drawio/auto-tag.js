@@ -167,24 +167,32 @@ Draw.loadPlugin(function(ui)
 
 	function escapeRegex(text)
 	{
-		return text.replace(/[.*+?^$()|[\]\\]/g, '\\$&');
+		return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 	}
 
 	function getUsedNumbers(prefix)
 	{
 		var result = {};
 		var escaped = escapeRegex(prefix);
-		var regex = new RegExp('^' + escaped + '[\\s-]?(\\d+)$', 'i');
+		// Tags in the configured format, plus hand typed ones like P101 or P 101
+		var regexes = [
+			new RegExp('^' + escapeRegex(settings.format).replace(/%Prefix%/g, escaped).replace(/%Number%/g, '(\\d+)') + '$', 'i'),
+			new RegExp('^' + escaped + '[\\s-]?(\\d+)$', 'i')
+		];
 		var cells = getVertices(model.getDescendants(model.getRoot()));
 
 		for (var i = 0; i < cells.length; i++)
 		{
 			var tag = getTag(cells[i]);
-			var match = regex.exec(tag);
 
-			if (match != null)
+			for (var j = 0; j < regexes.length; j++)
 			{
-				result[parseInt(match[1], 10)] = true;
+				var match = regexes[j].exec(tag);
+
+				if (match != null)
+				{
+					result[parseInt(match[1], 10)] = true;
+				}
 			}
 		}
 

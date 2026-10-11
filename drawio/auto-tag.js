@@ -384,7 +384,7 @@ Draw.loadPlugin(function(ui)
 	}
 
 	mxResources.parse(
-		'pidAutoTagSettings=P&ID Auto Tag...' +
+		'pidAutoTagSettings=P&ID Auto Tag' +
 		'\npidAutoTagSelection=Auto Tag Selection'
 	);
 

@@ -298,7 +298,7 @@ Draw.loadPlugin(function(ui)
 	}
 
 	mxResources.parse(
-		'pidDefaultsSettings=P&ID Defaults...' +
+		'pidDefaultsSettings=P&ID Defaults' +
 		'\npidApplyDefaults=Apply P&ID Defaults to Selection'
 	);
 

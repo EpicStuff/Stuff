@@ -63,7 +63,10 @@ Draw.loadPlugin(function(ui)
 
 	function supportsAutoPosition(cell)
 	{
-		return model.isVertex(cell) && !isTextBox(cell) && !isImage(cell);
+		// Edge labels, containers (incl. swimlanes and tables) and table rows/cells lay their text out inside them
+		return model.isVertex(cell) && !model.isEdge(model.getParent(cell)) &&
+			!graph.isContainer(cell) && !graph.isTableRow(cell) && !graph.isTableCell(cell) &&
+			!isTextBox(cell) && !isImage(cell);
 	}
 
 	function getAutoVertices(cells)

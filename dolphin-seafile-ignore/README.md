@@ -24,6 +24,7 @@ sudo pacman -S --needed base-devel
 
 - The action is hidden outside Seafile libraries.
 - The action is hidden for the library root itself.
+- Libraries opened through a symlinked folder are recognised; a selected symlink is added as the link itself, not its target.
 - Multiple selected items are supported, including selections from different Seafile libraries.
 - Files are added as paths such as `notes/file.txt`.
 - Folders are added with a trailing slash such as `build/`.

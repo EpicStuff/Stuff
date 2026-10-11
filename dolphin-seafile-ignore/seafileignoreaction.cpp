@@ -156,8 +156,8 @@ QStringList SeafileIgnoreAction::worktrees() const
 			if (value == nullptr)
 				continue;
 
-			const QString worktree = normalizePath(QString::fromUtf8(reinterpret_cast<const char *>(value)));
-			if (QFileInfo(worktree).isDir() && !result.contains(worktree))
+			const QString worktree = QFileInfo(QString::fromUtf8(reinterpret_cast<const char *>(value))).canonicalFilePath();
+			if (!worktree.isEmpty() && QFileInfo(worktree).isDir() && !result.contains(worktree))
 				result.append(worktree);
 		}
 
@@ -170,7 +170,13 @@ QStringList SeafileIgnoreAction::worktrees() const
 
 std::optional<SeafileIgnoreAction::IgnoreItem> SeafileIgnoreAction::resolveItem(const QString &path, const QStringList &knownWorktrees) const
 {
-	const QString absolutePath = normalizePath(path);
+	// resolve symlinks in the parent folders like the worktrees, but keep the selected item itself so a selected symlink is ignored as the link
+	const QFileInfo info(normalizePath(path));
+	const QString parent = info.dir().canonicalPath();
+	if (parent.isEmpty())
+		return std::nullopt;
+
+	const QString absolutePath = QDir(parent).filePath(info.fileName());
 	QString matchedWorktree;
 
 	for (const QString &worktree : knownWorktrees) {

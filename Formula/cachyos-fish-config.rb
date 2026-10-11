@@ -21,10 +21,8 @@ class CachyosFishConfig < Formula
 	end
 
 	def command_available?(command)
-		ENV.fetch('PATH', '').split(File::PATH_SEPARATOR).any? do |directory|
-			path = Pathname(directory)/command
-			path.file? && path.executable?
-		end
+		# brew replaces PATH with a minimal one, so search the user's original PATH.
+		which(command, ORIGINAL_PATHS)
 	end
 
 	def caveats

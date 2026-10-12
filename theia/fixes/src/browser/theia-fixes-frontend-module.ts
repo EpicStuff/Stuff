@@ -7,7 +7,7 @@ import { HotExitBackupService, HotExitBackupServicePath } from '../common/hot-ex
 import { HotExitCommonFrontendContribution } from './hot-exit-common-frontend-contribution';
 import { HotExitContribution } from './hot-exit-contribution';
 
-export default new ContainerModule(bind => {
+export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
 	bind(CodeFoldingPersistenceContribution).toSelf().inSingletonScope();
 	bind(FrontendApplicationContribution).toService(CodeFoldingPersistenceContribution);
 	bind(HotExitBackupService).toDynamicValue(context => ElectronIpcConnectionProvider.createProxy(context.container, HotExitBackupServicePath)).inSingletonScope();

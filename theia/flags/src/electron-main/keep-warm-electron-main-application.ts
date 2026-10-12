@@ -283,21 +283,25 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 				socket.once('error', reject);
 			});
 			socket.on('error', error => console.error('Theia wait connection failed:', error));
-			let result = '0';
-			try {
-				if (this.sessionRestorePending && hasExplicitTarget) {
-					this.sessionRestorePending = false;
-					await this.extensionInstaller.replaceSession([]);
+			const disconnected = new Promise<undefined>(resolve => socket.once('close', () => resolve(undefined)));
+			const operation = (async (): Promise<string> => {
+				try {
+					if (this.sessionRestorePending && hasExplicitTarget) {
+						this.sessionRestorePending = false;
+						await this.extensionInstaller.replaceSession([]);
+					}
+					await this.handleVscodeWindowCommand(cliArgs, options);
+					return '0';
+				} catch (error) {
+					console.error(error);
+					return `1:${error instanceof Error ? error.message : String(error)}`;
 				}
-				await this.handleVscodeWindowCommand(cliArgs, options);
-			} catch (error) {
-				console.error(error);
-				result = `1:${error instanceof Error ? error.message : String(error)}`;
+			})();
+			const result = await Promise.race([operation, disconnected]);
+			if (result === undefined) {
+				return;
 			}
-			await new Promise<void>(resolve => {
-				socket.once('close', resolve);
-				socket.end(result, resolve);
-			});
+			await new Promise<void>(resolve => socket.end(result, resolve));
 		} catch (error) {
 			console.error('Could not complete Theia wait request:', error);
 		} finally {
@@ -327,10 +331,6 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		});
 		try {
 			await Promise.race([editorClosed, windowClosed]);
-		} catch (error) {
-			if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
-				throw error;
-			}
 		} finally {
 			window.removeListener('closed', onClosed);
 		}

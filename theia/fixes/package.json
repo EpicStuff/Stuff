@@ -1,7 +1,7 @@
 {
 	"name": "theia-fixes",
-	"version": "0.1.0",
-	"description": "Native Eclipse Theia fixes including persistent source code folding.",
+	"version": "0.2.0",
+	"description": "Native Eclipse Theia fixes including persistent folding and Hot Exit backups.",
 	"engines": {
 		"node": ">=24"
 	},
@@ -11,7 +11,8 @@
 		"README.md"
 	],
 	"exports": {
-		"./lib/browser/theia-fixes-frontend-module": "./lib/browser/theia-fixes-frontend-module.js"
+		"./lib/browser/theia-fixes-frontend-module": "./lib/browser/theia-fixes-frontend-module.js",
+		"./lib/electron-main/theia-fixes-electron-main-module": "./lib/electron-main/theia-fixes-electron-main-module.js"
 	},
 	"scripts": {
 		"build": "tsc -p tsconfig.json",
@@ -28,13 +29,15 @@
 	},
 	"theiaExtensions": [
 		{
-			"frontend": "lib/browser/theia-fixes-frontend-module"
+			"frontendElectron": "lib/browser/theia-fixes-frontend-module",
+			"electronMain": "lib/electron-main/theia-fixes-electron-main-module"
 		}
 	],
 	"keywords": [
 		"theia-extension",
 		"theia",
 		"folding",
-		"persistence"
+		"persistence",
+		"hot-exit"
 	]
 }

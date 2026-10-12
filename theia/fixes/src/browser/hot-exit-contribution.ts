@@ -1,4 +1,6 @@
-import { FrontendApplicationContribution, FrontendApplicationStateService, MessageService } from '@theia/core/lib/browser';
+import { FrontendApplicationContribution } from '@theia/core/lib/browser';
+import { FrontendApplicationStateService } from '@theia/core/lib/browser/frontend-application-state';
+import { MessageService } from '@theia/core/lib/common/message-service';
 import { URI } from '@theia/core/lib/common/uri';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { EditorManager, EditorWidget } from '@theia/editor/lib/browser';
@@ -95,6 +97,7 @@ export class HotExitContribution implements FrontendApplicationContribution {
 		});
 		model.onDirtyChanged(() => {
 			if (!model.dirty && !this.conflicts.has(uri)) {
+				entry.baseContent = model.textEditorModel.getValue();
 				this.cancelTimer(uri);
 				this.backups.delete(uri);
 				this.queue(uri, () => this.backupService.remove(this.workspace, uri));

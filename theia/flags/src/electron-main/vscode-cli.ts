@@ -83,6 +83,7 @@ export interface ParsedVscodeCliArgs {
 	help: boolean;
 	newWindow: boolean;
 	reuseWindow: boolean;
+	restore: boolean;
 	gotoTarget?: string;
 	diffTargets?: [string, string];
 	listExtensions: boolean;
@@ -127,6 +128,7 @@ Theia custom options:
       --keep-warmer                  Also preload a hidden empty frontend renderer
       --daemon                       Detach the requested invocation from the terminal
       --quit                         Stop the resident keep warm instance
+      --restore                      Restore the previous session without replacing current windows
 `;
 
 export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs {
@@ -135,6 +137,7 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 		help: false,
 		newWindow: false,
 		reuseWindow: false,
+		restore: false,
 		listExtensions: false,
 		showVersions: false,
 		installExtensions: [],
@@ -187,6 +190,9 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 				index += 2;
 				break;
 			}
+			case '--restore':
+				parsed.restore = true;
+				break;
 			case '--list-extensions':
 				parsed.listExtensions = true;
 				break;
@@ -225,6 +231,9 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 		}
 	}
 
+	if (parsed.restore && (parsed.newWindow || parsed.reuseWindow || parsed.gotoTarget !== undefined || parsed.diffTargets !== undefined || hasWindowTarget(parsed.remainingArgs))) {
+		throw new Error('--restore cannot be combined with a path or other window opening options');
+	}
 	if (parsed.newWindow && parsed.reuseWindow) {
 		throw new Error('--new-window and --reuse-window cannot be used together');
 	}

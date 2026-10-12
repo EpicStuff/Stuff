@@ -14,6 +14,7 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 	protected readonly clientsByWindowId = new Map<number, KeepWarmExtensionInstallerClient>();
 	protected readonly workspaceByWindowId = new Map<number, string>();
 	protected readonly sessionWorkspaces = new Set<string>();
+	protected readonly restorableWorkspaces = new Set<string>();
 	protected readonly waiters: Array<(client: KeepWarmExtensionInstallerClient) => void> = [];
 	protected readonly windowWaiters = new Map<number, Array<{ resolve: (client: KeepWarmExtensionInstallerClient) => void; reject: (error: Error) => void }>>();
 	protected sessionLoad: Promise<void> | undefined;
@@ -92,7 +93,31 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 
 	async getRestorableWorkspaces(): Promise<string[]> {
 		await this.ensureSessionLoaded();
-		return [...this.sessionWorkspaces];
+		return [...this.restorableWorkspaces];
+	}
+
+	async getOpenWindowWorkspaces(): Promise<Map<number, string | undefined>> {
+		await this.ensureSessionLoaded();
+		const workspaces = new Map<number, string | undefined>();
+		for (const windowId of this.clientsByWindowId.keys()) {
+			workspaces.set(windowId, this.workspaceByWindowId.get(windowId));
+		}
+		return workspaces;
+	}
+
+	async pruneUnavailableRestorableWorkspaces(availableWorkspaces: readonly string[]): Promise<void> {
+		await this.ensureSessionLoaded();
+		const available = new Set(availableWorkspaces);
+		let changed = false;
+		for (const workspacePath of this.restorableWorkspaces) {
+			if (!available.has(workspacePath)) {
+				this.restorableWorkspaces.delete(workspacePath);
+				changed = this.sessionWorkspaces.delete(workspacePath) || changed;
+			}
+		}
+		if (changed) {
+			await this.persistSession();
+		}
 	}
 
 	async replaceSession(workspaces: readonly string[]): Promise<void> {
@@ -159,6 +184,7 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 				for (const workspacePath of parsed.workspaces) {
 					if (typeof workspacePath === 'string' && workspacePath.length > 0) {
 						this.sessionWorkspaces.add(workspacePath);
+						this.restorableWorkspaces.add(workspacePath);
 					}
 				}
 			}

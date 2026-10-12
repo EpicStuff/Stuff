@@ -32,6 +32,8 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	protected warmRendererCreation: Promise<void> | undefined;
 	protected quitting = false;
 	protected sessionRestorePending = true;
+	protected restoreInProgress: Promise<boolean> | undefined;
+	protected readonly knownWorkspaceWindows = new Map<number, { window: BrowserWindow; workspacePath: string }>();
 	protected startupCliArgs: ParsedVscodeCliArgs | undefined;
 	protected readonly pendingSecondInstanceCliArgs: ParsedVscodeCliArgs[] = [];
 
@@ -119,6 +121,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		const windowId = window.webContents.id;
 
 		window.once('closed', () => {
+			this.knownWorkspaceWindows.delete(windowId);
 			this.extensionInstaller.rejectWindowWaiters(windowId);
 			setTimeout(() => {
 				if (this.quitting || !this.getActiveVisibleWindow()) {
@@ -204,10 +207,11 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		}
 		const hasWindowAction = !!cliArgs && this.hasWindowAction(cliArgs);
 		const hasExplicitTarget = hasWindowAction || options.file !== undefined;
+		const restoreRequested = cliArgs?.restore === true;
 
 		if (this.suppressInitialEmptyWindow && !options.secondInstance) {
 			this.suppressInitialEmptyWindow = false;
-			if (options.file === undefined && !hasWindowAction) {
+			if (options.file === undefined && !hasWindowAction && !restoreRequested) {
 				if (this.keepWarmer) {
 					await this.ensureWarmRenderer();
 				}
@@ -215,9 +219,18 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			}
 		}
 
-		if (this.sessionRestorePending && hasExplicitTarget) {
+		if (this.sessionRestorePending && hasExplicitTarget && !restoreRequested) {
 			this.sessionRestorePending = false;
 			await this.extensionInstaller.replaceSession([]);
+		}
+
+		if (restoreRequested) {
+			this.sessionRestorePending = false;
+			const restored = await this.restoreWindowSession();
+			if (!restored && !this.keepWarm && !options.secondInstance) {
+				await super.handleMainCommand(options);
+			}
+			return;
 		}
 
 		if (hasWindowAction && cliArgs) {
@@ -266,6 +279,13 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	}
 
 	protected async restoreWindowSession(): Promise<boolean> {
+		this.restoreInProgress ??= this.performRestoreWindowSession().finally(() => {
+			this.restoreInProgress = undefined;
+		});
+		return this.restoreInProgress;
+	}
+
+	protected async performRestoreWindowSession(): Promise<boolean> {
 		const storedWorkspaces = await this.extensionInstaller.getRestorableWorkspaces();
 		const workspaces: string[] = [];
 
@@ -282,15 +302,31 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		}
 
 		if (workspaces.length !== storedWorkspaces.length) {
-			await this.extensionInstaller.replaceSession(workspaces);
+			await this.extensionInstaller.pruneUnavailableRestorableWorkspaces(workspaces);
 		}
 		if (workspaces.length === 0) {
 			return false;
 		}
 
-		await Promise.all(workspaces.map((workspacePath, index) =>
-			index === 0 ? this.openWindowWithWorkspace(workspacePath) : this.openNewWindowWithWorkspace(workspacePath)
-		));
+		const windowWorkspaces = await this.extensionInstaller.getOpenWindowWorkspaces();
+		const alreadyOpen = new Set([...windowWorkspaces.values()].filter((workspacePath): workspacePath is string => workspacePath !== undefined));
+		for (const [windowId, known] of this.knownWorkspaceWindows) {
+			if (known.window.isDestroyed() || windowWorkspaces.has(windowId) && windowWorkspaces.get(windowId) !== known.workspacePath) {
+				this.knownWorkspaceWindows.delete(windowId);
+			} else {
+				alreadyOpen.add(known.workspacePath);
+			}
+		}
+		const missingWorkspaces = workspaces.filter(workspacePath => !alreadyOpen.has(workspacePath));
+		const activeWindow = this.getActiveVisibleWindow();
+		const canReuseInitial = !activeWindow || this.initialWindow === activeWindow;
+		for (const [index, workspacePath] of missingWorkspaces.entries()) {
+			if (index === 0 && canReuseInitial) {
+				await this.openWindowWithWorkspace(workspacePath);
+			} else {
+				await this.openNewWindowWithWorkspace(workspacePath);
+			}
+		}
 		return true;
 	}
 
@@ -458,6 +494,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		}
 
 		await this.extensionInstaller.openWorkspace(window.webContents.id, workspacePath);
+		this.rememberWorkspace(window, workspacePath);
 		if (!revealAfterLoad) {
 			this.revealWindow(window);
 		}
@@ -468,9 +505,14 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		const options = await this.getLastWindowOptions();
 		const [uri, window] = await Promise.all([this.createWindowUri(), this.createWindow(options)]);
 		void window.loadURL(uri.withFragment(encodeURI(workspacePath)).toString(true));
+		this.rememberWorkspace(window, workspacePath);
 		return window;
 	}
 
+
+	protected rememberWorkspace(window: BrowserWindow, workspacePath: string): void {
+		this.knownWorkspaceWindows.set(window.webContents.id, { window, workspacePath });
+	}
 
 	protected async createHiddenEmptyRenderer(): Promise<BrowserWindow> {
 		const options = await this.getLastWindowOptions();
@@ -500,7 +542,9 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	protected override async openWindowWithWorkspace(workspacePath: string): Promise<BrowserWindow> {
 		const window = this.takeWarmRenderer();
 		if (!window) {
-			return super.openWindowWithWorkspace(workspacePath);
+			const opened = await super.openWindowWithWorkspace(workspacePath);
+			this.rememberWorkspace(opened, workspacePath);
+			return opened;
 		}
 
 		return this.reloadWorkspaceWindow(window, workspacePath);
@@ -558,10 +602,16 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		const windowTarget = getWindowTarget(cleanApplicationArgs);
 		const hasTarget = hasWindowTarget(cleanApplicationArgs);
 
-		if (wantsKeepWarm && !hasTarget && !hasWindowAction) {
+		if (wantsKeepWarm && !hasTarget && !hasWindowAction && !cliArgs.restore) {
 			if (wantsKeepWarmer && !this.getActiveVisibleWindow()) {
 				await this.ensureWarmRenderer();
 			}
+			return;
+		}
+
+		if (cliArgs.restore) {
+			this.pendingSecondInstanceCliArgs.push(cliArgs);
+			await this.handleMainCommand({ cwd, secondInstance: true });
 			return;
 		}
 

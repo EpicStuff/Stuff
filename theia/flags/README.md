@@ -10,6 +10,7 @@ Resident process flags:
 - `--keep-warmer` includes `--keep-warm` behavior and also keeps one hidden empty Theia frontend renderer preloaded. It still keeps no project workspace open.
 - `--daemon` relaunches the requested invocation as a detached process with standard input and output disconnected from the terminal.
 - `--quit` asks the resident keep warm instance to quit.
+- `--restore` reopens workspaces from the previous session without closing or replacing currently open workspaces. It can be combined with `--keep-warm`, `--keep-warmer`, and `--daemon`.
 
 VS Code compatible flags:
 
@@ -57,7 +58,15 @@ theia
 theia /path/to/project
 ```
 
-A plain `theia` invocation on a fresh process restores all workspace windows from the previous session. The same restoration happens on the first plain `theia` invocation after starting a resident keep warm process. An explicit file, folder, workspace, `--new-window`, `--reuse-window`, `--goto`, or `--diff` suppresses previous session restoration for that process. Closing the last visible window leaves the backend resident in keep warm mode. In warmer mode, a new hidden empty frontend is prepared after the last visible window closes.
+To start the resident process and restore the previous session in a single invocation:
+
+```fish
+theia --keep-warm --restore --daemon
+```
+
+You can also run `theia --restore` after opening another workspace. For example, opening `/path/to/new/project` and then running `theia --restore` keeps that project open while reopening any missing workspaces from the previous session. Already open workspaces are not duplicated. The previous session is captured when the process starts and remains restorable even if opening a different folder replaces the current session on disk.
+
+A plain `theia` invocation on a fresh process restores all workspace windows from the previous session. The same restoration happens on the first plain `theia` invocation after starting a resident keep warm process. An explicit file, folder, workspace, `--new-window`, `--reuse-window`, `--goto`, or `--diff` suppresses automatic previous session restoration, but `--restore` can still be used later in the same process. Closing the last visible window leaves the backend resident in keep warm mode. In warmer mode, a new hidden empty frontend is prepared after the last visible window closes.
 
 Window selection can be made explicit:
 

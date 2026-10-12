@@ -1,7 +1,7 @@
 {
 	"name": "theia-fixes",
 	"version": "0.2.0",
-	"description": "Native Eclipse Theia fixes including draggable editor windows, persistent folding and Hot Exit backups.",
+	"description": "Native Eclipse Theia fixes including draggable editor windows, persistent source code folding and triple click line selection.",
 	"engines": {
 		"node": ">=24"
 	},
@@ -40,6 +40,7 @@
 		"folding",
 		"persistence",
 		"hot-exit",
+		"selection",
 		"tabs",
 		"secondary-window",
 		"electron"

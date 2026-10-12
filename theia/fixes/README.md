@@ -20,6 +20,10 @@ The backup is deliberately scoped to the workspace window. Editor buffers are re
 
 Build with `yarn build`. Run the tests with `yarn test` after building.
 
+## Triple click selection
+
+A triple click in an ordinary Monaco source editor selects all characters of the clicked line without its terminating newline. Single and double clicks, clicks with selection modifiers, and quadruple clicks retain their built in behavior. The change also handles empty lines and does not interfere with selections that Monaco has not recognized as a full line.
+
 ## Draggable windows
 
 Adds VS Code style floating editor behavior to Theia's existing secondary window support.

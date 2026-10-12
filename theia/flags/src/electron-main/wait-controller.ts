@@ -59,7 +59,12 @@ export async function runWaitController(applicationArgs: readonly string[]): Pro
 					}
 				});
 				socket.once('error', error => settle(1, error.message));
-				socket.once('close', () => sockets.delete(socket));
+				socket.once('close', () => {
+					sockets.delete(socket);
+					if (!socket.readableEnded) {
+						settle(1, 'Editor connection interrupted');
+					}
+				});
 			});
 			server.once('error', error => settle(1, error.message));
 			server.listen(socketPath, () => {

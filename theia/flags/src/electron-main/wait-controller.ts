@@ -15,6 +15,7 @@ export async function runWaitController(applicationArgs: readonly string[]): Pro
 	const sockets = new Set<Socket>();
 	const server = createServer();
 	let settle!: (code: number, error?: string) => void;
+	let startupTimeout: ReturnType<typeof setTimeout> | undefined;
 	const onInterrupt = (): void => settle(130);
 	const onTerminate = (): void => settle(143);
 
@@ -35,6 +36,10 @@ export async function runWaitController(applicationArgs: readonly string[]): Pro
 			process.once('SIGINT', onInterrupt);
 			process.once('SIGTERM', onTerminate);
 			server.on('connection', socket => {
+				if (startupTimeout) {
+					clearTimeout(startupTimeout);
+					startupTimeout = undefined;
+				}
 				sockets.add(socket);
 				socket.setEncoding('utf8');
 				let response = '';
@@ -58,6 +63,7 @@ export async function runWaitController(applicationArgs: readonly string[]): Pro
 			});
 			server.once('error', error => settle(1, error.message));
 			server.listen(socketPath, () => {
+				startupTimeout = setTimeout(() => settle(1, 'Theia did not accept the wait request'), 120000);
 				const separator = applicationArgs.indexOf('--');
 				const args = applicationArgs.filter((arg, index) => (separator !== -1 && index > separator) || (arg !== '--wait' && arg !== '-w'));
 				const endOfOptions = args.indexOf('--');
@@ -78,6 +84,9 @@ export async function runWaitController(applicationArgs: readonly string[]): Pro
 			});
 		});
 	} finally {
+		if (startupTimeout) {
+			clearTimeout(startupTimeout);
+		}
 		process.off('SIGINT', onInterrupt);
 		process.off('SIGTERM', onTerminate);
 		for (const socket of sockets) {

@@ -123,6 +123,9 @@ export class HotExitContribution implements FrontendApplicationContribution {
 			const decision = decideHotExitRecovery(backup, baseContent, model.dirty);
 			if (decision === 'restore') {
 				model.textEditorModel.setValue(backup.content);
+			} else if (decision === 'unchanged') {
+				this.backups.delete(uri);
+				this.queue(uri, () => this.backupService.remove(this.workspace, uri));
 			} else if (decision === 'conflict') {
 				this.conflicts.add(uri);
 				this.messages.warn('Hot Exit backup not applied because the file changed: ' + uri);

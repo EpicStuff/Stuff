@@ -18,6 +18,7 @@
 	},
 	"scripts": {
 		"build": "tsc -p tsconfig.json && node build/verify.mjs",
+		"test": "npm run build && node --test test/*.test.cjs",
 		"clean": "rm -rf lib"
 	},
 	"peerDependencies": {

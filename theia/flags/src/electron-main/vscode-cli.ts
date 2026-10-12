@@ -84,6 +84,8 @@ export interface ParsedVscodeCliArgs {
 	newWindow: boolean;
 	reuseWindow: boolean;
 	restore: boolean;
+	wait: boolean;
+	waitSocket?: string;
 	gotoTarget?: string;
 	diffTargets?: [string, string];
 	listExtensions: boolean;
@@ -114,6 +116,7 @@ VS Code compatible options:
       --install-extension <id|vsix>  Install or update an extension
       --uninstall-extension <id>     Uninstall an extension
       --user-data-dir <dir>          Use an isolated Electron and Theia user data directory
+	  -w, --wait                         Wait until the opened file or window closes
       --disable-gpu                  Disable hardware acceleration
 
 Theia options:
@@ -138,6 +141,7 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 		newWindow: false,
 		reuseWindow: false,
 		restore: false,
+		wait: false,
 		listExtensions: false,
 		showVersions: false,
 		installExtensions: [],
@@ -190,6 +194,10 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 				index += 2;
 				break;
 			}
+			case '-w':
+			case '--wait':
+				parsed.wait = true;
+				break;
 			case '--restore':
 				parsed.restore = true;
 				break;
@@ -221,6 +229,8 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 					parsed.uninstallExtensions.push(requireInlineValue(arg, '--uninstall-extension'));
 				} else if (arg.startsWith('--user-data-dir=')) {
 					parsed.userDataDir = requireInlineValue(arg, '--user-data-dir');
+				} else if (arg.startsWith('--theia-wait-socket=')) {
+					parsed.waitSocket = requireInlineValue(arg, '--theia-wait-socket');
 				} else if (arg.startsWith('--goto=')) {
 					parsed.gotoTarget = requireInlineValue(arg, '--goto');
 				} else if (arg.startsWith('-') && !isKnownPassthroughOption(arg)) {
@@ -231,6 +241,15 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 		}
 	}
 
+	if (parsed.wait && parsed.waitSocket) {
+		throw new Error('--wait cannot be combined with an internal wait request');
+	}
+	if (parsed.wait && parsed.restore) {
+		throw new Error('--wait cannot be combined with --restore');
+	}
+	if (parsed.wait && !parsed.newWindow && !parsed.reuseWindow && !parsed.gotoTarget && !parsed.diffTargets && getWindowTarget(parsed.remainingArgs) === undefined) {
+		throw new Error('--wait requires a file, folder, --goto, --diff, --new-window or --reuse-window');
+	}
 	if (parsed.restore && (parsed.newWindow || parsed.reuseWindow || parsed.gotoTarget !== undefined || parsed.diffTargets !== undefined || hasWindowTarget(parsed.remainingArgs))) {
 		throw new Error('--restore cannot be combined with a path or other window opening options');
 	}

@@ -1,4 +1,5 @@
-import { AboutDialog, ApplicationShell, OpenerService, SaveableService } from '@theia/core/lib/browser';
+import { ApplicationShell, OpenerService, SaveableService } from '@theia/core/lib/browser';
+import { AboutDialog } from '@theia/core/lib/browser/about-dialog';
 import { CommonFrontendContribution } from '@theia/core/lib/browser/common-frontend-contribution';
 import { AsyncLocalizationProvider } from '@theia/core/lib/common/i18n/localization';
 import { MessageService } from '@theia/core/lib/common/message-service';

@@ -116,7 +116,7 @@ VS Code compatible options:
       --install-extension <id|vsix>  Install or update an extension
       --uninstall-extension <id>     Uninstall an extension
       --user-data-dir <dir>          Use an isolated Electron and Theia user data directory
-	  -w, --wait                         Wait until the opened file or window closes
+  -w, --wait                         Wait until the opened file or window closes
       --disable-gpu                  Disable hardware acceleration
 
 Theia options:

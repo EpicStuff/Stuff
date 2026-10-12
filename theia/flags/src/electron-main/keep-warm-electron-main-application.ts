@@ -233,7 +233,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			return;
 		}
 
-		if (hasWindowAction && cliArgs) {
+		if ((hasWindowAction || options.file !== undefined) && cliArgs) {
 			try {
 				await this.handleVscodeWindowCommand(cliArgs, options);
 			} catch (error) {

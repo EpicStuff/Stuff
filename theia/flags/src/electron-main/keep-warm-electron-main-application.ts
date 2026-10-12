@@ -294,7 +294,10 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 				console.error(error);
 				result = `1:${error instanceof Error ? error.message : String(error)}`;
 			}
-			await new Promise<void>(resolve => socket.end(result, resolve));
+			await new Promise<void>(resolve => {
+				socket.once('close', resolve);
+				socket.end(result, resolve);
+			});
 		} catch (error) {
 			console.error('Could not complete Theia wait request:', error);
 		} finally {
@@ -313,11 +316,31 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		return new Promise(resolve => window.once('closed', () => resolve()));
 	}
 
+	protected async waitForEditorOrWindowClose(window: BrowserWindow, editorClosed: Promise<void>): Promise<void> {
+		if (window.isDestroyed()) {
+			return;
+		}
+		let onClosed!: () => void;
+		const windowClosed = new Promise<void>(resolve => {
+			onClosed = () => resolve();
+			window.once('closed', onClosed);
+		});
+		try {
+			await Promise.race([editorClosed, windowClosed]);
+		} catch (error) {
+			if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+				throw error;
+			}
+		} finally {
+			window.removeListener('closed', onClosed);
+		}
+	}
+
 	protected async openEditorFile(cliArgs: ParsedVscodeCliArgs, window: BrowserWindow, filePath: string, line?: number, column?: number): Promise<void> {
 		if (cliArgs.waitSocket) {
 			const closing = this.extensionInstaller.openFileAndWait(window.webContents.id, filePath, line, column);
 			this.revealWindow(window);
-			await closing;
+			await this.waitForEditorOrWindowClose(window, closing);
 		} else {
 			await this.extensionInstaller.openFile(window.webContents.id, filePath, line, column);
 			this.revealWindow(window);
@@ -422,7 +445,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		if (cliArgs.waitSocket) {
 			const closing = this.extensionInstaller.openDiffAndWait(window.webContents.id, leftPath, rightPath);
 			this.revealWindow(window);
-			await closing;
+			await this.waitForEditorOrWindowClose(window, closing);
 		} else {
 			await this.extensionInstaller.openDiff(window.webContents.id, leftPath, rightPath);
 			this.revealWindow(window);

@@ -24,11 +24,12 @@ export class HotExitCommonFrontendContribution extends CommonFrontendContributio
 		if (!this.shouldPreventClose && this.shell.canSaveAll() && dirty.length > 0 && dirty.every(widget => widget instanceof EditorWidget) && this.hotExit.canBackUpDirtyEditors(dirty as EditorWidget[])) {
 			return {
 				reason: 'Hot Exit backups for unsaved text editors',
+				priority: Number.MAX_SAFE_INTEGER,
 				action: () => this.hotExit.prepareToExit()
 			};
 		}
 		if (!this.shouldPreventClose && dirty.length === 0 && this.hotExit.hasPendingWork()) {
-			return { reason: 'Finish pending Hot Exit backups', action: () => this.hotExit.prepareToExit() };
+			return { reason: 'Finish pending Hot Exit backups', priority: Number.MAX_SAFE_INTEGER, action: () => this.hotExit.prepareToExit() };
 		}
 		return super.onWillStop();
 	}

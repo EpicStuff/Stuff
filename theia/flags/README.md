@@ -20,6 +20,7 @@ VS Code compatible flags:
 - `-r`, `--reuse-window`
 - `-g`, `--goto <file:line[:column]>`
 - `-d`, `--diff <file1> <file2>`
+- `-w`, `--wait` waits for the requested file editor tab to close, or for the requested window to close when opening a folder or an empty window. It works with an existing resident process and from a cold start.
 - `--list-extensions`
 - `--show-versions`
 - `--install-extension <publisher.name[@version]|file.vsix>`
@@ -83,6 +84,14 @@ Files can be opened at a location or compared:
 theia --goto src/main.ts:40:8
 theia --diff old.txt new.txt
 ```
+
+Git can use Theia as its commit message editor:
+
+```fish
+git config --global core.editor 'theia --wait'
+```
+
+The command does not return until the opened editor tab closes. Save the file before closing the tab to keep your changes. Closing the full Theia window also completes the wait. A failed open or interrupted editor connection returns a nonzero exit status, so Git does not continue as though editing succeeded. Pressing `Ctrl+C` aborts the waiting command without forcibly closing the editor. `--wait` also works with `--goto`, `--diff`, `--new-window`, and `--reuse-window`. The launcher starts an independent Electron invocation with a private local socket for completion, so waiting does not block the running Theia instance or require polling.
 
 Extension management is available without opening a visible Theia window:
 

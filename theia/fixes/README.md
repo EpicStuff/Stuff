@@ -19,3 +19,7 @@ Closing a window with dirty supported text editors waits for the backups to fini
 The backup is deliberately scoped to the workspace window. Editor buffers are restored into Monaco models, not written to their original paths. The extension does not yet preserve Monaco undo history or notebook cell state.
 
 Build with `yarn build`. Run the tests with `yarn test` after building.
+
+## Triple click selection
+
+A triple click in an ordinary Monaco source editor selects all characters of the clicked line without its terminating newline. Single and double clicks, clicks with selection modifiers, and quadruple clicks retain their built in behavior. The change also handles empty lines and does not interfere with selections that Monaco has not recognized as a full line.

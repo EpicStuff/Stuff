@@ -1,7 +1,7 @@
 {
 	"name": "theia-fixes",
 	"version": "0.2.0",
-	"description": "Native Eclipse Theia fixes including persistent folding and Hot Exit backups.",
+	"description": "Native Eclipse Theia fixes including persistent source code folding and triple click line selection.",
 	"engines": {
 		"node": ">=24"
 	},
@@ -38,6 +38,7 @@
 		"theia",
 		"folding",
 		"persistence",
-		"hot-exit"
+		"hot-exit",
+		"selection"
 	]
 }

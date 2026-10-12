@@ -55,6 +55,7 @@ export interface ContextMenuConfigEditorState {
 	selectedKey?: string;
 	mode: 'menu' | 'edit';
 	addFilter: string;
+	currentFilter: string;
 	editingKey?: string;
 	editLabel: string;
 	editWhen: string;
@@ -87,6 +88,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	protected draggedKey: string | undefined;
 	protected mode: 'menu' | 'edit' = 'menu';
 	protected addFilter = '';
+	protected currentFilter = '';
 	protected editingKey: string | undefined;
 	protected editLabel = '';
 	protected editWhen = '';
@@ -147,6 +149,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 			selectedKey: this.selectedKey,
 			mode: this.mode,
 			addFilter: this.addFilter,
+			currentFilter: this.currentFilter,
 			editingKey: this.editingKey,
 			editLabel: this.editLabel,
 			editWhen: this.editWhen,
@@ -168,6 +171,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		this.selectedKey = state.selectedKey;
 		this.mode = state.mode;
 		this.addFilter = state.addFilter;
+		this.currentFilter = state.currentFilter ?? '';
 		this.editingKey = state.editingKey;
 		this.editLabel = state.editLabel;
 		this.editWhen = state.editWhen;
@@ -296,6 +300,8 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		const targets = this.props.service.getTargets();
 		const entries = this.getEntries();
 		const choices = this.getAddChoices();
+		const query = this.currentFilter.trim().toLocaleLowerCase();
+		const shownEntries = query ? this.filterMenuEntries(entries, query) : entries;
 		return (
 			<div style={{ display: 'flex', flexDirection: 'column', gap: '12px', height: '100%', minHeight: 0 }}>
 				<div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '0 0 auto' }}>
@@ -317,7 +323,21 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 					{this.renderAvailableCommands(choices)}
 
 					<div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minHeight: 0, minWidth: 0 }}>
-						<strong>Current Menu</strong>
+						<div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+							<strong style={{ whiteSpace: 'nowrap' }}>Current Menu</strong>
+							<input
+								className='theia-input'
+								aria-label='Search current menu'
+								placeholder='Search commands'
+								spellCheck={false}
+								value={this.currentFilter}
+								onChange={event => {
+									this.currentFilter = event.currentTarget.value;
+									this.forceUpdate();
+								}}
+								style={{ flex: 1, minWidth: 0 }}
+							/>
+						</div>
 						<div
 							key={this.activeTargetId}
 							onDragOver={this.handleMenuEndDragOver}
@@ -330,9 +350,9 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 								padding: '4px'
 							}}
 						>
-							{entries.length
-								? this.renderEntries(entries, 0)
-								: <div style={{ opacity: 0.7, padding: '18px', textAlign: 'center' }}>This menu is empty. Drop commands here to add them.</div>}
+							{shownEntries.length
+								? this.renderEntries(shownEntries, 0)
+								: <div style={{ opacity: 0.7, padding: '18px', textAlign: 'center' }}>{query ? 'No matching menu items.' : 'This menu is empty. Drop commands here to add them.'}</div>}
 						</div>
 					</div>
 				</div>
@@ -394,11 +414,34 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		);
 	}
 
+	/**
+	 * Filters the display only; edits and drag targets still operate on the complete menu model.
+	 * Include submenu ancestors so commands nested inside collapsed submenus remain discoverable.
+	 */
+	protected filterMenuEntries(entries: EditableMenuEntry[], query: string): EditableMenuEntry[] {
+		const result: EditableMenuEntry[] = [];
+		for (const entry of entries) {
+			if (entry.type === 'separator') {
+				continue;
+			}
+			const matches = entry.label.toLocaleLowerCase().includes(query) || !!entry.commandId?.toLocaleLowerCase().includes(query);
+			if (entry.submenu) {
+				const children = matches ? entry.children ?? [] : this.filterMenuEntries(entry.children ?? [], query);
+				if (matches || children.length) {
+					result.push({ ...entry, children });
+				}
+			} else if (matches) {
+				result.push(entry);
+			}
+		}
+		return result;
+	}
+
 	protected renderEntries(entries: EditableMenuEntry[], depth: number): React.ReactNode[] {
 		const result: React.ReactNode[] = [];
 		for (const entry of entries) {
 			result.push(this.renderEntry(entry, depth));
-			if (entry.type === 'item' && entry.submenu && this.expandedKeys.has(entry.key)) {
+			if (entry.type === 'item' && entry.submenu && (this.currentFilter.trim() || this.expandedKeys.has(entry.key))) {
 				const children = entry.children ?? [];
 				result.push(
 					<div key={`${entry.key}:children`}>
@@ -466,7 +509,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 			);
 		}
 
-		const expanded = entry.submenu && this.expandedKeys.has(entry.key);
+		const expanded = entry.submenu && (this.currentFilter.trim() || this.expandedKeys.has(entry.key));
 		return (
 			<div
 				key={entry.key}
@@ -496,14 +539,16 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 							className={codicon(expanded ? 'chevron-down' : 'chevron-right')}
 							role='button'
 							tabIndex={0}
-							title={expanded ? 'Collapse submenu' : 'Expand submenu'}
+							title={this.currentFilter.trim() ? 'Expanded to show search results' : expanded ? 'Collapse submenu' : 'Expand submenu'}
 							onClick={event => {
 								event.stopPropagation();
-								this.toggleExpanded(entry.key);
+								if (!this.currentFilter.trim()) {
+									this.toggleExpanded(entry.key);
+								}
 							}}
 							style={{
 								alignItems: 'center',
-								cursor: 'pointer',
+								cursor: this.currentFilter.trim() ? 'default' : 'pointer',
 								display: 'inline-flex',
 								height: '22px',
 								justifyContent: 'center',

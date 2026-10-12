@@ -27,6 +27,9 @@ export class HotExitCommonFrontendContribution extends CommonFrontendContributio
 				action: () => this.hotExit.prepareToExit()
 			};
 		}
+		if (!this.shouldPreventClose && dirty.length === 0 && this.hotExit.hasPendingWork()) {
+			return { reason: 'Finish pending Hot Exit backups', action: () => this.hotExit.prepareToExit() };
+		}
 		return super.onWillStop();
 	}
 }

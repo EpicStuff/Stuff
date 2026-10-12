@@ -50,6 +50,10 @@ export class HotExitContribution implements FrontendApplicationContribution {
 		});
 	}
 
+	hasPendingWork(): boolean {
+		return this.timers.size > 0 || this.writes.size > 0 || [...this.models.values()].some(entry => entry.model.dirty);
+	}
+
 	canBackUpDirtyEditors(widgets: readonly EditorWidget[]): boolean {
 		return widgets.length > 0 && widgets.every(widget =>
 			widget.editor instanceof MonacoEditor &&
@@ -96,7 +100,7 @@ export class HotExitContribution implements FrontendApplicationContribution {
 			}
 		});
 		model.onDirtyChanged(() => {
-			if (!model.dirty && !this.conflicts.has(uri)) {
+			if (!model.dirty && !this.shuttingDown && !this.conflicts.has(uri)) {
 				entry.baseContent = model.textEditorModel.getValue();
 				this.cancelTimer(uri);
 				this.backups.delete(uri);

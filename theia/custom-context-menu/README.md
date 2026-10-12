@@ -23,6 +23,7 @@ Current features:
 - Theia toolbar icon selector reuse for choosing item icons
 - Side by side Available Commands and Current Menu panels, like Dolphin's toolbar editor, without transfer arrows
 - Searching, double clicking, and dragging available commands directly into the menu or expanded submenus
+- Searching the current menu by command name or ID, automatically showing matching commands inside submenus without changing the saved layout
 - Adding registered commands
 - Restoring a menu to its contributed default layout
 - Live editing: every change is written to the settings immediately, with no Save or Apply step

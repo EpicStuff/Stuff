@@ -76,14 +76,22 @@ export class KeepWarmExtensionInstallerClientImpl implements KeepWarmExtensionIn
 		await Promise.all(waits);
 	}
 
-	async openDiff(leftPath: string, rightPath: string): Promise<void> {
-		const uri = DiffUris.encode(FileUri.create(leftPath), FileUri.create(rightPath));
+	async openDiff(leftPath: string, rightPath: string, leftExists: boolean, rightExists: boolean): Promise<void> {
+		const uri = this.createDiffUri(leftPath, rightPath, leftExists, rightExists);
 		await open(this.openerService, uri);
 	}
-	async openDiffAndWait(leftPath: string, rightPath: string): Promise<void> {
-		const uri = DiffUris.encode(FileUri.create(leftPath), FileUri.create(rightPath));
+
+	async openDiffAndWait(leftPath: string, rightPath: string, leftExists: boolean, rightExists: boolean): Promise<void> {
+		const uri = this.createDiffUri(leftPath, rightPath, leftExists, rightExists);
 		const widget = await open(this.openerService, uri);
 		await this.waitForEditorClose(widget, uri.toString());
+	}
+
+	protected createDiffUri(leftPath: string, rightPath: string, leftExists: boolean, rightExists: boolean) {
+		const left = FileUri.create(leftPath);
+		const right = FileUri.create(rightPath);
+		// Use empty untitled models for missing files without creating files on disk.
+		return DiffUris.encode(leftExists ? left : left.withScheme('untitled'), rightExists ? right : right.withScheme('untitled'));
 	}
 
 	protected waitForEditorClose(opened: object | undefined, resource: string): Promise<void> {

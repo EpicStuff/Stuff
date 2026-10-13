@@ -85,6 +85,8 @@ theia --goto src/main.ts:40:8
 theia --diff old.txt new.txt
 ```
 
+`--diff` accepts nonexistent file paths without creating files on disk. Missing sides use empty untitled buffers, including the Git `/dev/null` marker. The comparison requests window focus before opening the editor and flashes the taskbar entry if the window manager denies activation.
+
 Git can use Theia as its commit message editor:
 
 ```fish

@@ -11,6 +11,8 @@ import { inject, injectable } from '@theia/core/shared/inversify';
 import { KeepWarmExtensionInstallerServiceImpl } from './keep-warm-extension-installer-service';
 import { ParsedVscodeCliArgs, VSCODE_COMPAT_HELP, getWindowTarget, getWindowTargetIndices, getWindowTargets, hasWindowTarget, parseGotoTarget, parseVscodeCliArgs } from './vscode-cli';
 import { runWaitController } from './wait-controller';
+import { resolveDiffFileTarget } from './diff-file-target';
+import { revealEditorWindow } from './window-attention';
 
 const KEEP_WARM_FLAG = '--keep-warm';
 const KEEP_WARMER_FLAG = '--keep-warmer';
@@ -486,16 +488,14 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	}
 
 	protected async openDiffTargets(cliArgs: ParsedVscodeCliArgs, targets: [string, string], cwd: string): Promise<void> {
-		const leftPath = await this.resolveFilePath(targets[0], cwd);
-		const rightPath = await this.resolveFilePath(targets[1], cwd);
+		const [left, right] = await Promise.all(targets.map(target => resolveDiffFileTarget(target, cwd)));
 		const window = await this.acquireEditorWindow(cliArgs);
+		this.revealWindow(window);
 		if (cliArgs.waitSocket) {
-			const closing = this.extensionInstaller.openDiffAndWait(window.webContents.id, leftPath, rightPath);
-			this.revealWindow(window);
+			const closing = this.extensionInstaller.openDiffAndWait(window.webContents.id, left.path, right.path, left.exists, right.exists);
 			await this.waitForEditorOrWindowClose(window, closing);
 		} else {
-			await this.extensionInstaller.openDiff(window.webContents.id, leftPath, rightPath);
-			this.revealWindow(window);
+			await this.extensionInstaller.openDiff(window.webContents.id, left.path, right.path, left.exists, right.exists);
 		}
 	}
 
@@ -634,13 +634,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	}
 
 	protected revealWindow(window: BrowserWindow): void {
-		if (window.isDestroyed()) {
-			return;
-		}
-		if (!window.isVisible()) {
-			window.show();
-		}
-		window.focus();
+		revealEditorWindow(window);
 	}
 
 	protected async reloadWorkspaceWindow(window: BrowserWindow, workspacePath: string): Promise<BrowserWindow> {

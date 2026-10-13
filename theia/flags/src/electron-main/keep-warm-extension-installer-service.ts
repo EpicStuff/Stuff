@@ -88,14 +88,14 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 		await client.openFilesAndWait(filePaths);
 	}
 
-	async openDiff(windowId: number, leftPath: string, rightPath: string): Promise<void> {
+	async openDiff(windowId: number, leftPath: string, rightPath: string, leftExists: boolean, rightExists: boolean): Promise<void> {
 		const client = await this.waitForClient(windowId);
-		await client.openDiff(leftPath, rightPath);
+		await client.openDiff(leftPath, rightPath, leftExists, rightExists);
 	}
 
-	async openDiffAndWait(windowId: number, leftPath: string, rightPath: string): Promise<void> {
+	async openDiffAndWait(windowId: number, leftPath: string, rightPath: string, leftExists: boolean, rightExists: boolean): Promise<void> {
 		const client = await this.waitForClient(windowId);
-		await client.openDiffAndWait(leftPath, rightPath);
+		await client.openDiffAndWait(leftPath, rightPath, leftExists, rightExists);
 	}
 
 	rejectWindowWaiters(windowId: number): void {

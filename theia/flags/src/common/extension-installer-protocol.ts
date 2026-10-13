@@ -9,8 +9,8 @@ export interface KeepWarmExtensionInstallerClient {
 	openFile(filePath: string, line?: number, column?: number): Promise<void>;
 	openFileAndWait(filePath: string, line?: number, column?: number): Promise<void>;
 	openFilesAndWait(filePaths: string[]): Promise<void>;
-	openDiff(leftPath: string, rightPath: string): Promise<void>;
-	openDiffAndWait(leftPath: string, rightPath: string): Promise<void>;
+	openDiff(leftPath: string, rightPath: string, leftExists: boolean, rightExists: boolean): Promise<void>;
+	openDiffAndWait(leftPath: string, rightPath: string, leftExists: boolean, rightExists: boolean): Promise<void>;
 }
 
 export const KeepWarmExtensionInstallerService = Symbol('KeepWarmExtensionInstallerService');

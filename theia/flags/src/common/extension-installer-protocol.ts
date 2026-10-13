@@ -8,6 +8,7 @@ export interface KeepWarmExtensionInstallerClient {
 	openWorkspace(workspacePath: string): Promise<void>;
 	openFile(filePath: string, line?: number, column?: number): Promise<void>;
 	openFileAndWait(filePath: string, line?: number, column?: number): Promise<void>;
+	openFilesAndWait(filePaths: string[]): Promise<void>;
 	openDiff(leftPath: string, rightPath: string): Promise<void>;
 	openDiffAndWait(leftPath: string, rightPath: string): Promise<void>;
 }

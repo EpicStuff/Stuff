@@ -270,16 +270,18 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 	return parsed;
 }
 
-export function getWindowTargets(args: readonly string[]): string[] {
-	const targets: string[] = [];
+export function getWindowTargetIndices(args: readonly string[]): number[] {
+	const targets: number[] = [];
 	for (let index = 0; index < args.length; index++) {
 		const arg = args[index];
 		if (arg === '--') {
-			targets.push(...args.slice(index + 1));
+			for (let target = index + 1; target < args.length; target++) {
+				targets.push(target);
+			}
 			break;
 		}
 		if (!arg.startsWith('-')) {
-			targets.push(arg);
+			targets.push(index);
 			continue;
 		}
 		const separator = arg.indexOf('=');
@@ -289,6 +291,10 @@ export function getWindowTargets(args: readonly string[]): string[] {
 		}
 	}
 	return targets;
+}
+
+export function getWindowTargets(args: readonly string[]): string[] {
+	return getWindowTargetIndices(args).map(index => args[index]);
 }
 
 export function getWindowTarget(args: readonly string[]): string | undefined {

@@ -2,7 +2,7 @@
 
 Native Eclipse Theia Electron startup extension verified against Theia 1.75.0. The build fails if the upstream Theia Electron startup, window, and extension install code it overrides or relies on changes from that version.
 
-It adds resident startup behavior plus a VS Code compatible CLI layer.
+It adds resident startup behavior plus a VS Code compatible CLI layer. During the application build, the extension patches the Theia 1.75.0 Electron bootstrap generator to validate CLI arguments before Electron acquires the single instance lock. Unknown options now print the error and usage to the invoking terminal and exit with status 1, even when another Theia instance is running. The build fails if the expected bootstrap layout changes.
 
 Resident process flags:
 

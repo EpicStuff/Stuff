@@ -13,11 +13,12 @@
 	],
 	"exports": {
 		"./lib/electron-main/theia-keep-warm-electron-main-module": "./lib/electron-main/theia-keep-warm-electron-main-module.js",
+		"./lib/electron-main/vscode-cli": "./lib/electron-main/vscode-cli.js",
 		"./lib/electron-browser/theia-keep-warm-frontend-module": "./lib/electron-browser/theia-keep-warm-frontend-module.js",
 		"./lib/node/theia-keep-warm-backend-module": "./lib/node/theia-keep-warm-backend-module.js"
 	},
 	"scripts": {
-		"build": "tsc -p tsconfig.json && node build/verify.mjs",
+		"build": "tsc -p tsconfig.json && node build/verify.mjs && node build/patch-electron-bootstrap.mjs",
 		"test": "npm run build && node --test test/*.test.cjs",
 		"clean": "rm -rf lib"
 	},

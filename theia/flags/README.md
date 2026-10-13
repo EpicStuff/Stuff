@@ -91,7 +91,7 @@ Git can use Theia as its commit message editor:
 git config --global core.editor 'theia --wait'
 ```
 
-The command does not return until the opened editor tab closes. Save the file before closing the tab to keep your changes. Closing the full Theia window also completes the wait. A failed open or interrupted editor connection returns a nonzero exit status, so Git does not continue as though editing succeeded. Pressing `Ctrl+C` aborts the waiting command without forcibly closing the editor. `--wait` also works with `--goto`, `--diff`, `--new-window`, and `--reuse-window`. The launcher starts an independent Electron invocation with a private local socket for completion, so waiting does not block the running Theia instance or require polling.
+The command does not return until the requested editor tab closes. Save the file before closing the tab to keep your changes. Closing the full Theia window also completes the wait. Editor moves and replacements for the same file do not finish the wait, and pending saves must finish before Git continues. Multiple files can be passed to `--wait`, in which case all of them must close. An explicit folder or empty window request waits for the selected window to close or reload. A failed open or interrupted editor connection returns a nonzero exit status, so Git does not continue as though editing succeeded. Pressing `Ctrl+C` aborts the waiting command without forcibly closing the editor. `--wait` also works with `--goto`, `--diff`, `--new-window`, and `--reuse-window`. The launcher uses a private local socket for completion, so waiting does not block the running Theia instance or require polling.
 
 Extension management is available without opening a visible Theia window:
 

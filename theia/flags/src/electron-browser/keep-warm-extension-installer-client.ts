@@ -66,6 +66,16 @@ export class KeepWarmExtensionInstallerClientImpl implements KeepWarmExtensionIn
 		await this.waitForEditorClose(widget, uri.toString());
 	}
 
+	async openFilesAndWait(filePaths: string[]): Promise<void> {
+		const waits: Promise<void>[] = [];
+		for (const filePath of filePaths) {
+			const uri = FileUri.create(filePath);
+			const widget = await open(this.openerService, uri);
+			waits.push(this.waitForEditorClose(widget, uri.toString()));
+		}
+		await Promise.all(waits);
+	}
+
 	async openDiff(leftPath: string, rightPath: string): Promise<void> {
 		const uri = DiffUris.encode(FileUri.create(leftPath), FileUri.create(rightPath));
 		await open(this.openerService, uri);

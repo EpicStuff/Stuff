@@ -929,11 +929,6 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 						? choices.map(choice => this.renderAddChoice(choice))
 						: <div style={{ opacity: 0.7, padding: '18px', textAlign: 'center' }}>No matching commands.</div>}
 				</div>
-				<div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-					<button type='button' className='theia-button main' disabled={!this.selectedAddKey} onClick={this.addSelectedChoice}>
-						Add Command
-					</button>
-				</div>
 			</div>
 		);
 	}
@@ -974,16 +969,6 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		this.renamingKey = undefined;
 		this.entries = undefined;
 		this.forceUpdate();
-	};
-
-	protected addSelectedChoice = (): void => {
-		if (!this.selectedAddKey) {
-			return;
-		}
-		const choice = this.getAddChoices().find(candidate => candidate.key === this.selectedAddKey);
-		if (choice) {
-			this.addChoice(choice);
-		}
 	};
 
 	protected addChoice(choice: AddChoice, targetKey?: string, position: 'before' | 'after' | 'inside' | 'end' = 'after'): void {

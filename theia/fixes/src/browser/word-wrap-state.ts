@@ -1,26 +1,16 @@
 export type WordWrapOverride = 'on' | 'off' | 'inherit';
 
-/** A temporary override belonging to a Monaco text model, not a user preference. */
-export class TransientWordWrapState {
-	private readonly states = new WeakMap<object, 'on' | 'off'>();
+export function nextWordWrapOverride(current: WordWrapOverride, currentlyWrapped: boolean): WordWrapOverride {
+	return current === 'inherit' ? (currentlyWrapped ? 'off' : 'on') : 'inherit';
+}
 
-	get(model: object | null): WordWrapOverride {
-		return model ? this.states.get(model) ?? 'inherit' : 'inherit';
+/** Copy a diff's temporary override to the other side only if it has none. */
+export function syncedDiffWordWrapOverride(original: WordWrapOverride, modified: WordWrapOverride): 'on' | 'off' | undefined {
+	if (original !== 'inherit' && modified === 'inherit') {
+		return original;
 	}
-
-	set(model: object, override: WordWrapOverride): void {
-		if (override === 'inherit') {
-			this.states.delete(model);
-		} else {
-			this.states.set(model, override);
-		}
+	if (modified !== 'inherit' && original === 'inherit') {
+		return modified;
 	}
-
-	/** The next toggle restores the configured wrap mode rather than forcing another mode. */
-	toggle(model: object, currentlyWrapped: boolean): WordWrapOverride {
-		const previous = this.get(model);
-		const next = previous === 'inherit' ? (currentlyWrapped ? 'off' : 'on') : 'inherit';
-		this.set(model, next);
-		return next;
-	}
+	return undefined;
 }

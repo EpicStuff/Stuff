@@ -23,3 +23,9 @@ Build with `yarn build`. Run the tests with `yarn test` after building.
 ## Triple click selection
 
 A triple click in an ordinary Monaco source editor selects all characters of the clicked line without its terminating newline. Single and double clicks, clicks with selection modifiers, and quadruple clicks retain their built in behavior. The change also handles empty lines and does not interfere with selections that Monaco has not recognized as a full line.
+
+## Word wrap toggle
+
+The View: Toggle Word Wrap command now matches VS Code: it temporarily switches wrapping for the current Monaco text document without updating `editor.wordWrap` or other saved preferences. The next toggle removes the temporary override and restores the configured wrapping mode, including `wordWrapColumn` and `bounded`.
+
+The temporary state is associated with Monaco's text model, so split editors display the same wrapping and switching tabs keeps the state until the model is released. Diff editor sides are toggled together. Editor wrapping still responds to user, workspace and language preferences when there is no temporary override.

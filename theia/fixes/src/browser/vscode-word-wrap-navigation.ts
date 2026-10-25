@@ -2,7 +2,8 @@ import { DisposableCollection } from '@theia/core/lib/common';
 import { injectable } from '@theia/core/shared/inversify';
 import { EditorCommands } from '@theia/editor/lib/browser/editor-command';
 import { EditorNavigationContribution } from '@theia/editor/lib/browser/editor-navigation-contribution';
-import * as monaco from '@theia/monaco-editor-core';
+import { EditorOption } from '@theia/monaco-editor-core/esm/vs/editor/common/config/editorOptions';
+import { ITextModel } from '@theia/monaco-editor-core/esm/vs/editor/common/model';
 import { ICodeEditor, IDiffEditor } from '@theia/monaco-editor-core/esm/vs/editor/browser/editorBrowser';
 import { ICodeEditorService } from '@theia/monaco-editor-core/esm/vs/editor/browser/services/codeEditorService';
 import { StandaloneServices } from '@theia/monaco-editor-core/esm/vs/editor/standalone/browser/standaloneServices';
@@ -30,7 +31,7 @@ export class VSCodeWordWrapNavigationContribution extends EditorNavigationContri
 		handler.isEnabled = () => this.canToggle(this.getActiveEditor());
 		handler.isToggled = () => {
 			const editor = this.getActiveEditor();
-			return this.canToggle(editor) && editor.getOption(monaco.editor.EditorOption.wrappingInfo).wrappingColumn !== -1;
+			return this.canToggle(editor) && editor.getOption(EditorOption.wrappingInfo).wrappingColumn !== -1;
 		};
 	}
 
@@ -68,7 +69,7 @@ export class VSCodeWordWrapNavigationContribution extends EditorNavigationContri
 			return;
 		}
 		const model = editor.getModel()!;
-		const wrapped = editor.getOption(monaco.editor.EditorOption.wrappingInfo).wrappingColumn !== -1;
+		const wrapped = editor.getOption(EditorOption.wrappingInfo).wrappingColumn !== -1;
 		const override = nextWordWrapOverride(this.readState(model), wrapped);
 		this.writeState(model, override);
 		// Apply the same temporary override to the other side of a diff editor.
@@ -90,7 +91,7 @@ export class VSCodeWordWrapNavigationContribution extends EditorNavigationContri
 		if (!editor || editor.isSimpleWidget || !editor.getModel()) {
 			return false;
 		}
-		if (editor.getOption(monaco.editor.EditorOption.inDiffEditor)) {
+		if (editor.getOption(EditorOption.inDiffEditor)) {
 			for (const diff of this.codeEditorService.listDiffEditors()) {
 				if (diff.getOriginalEditor() === editor && !diff.renderSideBySide) {
 					return false;
@@ -100,7 +101,7 @@ export class VSCodeWordWrapNavigationContribution extends EditorNavigationContri
 		return true;
 	}
 
-	private readState(model: monaco.editor.ITextModel | null): WordWrapOverride {
+	private readState(model: ITextModel | null): WordWrapOverride {
 		if (!model) {
 			return 'inherit';
 		}
@@ -108,7 +109,7 @@ export class VSCodeWordWrapNavigationContribution extends EditorNavigationContri
 		return state === 'on' || state === 'off' ? state : 'inherit';
 	}
 
-	private writeState(model: monaco.editor.ITextModel, override: WordWrapOverride): void {
+	private writeState(model: ITextModel, override: WordWrapOverride): void {
 		this.codeEditorService.setTransientModelProperty(model, WORD_WRAP_STATE_KEY, override === 'inherit' ? null : override);
 		this.applyToModel(model);
 	}
@@ -132,7 +133,7 @@ export class VSCodeWordWrapNavigationContribution extends EditorNavigationContri
 		};
 		subscriptions.push(editor.onDidChangeModel(apply));
 		subscriptions.push(editor.onDidChangeConfiguration(event => {
-			if (event.hasChanged(monaco.editor.EditorOption.wrappingInfo) || event.hasChanged(monaco.editor.EditorOption.wordWrapOverride2)) {
+			if (event.hasChanged(EditorOption.wrappingInfo) || event.hasChanged(EditorOption.wordWrapOverride2)) {
 				apply();
 			}
 		}));
@@ -184,7 +185,7 @@ export class VSCodeWordWrapNavigationContribution extends EditorNavigationContri
 		diff.updateOptions({});
 	}
 
-	private applyToModel(model: monaco.editor.ITextModel): void {
+	private applyToModel(model: ITextModel): void {
 		for (const editor of this.tracked.keys()) {
 			if (editor.getModel() === model) {
 				this.applyState(editor);
@@ -200,7 +201,7 @@ export class VSCodeWordWrapNavigationContribution extends EditorNavigationContri
 		if (override === 'inherit' && !this.applied.has(editor)) {
 			return;
 		}
-		if (editor.getOption(monaco.editor.EditorOption.wordWrapOverride2) !== override) {
+		if (editor.getOption(EditorOption.wordWrapOverride2) !== override) {
 			editor.updateOptions({ wordWrapOverride2: override });
 		}
 		if (override === 'inherit') {

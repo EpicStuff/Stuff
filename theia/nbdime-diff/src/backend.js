@@ -104,6 +104,7 @@ function renderDiffPage(html) {
 function startProxy(backendPort, token) {
 	return new Promise((resolve, reject) => {
 		const prefix = `/${token}/`;
+		const xsrfToken = crypto.randomBytes(16).toString('hex');
 		const proxy = http.createServer((request, response) => {
 			const pathname = new URL(request.url, 'http://127.0.0.1').pathname;
 			const relative = pathname.startsWith(prefix) ? pathname.slice(prefix.length) : '';
@@ -118,6 +119,10 @@ function startProxy(backendPort, token) {
 			delete headers['content-length'];
 			delete headers.origin;
 			delete headers.referer;
+			if (relative === 'api/diff' && request.method === 'POST') {
+				headers.cookie = `_xsrf=${xsrfToken}`;
+				headers['x-xsrftoken'] = xsrfToken;
+			}
 			const upstream = http.request({hostname: '127.0.0.1', port: backendPort, path: request.url, method: request.method, headers}, upstreamResponse => {
 				const resultHeaders = {...upstreamResponse.headers};
 				delete resultHeaders['content-security-policy'];

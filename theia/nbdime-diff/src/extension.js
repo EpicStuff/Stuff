@@ -97,12 +97,15 @@ async function openNotebookDiff(tab, force = false) {
 			cleanupBackend(backend);
 			return;
 		}
-		const target = await vscode.env.asExternalUri(vscode.Uri.parse(backend.uri));
+		const sourceUrl = new URL(backend.uri);
+		const target = await vscode.env.asExternalUri(vscode.Uri.parse(sourceUrl.origin + sourceUrl.pathname));
+		const targetUrl = new URL(target.toString());
+		for (const [name, value] of sourceUrl.searchParams) targetUrl.searchParams.append(name, value);
 		const title = path.basename(input.modified.path || input.original.path || 'notebook.ipynb');
 		const column = tab.group ? tab.group.viewColumn : vscode.ViewColumn.Active;
 		panel = vscode.window.createWebviewPanel('notebookDiff.nbdime', `nbdime: ${title}`, column, {enableScripts: true, retainContextWhenHidden: true});
 		const nonce = crypto.randomBytes(16).toString('base64');
-		const html = webviewDocument(target.toString(), title, panel.webview.cspSource, nonce);
+		const html = webviewDocument(targetUrl.toString(), title, panel.webview.cspSource, nonce);
 		const session = {panel, backend};
 		sessions.add(session);
 		panel.onDidDispose(() => {

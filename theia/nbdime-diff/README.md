@@ -18,7 +18,7 @@ Your installed `nbdime` 4.0.4 is suitable. The extension uses `nbdime diff-web` 
 
 ## Installation
 
-Use **Extensions: Install from VSIX...** in Theia and choose `theia-nbdime-diff-0.1.3.vsix`.
+Use **Extensions: Install from VSIX...** in Theia and choose `theia-nbdime-diff-0.1.4.vsix`.
 
 When a notebook text diff opens, the extension reads the original and modified revision URIs, saves temporary notebook snapshots, and starts `nbdime diff-web` on localhost with a private URL prefix. An internal local proxy permits nbdime's page to load in Theia's webview, removes the iframe blocking CSP header, and adds a message that only fires once the notebook comparison widget appears.
 
@@ -39,7 +39,7 @@ A `Notebook Diff: Open Active Notebook Diff with nbdime` command is also provide
 - Uses the installed nbdime comparison engine and web viewer without bundling them.
 - Accepts the version output from `nbdime --version` even if nbdime exits with code 1 and `nbdime diff-web` to launch the comparison.
 - Binds both the viewer and proxy to `127.0.0.1`; the URL contains a cryptographically random prefix. Do not expose these ports to a network.
-- Uses a local HTTP proxy only for the diff view, its API, and static assets. The proxy removes nbdime's `frame-ancestors` restriction so Theia can embed it. It does not change the browser's global security settings.
+- Uses a local HTTP proxy only for the diff view, its API, and static assets. The proxy removes nbdime's `frame-ancestors` restriction so Theia can embed it and supplies an XSRF token to the diff API. It does not change the browser's global security settings.
 - GitLens and Source Control will still open the JSON text diff first; this VS Code compatible extension then opens its own webview and closes the original after rendering. A native Theia `OpenHandler` is needed to replace the editor before it opens.
 - If the backend fails, the JSON diff remains available and an error is shown.
 

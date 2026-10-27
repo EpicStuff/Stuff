@@ -2,7 +2,7 @@
 	"name": "theia-nbdime-diff",
 	"displayName": "Notebook Diff for GitLens and SCM",
 	"description": "Automatically show Jupyter notebook diffs with the installed nbdime CLI in Theia and VS Code.",
-	"version": "0.1.3",
+	"version": "0.1.4",
 	"publisher": "local",
 	"license": "MIT",
 	"engines": {

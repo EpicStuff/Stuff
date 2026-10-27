@@ -50,6 +50,12 @@ http.createServer((req, res) => {
 		res.setHeader('Content-Type', 'text/html; charset=utf-8');
 		res.end('<html><body><div id="nbdime-root"></div></body></html>');
 	} else if (req.url.startsWith(prefix + 'api/diff')) {
+		const xsrf = req.headers['x-xsrftoken'];
+		if (req.method !== 'POST' || !xsrf || req.headers.cookie !== '_xsrf=' + xsrf) {
+			res.statusCode = 403;
+			res.end('XSRF token missing');
+			return;
+		}
 		res.setHeader('Content-Type', 'application/json');
 		res.end(JSON.stringify({base: {cells: []}, diff: []}));
 	} else if (req.url.startsWith(prefix + 'static/')) {
@@ -79,7 +85,11 @@ http.createServer((req, res) => {
 			fs: {readFile: async () => Buffer.from(NOTEBOOK)},
 			getConfiguration: () => ({get: (key, def) => def})
 		},
-		env: {asExternalUri: async uri => uri, openExternal: async () => true},
+		env: {asExternalUri: async uri => {
+			const url = new URL(uri.toString());
+			if (url.search) url.search = `?${encodeURIComponent(url.search.slice(1))}`;
+			return {toString: () => url.toString()};
+		}, openExternal: async () => true},
 		commands: {registerCommand: () => ({dispose() {}}), executeCommand: async () => undefined},
 		window: {
 			tabGroups: {
@@ -120,12 +130,25 @@ http.createServer((req, res) => {
 		assert.match(createdPanel.webview.html, /nbdime: sample.ipynb/);
 		assert.match(createdPanel.webview.html, /iframe/);
 		assert.equal(closed, 0);
-		const url = createdPanel.webview.html.match(/src='([^']+\/diff\?base=before\.ipynb[^']+)'/)[1];
+		const url = createdPanel.webview.html.match(/src='([^']+\/diff\?base=before\.ipynb[^']+)'/)[1].replaceAll('&amp;', '&');
+		assert.match(url, /\?base=before\.ipynb&remote=after\.ipynb$/);
 		const page = await get(url);
 		assert.equal(page.status, 200);
 		assert.equal(page.headers['content-security-policy'], undefined);
 		assert.match(page.body, /theia-nbdime-ready/);
 		assert.match(page.body, /nbdime-root/);
+		const apiUrl = new URL(url);
+		apiUrl.pathname = apiUrl.pathname.replace(/\/diff$/, '/api/diff');
+		apiUrl.search = '';
+		const apiStatus = await new Promise((resolve, reject) => {
+			const request = http.request(apiUrl, {method: 'POST', headers: {'content-type': 'application/json'}}, response => {
+				response.resume();
+				response.on('end', () => resolve(response.statusCode));
+			});
+			request.once('error', reject);
+			request.end(JSON.stringify({base: 'before.ipynb', remote: 'after.ipynb'}));
+		});
+		assert.equal(apiStatus, 200);
 		await onMessage({type: 'loaded'});
 		assert.equal(closed, 0, 'A generic iframe load must not close the JSON diff');
 		await onMessage({type: 'ready'});

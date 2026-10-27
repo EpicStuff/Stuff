@@ -1,0 +1,54 @@
+{
+	"name": "theia-nbdime-diff",
+	"displayName": "Notebook Diff for GitLens and SCM",
+	"description": "Automatically show Jupyter notebook diffs with the installed nbdime CLI in Theia and VS Code.",
+	"version": "0.1.3",
+	"publisher": "local",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.76.0"
+	},
+	"categories": [
+		"Other"
+	],
+	"activationEvents": [
+		"onStartupFinished",
+		"onCommand:notebookDiff.openActiveDiff"
+	],
+	"main": "./src/extension.js",
+	"extensionKind": [
+		"workspace"
+	],
+	"contributes": {
+		"commands": [
+			{
+				"command": "notebookDiff.openActiveDiff",
+				"title": "Open Active Notebook Diff with nbdime",
+				"category": "Notebook Diff"
+			}
+		],
+		"configuration": {
+			"title": "Notebook Diff",
+			"properties": {
+				"notebookDiff.enabled": {
+					"type": "boolean",
+					"default": true,
+					"description": "Automatically open nbdime when an .ipynb text diff is opened by GitLens, Source Control, or another extension."
+				},
+				"notebookDiff.replaceOriginalDiff": {
+					"type": "boolean",
+					"default": true,
+					"description": "Close the JSON diff tab only once the nbdime viewer has rendered successfully."
+				},
+				"notebookDiff.hideUnchanged": {
+					"type": "boolean",
+					"default": true,
+					"description": "Initially collapse unchanged notebook cells in the nbdime viewer."
+				}
+			}
+		}
+	},
+	"scripts": {
+		"test": "node --test test/*.test.js"
+	}
+}

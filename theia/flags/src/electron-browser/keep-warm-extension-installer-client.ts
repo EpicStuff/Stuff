@@ -1,4 +1,5 @@
 import { ApplicationShell, FrontendApplicationContribution, OpenerService, open } from '@theia/core/lib/browser';
+import { FrontendApplicationStateService } from '@theia/core/lib/browser/frontend-application-state';
 import { NavigatableWidget } from '@theia/core/lib/browser/navigatable';
 import { Saveable } from '@theia/core/lib/browser/saveable';
 import { Widget } from '@theia/core/shared/@lumino/widgets';
@@ -9,6 +10,7 @@ import { inject, injectable } from '@theia/core/shared/inversify';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { KeepWarmExtensionInstallerClient, KeepWarmExtensionInstallerService } from '../common/extension-installer-protocol';
 import { WaitEditor, waitForEditorResourcesClosed } from './wait-for-editors';
+import { whenFrontendReady } from './when-frontend-ready';
 
 @injectable()
 export class KeepWarmExtensionInstallerClientImpl implements KeepWarmExtensionInstallerClient {
@@ -24,15 +26,23 @@ export class KeepWarmExtensionInstallerClientImpl implements KeepWarmExtensionIn
 	@inject(ApplicationShell)
 	protected readonly shell!: ApplicationShell;
 
+	@inject(FrontendApplicationStateService)
+	protected readonly frontendState!: FrontendApplicationStateService;
+
 	async getWindowId(): Promise<number> {
-		const electronWindow = window as Window & typeof globalThis & {
-			electronTheiaCore: {
-				WindowMetadata: {
-					webcontentId: string;
+		// The main process uses this call as the frontend registration handshake.
+		// Do not register a new window until the editor layout has been initialized
+		// and restored, otherwise early CLI opens can be overwritten at startup.
+		return whenFrontendReady(this.frontendState, () => {
+			const electronWindow = window as Window & typeof globalThis & {
+				electronTheiaCore: {
+					WindowMetadata: {
+						webcontentId: string;
+					};
 				};
 			};
-		};
-		return Number(electronWindow.electronTheiaCore.WindowMetadata.webcontentId);
+			return Number(electronWindow.electronTheiaCore.WindowMetadata.webcontentId);
+		});
 	}
 
 	async getWorkspacePath(): Promise<string | undefined> {

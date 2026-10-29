@@ -134,3 +134,7 @@ Normal Theia launches share one Electron main process for the same user data dir
 ## File opening and retained sessions
 
 Nonexistent file arguments such as `theia new-file.py` and `theia --goto new-file.py:12` open an unsaved untitled editor without creating the file on disk. This also works with `--wait`. When the resident process has no editor windows, opening an explicit target replaces the saved session of previously closed workspaces; invoking `--restore` first still restores that session.
+
+## Opening files into a newly created window
+
+The frontend now waits for Theia's `ready` application state before reporting its window ID to the Electron main process. The main process holds CLI open requests until this registration completes. This prevents the editor layout initialization and restoration from replacing files opened too early when no editor window already exists. The same handshake covers initial startup, resident processes, warm renderers, and new window requests.

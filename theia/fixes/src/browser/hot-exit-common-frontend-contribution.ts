@@ -21,7 +21,17 @@ export class HotExitCommonFrontendContribution extends CommonFrontendContributio
 
 	override onWillStop(): OnWillStopAction | undefined {
 		const dirty = this.shell.widgets.filter(widget => Saveable.isDirty(widget));
-		if (!this.shouldPreventClose && this.shell.canSaveAll() && dirty.length > 0 && dirty.every(widget => widget instanceof EditorWidget) && this.hotExit.canBackUpDirtyEditors(dirty as EditorWidget[])) {
+		const editors = new Set<EditorWidget>();
+		const collect = (widget: typeof dirty[number]): boolean => {
+			if (widget instanceof EditorWidget) {
+				editors.add(widget);
+				return true;
+			}
+			const nested = widget as typeof widget & { getTrackableWidgets?: () => typeof dirty };
+			return typeof nested.getTrackableWidgets === 'function' && nested.getTrackableWidgets().filter(child => Saveable.isDirty(child)).every(child => collect(child));
+		};
+		const allSupported = dirty.every(widget => collect(widget));
+		if (!this.shouldPreventClose && this.shell.canSaveAll() && dirty.length > 0 && allSupported && editors.size > 0 && this.hotExit.canBackUpDirtyEditors([...editors])) {
 			return {
 				reason: 'Hot Exit backups for unsaved text editors',
 				priority: Number.MAX_SAFE_INTEGER,

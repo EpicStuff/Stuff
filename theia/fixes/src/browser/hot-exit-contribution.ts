@@ -1,4 +1,5 @@
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
+import { WindowService } from '@theia/core/lib/browser/window/window-service';
 import { FrontendApplicationStateService } from '@theia/core/lib/browser/frontend-application-state';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { URI } from '@theia/core/lib/common/uri';
@@ -8,7 +9,7 @@ import { MonacoEditor } from '@theia/monaco/lib/browser/monaco-editor';
 import { MonacoEditorModel } from '@theia/monaco/lib/browser/monaco-editor-model';
 import { MonacoTextModelService } from '@theia/monaco/lib/browser/monaco-text-model-service';
 import { HotExitBackup, HotExitBackupService } from '../common/hot-exit-protocol';
-import { decideHotExitRecovery } from './hot-exit-state';
+import { decideHotExitRecovery, selectHotExitBackups } from './hot-exit-state';
 
 @injectable()
 export class HotExitContribution implements FrontendApplicationContribution {
@@ -27,9 +28,14 @@ export class HotExitContribution implements FrontendApplicationContribution {
 	@inject(MessageService)
 	protected readonly messages!: MessageService;
 
+	@inject(WindowService)
+	protected readonly windowService!: WindowService;
+
 	private readonly models = new Map<string, { model: MonacoEditorModel; baseContent: string }>();
 	private readonly backups = new Map<string, HotExitBackup>();
+	private readonly recovered = new Map<string, HotExitBackup>();
 	private readonly conflicts = new Set<string>();
+	private windowId = 0;
 	private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
 	private readonly writes = new Map<string, Promise<void>>();
 	private shuttingDown = false;
@@ -37,10 +43,22 @@ export class HotExitContribution implements FrontendApplicationContribution {
 
 	async onStart(): Promise<void> {
 		this.workspace = decodeURI(window.location.hash.slice(1));
-		const saved = await this.backupService.list(this.workspace);
-		for (const backup of saved) {
-			this.backups.set(backup.uri, backup);
+		this.windowId = Number((window as Window & { electronTheiaCore: { WindowMetadata: { webcontentId: string } } }).electronTheiaCore.WindowMetadata.webcontentId);
+		const saved = await this.backupService.list(this.workspace, this.windowId);
+		const { selected, conflicts } = selectHotExitBackups(saved);
+		for (const [uri, backup] of selected) {
+			this.backups.set(uri, backup);
 		}
+		for (const uri of conflicts) {
+			this.conflicts.add(uri);
+			this.messages.warn('Multiple Hot Exit versions exist for ' + uri + '. The backups are preserved for manual recovery.');
+		}
+		const service = this.windowService as WindowService & { isSafeToShutDown(reason: unknown): Promise<boolean> };
+		const original = service.isSafeToShutDown.bind(service);
+		service.isSafeToShutDown = async reason => {
+			const allowed = await original(reason);
+			return allowed && (!this.hasPendingWork() || await this.prepareToExit());
+		};
 		this.modelService.onDidCreate(model => this.track(model));
 		for (const model of this.modelService.models) {
 			this.track(model);
@@ -57,8 +75,7 @@ export class HotExitContribution implements FrontendApplicationContribution {
 	canBackUpDirtyEditors(widgets: readonly EditorWidget[]): boolean {
 		return widgets.length > 0 && widgets.every(widget =>
 			widget.editor instanceof MonacoEditor &&
-			this.models.get(widget.editor.document.uri)?.model === widget.editor.document &&
-			!this.conflicts.has(widget.editor.document.uri)
+			this.models.get(widget.editor.document.uri)?.model === widget.editor.document
 		);
 	}
 
@@ -70,19 +87,22 @@ export class HotExitContribution implements FrontendApplicationContribution {
 			this.timers.clear();
 			const tasks: Promise<void>[] = [];
 			for (const [uri, entry] of this.models) {
-				if (entry.model.dirty && !this.conflicts.has(uri)) {
+				if (entry.model.dirty) {
 					tasks.push(this.enqueueWrite(uri, entry));
 				}
 			}
 			await Promise.all(tasks);
 			await Promise.all(this.writes.values());
-			this.shuttingDown = true;
 			return true;
 		} catch (error) {
 			this.messages.error('Hot Exit could not back up unsaved changes. Restart or exit cancelled.');
 			console.error('Hot Exit backup failed:', error);
 			return false;
 		}
+	}
+
+	onStop(): void {
+		this.shuttingDown = true;
 	}
 
 	private track(model: MonacoEditorModel): void {
@@ -95,16 +115,19 @@ export class HotExitContribution implements FrontendApplicationContribution {
 		this.models.set(uri, entry);
 
 		model.onDidChangeContent(() => {
-			if (model.dirty && !this.conflicts.has(uri)) {
+			if (model.dirty) {
 				this.scheduleWrite(uri, entry);
 			}
 		});
 		model.onDirtyChanged(() => {
-			if (!model.dirty && !this.shuttingDown && !this.conflicts.has(uri)) {
+			if (!model.dirty && !this.shuttingDown) {
 				entry.baseContent = model.textEditorModel.getValue();
 				this.cancelTimer(uri);
 				this.backups.delete(uri);
-				this.queue(uri, () => this.backupService.remove(this.workspace, uri));
+				this.queue(uri, async () => {
+					await this.backupService.remove(this.workspace, uri, this.windowId);
+					await this.discardRecovered(uri);
+				});
 			}
 		});
 		model.onWillDispose(() => {
@@ -112,9 +135,12 @@ export class HotExitContribution implements FrontendApplicationContribution {
 				this.models.delete(uri);
 			}
 			this.cancelTimer(uri);
-			if (!this.shuttingDown && !this.conflicts.has(uri)) {
+			if (!this.shuttingDown && !model.dirty) {
 				this.backups.delete(uri);
-				this.queue(uri, () => this.backupService.remove(this.workspace, uri));
+				this.queue(uri, async () => {
+					await this.backupService.remove(this.workspace, uri, this.windowId);
+					await this.discardRecovered(uri);
+				});
 			}
 		});
 
@@ -122,10 +148,15 @@ export class HotExitContribution implements FrontendApplicationContribution {
 		if (backup) {
 			const decision = decideHotExitRecovery(backup, baseContent, model.dirty);
 			if (decision === 'restore') {
+				this.recovered.set(uri, backup);
 				model.textEditorModel.setValue(backup.content);
+				this.scheduleWrite(uri, entry);
 			} else if (decision === 'unchanged') {
 				this.backups.delete(uri);
-				this.queue(uri, () => this.backupService.remove(this.workspace, uri));
+				this.queue(uri, async () => {
+					await this.backupService.remove(this.workspace, uri, this.windowId);
+					await this.backupService.removeRecovered(backup, this.windowId);
+				});
 			} else if (decision === 'conflict') {
 				this.conflicts.add(uri);
 				this.messages.warn('Hot Exit backup not applied because the file changed: ' + uri);
@@ -151,7 +182,7 @@ export class HotExitContribution implements FrontendApplicationContribution {
 		this.cancelTimer(uri);
 		this.timers.set(uri, setTimeout(() => {
 			this.timers.delete(uri);
-			if (entry.model.dirty && !this.conflicts.has(uri)) {
+			if (entry.model.dirty) {
 				void this.enqueueWrite(uri, entry).catch(error => console.error('Hot Exit backup failed:', error));
 			}
 		}, 250));
@@ -168,7 +199,18 @@ export class HotExitContribution implements FrontendApplicationContribution {
 	private enqueueWrite(uri: string, entry: { model: MonacoEditorModel; baseContent: string }): Promise<void> {
 		const backup: HotExitBackup = { workspace: this.workspace, uri, baseContent: entry.baseContent, content: entry.model.textEditorModel.getValue() };
 		this.backups.set(uri, backup);
-		return this.queue(uri, () => this.backupService.write(backup));
+		return this.queue(uri, async () => {
+			await this.backupService.write(backup, this.windowId);
+			await this.discardRecovered(uri);
+		});
+	}
+
+	private async discardRecovered(uri: string): Promise<void> {
+		const backup = this.recovered.get(uri);
+		if (backup) {
+			await this.backupService.removeRecovered(backup, this.windowId);
+			this.recovered.delete(uri);
+		}
 	}
 
 	private queue(uri: string, operation: () => Promise<void>): Promise<void> {

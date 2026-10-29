@@ -29,3 +29,9 @@ A triple click in an ordinary Monaco source editor selects all characters of the
 The View: Toggle Word Wrap command now matches VS Code: it temporarily switches wrapping for the current Monaco text document without updating `editor.wordWrap` or other saved preferences. The next toggle removes the temporary override and restores the configured wrapping mode, including `wordWrapColumn` and `bounded`.
 
 The temporary state uses Monaco's transient model properties, so split editors display the same wrapping and switching tabs keeps the state until the model is released. Diff editor sides are synchronized when toggled and when compared models change. The command targets the focused Monaco editor, including embedded editors, and follows VS Code's inline diff restrictions. Menu enablement and its checked state reflect the active editor. Editor preferences still apply whenever there is no temporary override.
+
+## Hot Exit across windows
+
+Backup filenames are scoped to the owning Electron window and process run as well as the workspace and file URI. Two windows editing the same file cannot overwrite or delete each other's backup files. Older backups remain readable. Backups from other currently open windows are not recovered into the new window. If multiple abandoned versions exist for the same file, recovery does not select one automatically: both JSON backups remain on disk for manual recovery.
+
+Grouped Monaco text editors are included in Hot Exit. A final backup check during Electron shutdown also runs when `application.confirmExit` is set to `never`. Notebooks and unsupported custom editors still do not have Hot Exit backup support.

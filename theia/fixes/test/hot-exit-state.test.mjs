@@ -19,3 +19,20 @@ test('preserves backup when disk was modified externally', () => {
 test('never overwrites a model already containing new unsaved changes', () => {
 	assert.equal(decideHotExitRecovery(backup, 'initial', true), 'conflict');
 });
+
+test('separate window versions never overwrite one another during recovery', async () => {
+	const { selectHotExitBackups } = await import('../lib/browser/hot-exit-state.js');
+	const left = { ...backup, owner: 'run-a:1', content: 'window one' };
+	const right = { ...backup, owner: 'run-a:2', content: 'window two' };
+	const { selected, conflicts } = selectHotExitBackups([left, right]);
+	assert.equal(selected.size, 0);
+	assert.deepEqual([...conflicts], [backup.uri]);
+});
+
+test('unambiguous files can recover independently', async () => {
+	const { selectHotExitBackups } = await import('../lib/browser/hot-exit-state.js');
+	const other = { ...backup, uri: 'file:///project/other.ts', owner: 'run-a:2' };
+	const { selected, conflicts } = selectHotExitBackups([backup, other]);
+	assert.equal(selected.size, 2);
+	assert.equal(conflicts.size, 0);
+});

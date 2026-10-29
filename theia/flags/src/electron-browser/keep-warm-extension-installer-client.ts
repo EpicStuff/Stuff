@@ -44,32 +44,33 @@ export class KeepWarmExtensionInstallerClientImpl implements KeepWarmExtensionIn
 		this.windowService.reload();
 	}
 
-	async openFile(filePath: string, line?: number, column?: number): Promise<void> {
+	async openFile(filePath: string, line?: number, column?: number, exists = true): Promise<void> {
 		const selection = line === undefined ? undefined : {
 			start: {
 				line: line - 1,
 				character: (column ?? 1) - 1
 			}
 		};
-		await open(this.openerService, FileUri.create(filePath), selection ? { selection } : undefined);
+		const uri = exists ? FileUri.create(filePath) : FileUri.create(filePath).withScheme('untitled');
+		await open(this.openerService, uri, selection ? { selection } : undefined);
 	}
 
-	async openFileAndWait(filePath: string, line?: number, column?: number): Promise<void> {
+	async openFileAndWait(filePath: string, line?: number, column?: number, exists = true): Promise<void> {
 		const selection = line === undefined ? undefined : {
 			start: {
 				line: line - 1,
 				character: (column ?? 1) - 1
 			}
 		};
-		const uri = FileUri.create(filePath);
+		const uri = exists ? FileUri.create(filePath) : FileUri.create(filePath).withScheme('untitled');
 		const widget = await open(this.openerService, uri, selection ? { selection } : undefined);
 		await this.waitForEditorClose(widget, uri.toString());
 	}
 
-	async openFilesAndWait(filePaths: string[]): Promise<void> {
+	async openFilesAndWait(filePaths: string[], exists?: boolean[]): Promise<void> {
 		const waits: Promise<void>[] = [];
-		for (const filePath of filePaths) {
-			const uri = FileUri.create(filePath);
+		for (const [index, filePath] of filePaths.entries()) {
+			const uri = exists?.[index] === false ? FileUri.create(filePath).withScheme('untitled') : FileUri.create(filePath);
 			const widget = await open(this.openerService, uri);
 			waits.push(this.waitForEditorClose(widget, uri.toString()));
 		}

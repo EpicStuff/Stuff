@@ -14,6 +14,7 @@ import { runWaitController } from './wait-controller';
 import { resolveDiffFileTarget } from './diff-file-target';
 import { revealEditorWindow } from './window-attention';
 import { selectExistingEditorWindow } from './editor-window-selection';
+import { resolveWindowPathTarget } from './window-path-target';
 
 const KEEP_WARM_FLAG = '--keep-warm';
 const KEEP_WARMER_FLAG = '--keep-warmer';
@@ -23,6 +24,7 @@ const QUIT_FLAG = '--quit';
 interface ResolvedPathTarget {
 	path: string;
 	isWorkspace: boolean;
+	exists: boolean;
 }
 
 @injectable()
@@ -248,7 +250,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			return;
 		}
 
-		if (this.sessionRestorePending && hasExplicitTarget && !restoreRequested) {
+		if (hasExplicitTarget && !restoreRequested && (this.sessionRestorePending || options.secondInstance && !selectExistingEditorWindow(this.activeWindowStack, this.windows, this.warmRenderer))) {
 			this.sessionRestorePending = false;
 			await this.extensionInstaller.replaceSession([]);
 		}
@@ -293,7 +295,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			const disconnected = new Promise<undefined>(resolve => socket.once('close', () => resolve(undefined)));
 			const operation = (async (): Promise<string> => {
 				try {
-					if (this.sessionRestorePending && hasExplicitTarget) {
+					if (hasExplicitTarget && (this.sessionRestorePending || options.secondInstance && !selectExistingEditorWindow(this.activeWindowStack, this.windows, this.warmRenderer))) {
 						this.sessionRestorePending = false;
 						await this.extensionInstaller.replaceSession([]);
 					}
@@ -373,13 +375,13 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		}
 	}
 
-	protected async openEditorFile(cliArgs: ParsedVscodeCliArgs, window: BrowserWindow, filePath: string, line?: number, column?: number): Promise<void> {
+	protected async openEditorFile(cliArgs: ParsedVscodeCliArgs, window: BrowserWindow, filePath: string, line?: number, column?: number, exists = true): Promise<void> {
 		this.revealWindow(window);
 		if (cliArgs.waitSocket) {
-			const closing = this.extensionInstaller.openFileAndWait(window.webContents.id, filePath, line, column);
+			const closing = this.extensionInstaller.openFileAndWait(window.webContents.id, filePath, line, column, exists);
 			await this.waitForEditorOrWindowClose(window, closing);
 		} else {
-			await this.extensionInstaller.openFile(window.webContents.id, filePath, line, column);
+			await this.extensionInstaller.openFile(window.webContents.id, filePath, line, column, exists);
 		}
 	}
 
@@ -474,15 +476,15 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 
 	protected async openGotoTarget(cliArgs: ParsedVscodeCliArgs, target: string, cwd: string): Promise<void> {
 		const parsedTarget = parseGotoTarget(target);
-		const filePath = await this.resolveFilePath(parsedTarget.filePath, cwd);
+		const target = await resolveDiffFileTarget(parsedTarget.filePath, cwd);
 		const window = await this.acquireEditorWindow(cliArgs);
-		await this.openEditorFile(cliArgs, window, filePath, parsedTarget.line, parsedTarget.column);
+		await this.openEditorFile(cliArgs, window, target.path, parsedTarget.line, parsedTarget.column, target.exists);
 	}
 
 	protected async openFilesAndWait(cliArgs: ParsedVscodeCliArgs, paths: readonly string[], cwd: string): Promise<void> {
-		const resolved = await Promise.all(paths.map(file => this.resolveFilePath(file, cwd)));
+		const resolved = await Promise.all(paths.map(file => resolveDiffFileTarget(file, cwd)));
 		const window = await this.acquireEditorWindow(cliArgs);
-		const completion = this.extensionInstaller.openFilesAndWait(window.webContents.id, resolved);
+		const completion = this.extensionInstaller.openFilesAndWait(window.webContents.id, resolved.map(target => target.path), resolved.map(target => target.exists));
 		this.revealWindow(window);
 		await this.waitForEditorOrWindowClose(window, completion);
 	}
@@ -520,31 +522,11 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		}
 
 		const window = await this.acquireEditorWindow(cliArgs);
-		await this.openEditorFile(cliArgs, window, target.path);
+		await this.openEditorFile(cliArgs, window, target.path, undefined, undefined, target.exists);
 	}
 
 	protected async resolvePathTarget(inputPath: string, cwd: string): Promise<ResolvedPathTarget> {
-		const resolvedPath = await fs.realpath(path.resolve(cwd, inputPath));
-		const stat = await fs.stat(resolvedPath);
-		const extension = path.extname(resolvedPath).toLowerCase();
-
-		if (!stat.isDirectory() && !stat.isFile()) {
-			throw new Error(`Path is not a file or directory: ${inputPath}`);
-		}
-
-		return {
-			path: resolvedPath,
-			isWorkspace: stat.isDirectory() || extension === '.theia-workspace' || extension === '.code-workspace'
-		};
-	}
-
-	protected async resolveFilePath(inputPath: string, cwd: string): Promise<string> {
-		const resolvedPath = await fs.realpath(path.resolve(cwd, inputPath));
-		const stat = await fs.stat(resolvedPath);
-		if (!stat.isFile()) {
-			throw new Error(`Path is not a file: ${inputPath}`);
-		}
-		return resolvedPath;
+		return resolveWindowPathTarget(inputPath, cwd);
 	}
 
 	protected async acquireEditorWindow(cliArgs: ParsedVscodeCliArgs): Promise<BrowserWindow> {

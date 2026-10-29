@@ -130,3 +130,7 @@ theia --quit
 ```
 
 Normal Theia launches share one Electron main process for the same user data directory. Additional `theia` invocations are routed into that process using Electron's single instance payload so the original command line is preserved. `--disable-gpu` remains an independent process because hardware acceleration has to be configured before Electron starts.
+
+## File opening and retained sessions
+
+Nonexistent file arguments such as `theia new-file.py` and `theia --goto new-file.py:12` open an unsaved untitled editor without creating the file on disk. This also works with `--wait`. When the resident process has no editor windows, opening an explicit target replaces the saved session of previously closed workspaces; invoking `--restore` first still restores that session.

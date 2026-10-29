@@ -1,7 +1,9 @@
 import { Command, CommandContribution, CommandRegistry, Disposable, Emitter, MenuContribution, MenuModelRegistry, URI } from '@theia/core';
 import { ApplicationShell, codicon, StorageService } from '@theia/core/lib/browser';
+import { KeybindingRegistry } from '@theia/core/lib/browser/keybinding';
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
 import * as React from '@theia/core/shared/react';
+import * as monaco from '@theia/monaco-editor-core';
 import { CellKind } from '@theia/notebook/lib/common';
 import { NotebookMenus } from '@theia/notebook/lib/browser/contributions/notebook-actions-contribution';
 import { NotebookCellActionContribution, NotebookCellCommands } from '@theia/notebook/lib/browser/contributions/notebook-cell-actions-contribution';
@@ -32,8 +34,10 @@ const instrumentedFindMatches = new WeakSet<object>();
 
 let autoExpandedFindCell: NotebookCellModel | undefined;
 let notebookCellEditorService: NotebookCellEditorService | undefined;
+let notebookKeybindingRegistry: KeybindingRegistry | undefined;
 
 const collapsedCodeCellHiddenAreaSource = {};
+const collapsedCodeCellMoreWidgets = new WeakMap<NotebookCellModel, { editor: monaco.editor.ICodeEditor; widget: monaco.editor.IContentWidget }>();
 
 let inputCollapseStorageService: StorageService | undefined;
 let persistedInputCollapseState: PersistedInputCollapseState = {};
@@ -143,6 +147,77 @@ function getCodeCellEditor(cell: NotebookCellModel) {
 	return notebookCellEditorService?.allCellEditors.find(editor => editor.uri.toString() === cell.uri.toString());
 }
 
+function getExpandCellInputTitle(): string {
+	const binding = notebookKeybindingRegistry?.getKeybindingsForCommand(NotebookCellInputCollapseCommands.EXPAND.id)[0];
+	if (!binding || !notebookKeybindingRegistry) {
+		return 'Expand Cell Input';
+	}
+	const accelerator = notebookKeybindingRegistry.acceleratorFor(binding, '+').join(' ');
+	return accelerator ? `Expand Cell Input (${accelerator})` : 'Expand Cell Input';
+}
+
+function removeCollapsedCodeCellMoreWidget(cell: NotebookCellModel): void {
+	const existing = collapsedCodeCellMoreWidgets.get(cell);
+	if (!existing) {
+		return;
+	}
+	existing.editor.removeContentWidget(existing.widget);
+	collapsedCodeCellMoreWidgets.delete(cell);
+}
+
+function ensureCollapsedCodeCellMoreWidget(cell: NotebookCellModel, editor: monaco.editor.ICodeEditor): void {
+	const model = editor.getModel();
+	if (!model) {
+		return;
+	}
+
+	const existing = collapsedCodeCellMoreWidgets.get(cell);
+	if (existing?.editor === editor) {
+		editor.layoutContentWidget(existing.widget);
+		return;
+	}
+	if (existing) {
+		existing.editor.removeContentWidget(existing.widget);
+	}
+
+	const domNode = document.createElement('span');
+	domNode.className = `${codicon('more')} theia-notebook-cell-toolbar-item`;
+	domNode.title = getExpandCellInputTitle();
+	domNode.style.alignItems = 'center';
+	domNode.style.borderRadius = '5px';
+	domNode.style.color = 'var(--theia-descriptionForeground)';
+	domNode.style.cursor = 'pointer';
+	domNode.style.display = 'flex';
+	domNode.style.height = '18px';
+	domNode.style.justifyContent = 'center';
+	domNode.style.marginLeft = '4px';
+	domNode.style.width = '18px';
+	domNode.addEventListener('mousedown', event => {
+		event.preventDefault();
+		event.stopPropagation();
+	});
+	domNode.addEventListener('click', event => {
+		event.preventDefault();
+		event.stopPropagation();
+		setInputCollapsed(cell, false);
+	});
+
+	const widget: monaco.editor.IContentWidget = {
+		getDomNode: () => domNode,
+		getId: () => `notebook-cell-collapse-more-${cell.handle}`,
+		getPosition: () => ({
+			position: {
+				lineNumber: 1,
+				column: model.getLineMaxColumn(1)
+			},
+			preference: [monaco.editor.ContentWidgetPositionPreference.EXACT]
+		})
+	};
+	editor.addContentWidget(widget);
+	editor.layoutContentWidget(widget);
+	collapsedCodeCellMoreWidgets.set(cell, { editor, widget });
+}
+
 function applyCollapsedCodeEditorState(cell: NotebookCellModel, collapsed: boolean): void {
 	if (cell.cellKind !== CellKind.Code) {
 		return;
@@ -163,8 +238,13 @@ function applyCollapsedCodeEditorState(cell: NotebookCellModel, collapsed: boole
 			endColumn: model.getLineMaxColumn(lineCount)
 		}], collapsedCodeCellHiddenAreaSource, true);
 		editor.setScrollTop(0);
+		ensureCollapsedCodeCellMoreWidget(cell, editor);
+	} else if (collapsed) {
+		editor.setHiddenAreas([], collapsedCodeCellHiddenAreaSource, true);
+		ensureCollapsedCodeCellMoreWidget(cell, editor);
 	} else {
 		editor.setHiddenAreas([], collapsedCodeCellHiddenAreaSource, true);
+		removeCollapsedCodeCellMoreWidget(cell);
 	}
 }
 
@@ -446,40 +526,10 @@ class CollapsibleCodeCellInput extends React.Component<CollapsibleCodeCellInputP
 				{
 					style: {
 						maxHeight: '37px',
-						overflow: 'hidden',
-						position: 'relative'
+						overflow: 'hidden'
 					}
 				},
-				editor,
-				React.createElement('span', {
-					className: codicon('more'),
-					onClick: (event: React.MouseEvent<HTMLSpanElement>) => {
-						event.preventDefault();
-						event.stopPropagation();
-						setInputCollapsed(this.props.cell, false);
-					},
-					onMouseDown: (event: React.MouseEvent<HTMLSpanElement>) => {
-						event.preventDefault();
-						event.stopPropagation();
-					},
-					style: {
-						alignItems: 'center',
-						background: 'var(--theia-editor-background)',
-						borderRadius: '5px',
-						cursor: 'pointer',
-						display: 'flex',
-						height: '16px',
-						justifyContent: 'center',
-						opacity: 0.7,
-						padding: '2px',
-						position: 'absolute',
-						right: '8px',
-						top: '8px',
-						width: '16px',
-						zIndex: 20
-					},
-					title: 'Expand Cell Input'
-				})
+				editor
 			)
 			: editor;
 
@@ -753,6 +803,9 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 	@inject(NotebookCellEditorService)
 	protected readonly notebookCellEditorService!: NotebookCellEditorService;
 
+	@inject(KeybindingRegistry)
+	protected readonly keybindingRegistry!: KeybindingRegistry;
+
 	@inject(ApplicationShell)
 	protected readonly applicationShell!: ApplicationShell;
 
@@ -768,6 +821,7 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 	@postConstruct()
 	protected init(): void {
 		notebookCellEditorService = this.notebookCellEditorService;
+		notebookKeybindingRegistry = this.keybindingRegistry;
 		initializeInputCollapsePersistence(this.storageService, this.notebookEditorWidgetService);
 		document.addEventListener('keydown', this.handleNotebookEditorKeyDown, true);
 	}

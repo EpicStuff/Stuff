@@ -41,3 +41,7 @@ Grouped Monaco text editors are included in Hot Exit. A final backup check durin
 Diff editors opened without an explicit preview choice use Theia's existing temporary editor tabs, matching VS Code. A new diff replaces the previous temporary tab in the same editor group. Double clicking the tab or choosing Keep Open makes it permanent. Explicit `preview: false` requests stay permanent, and the `editor.enablePreview` preference is respected. Ordinary editors are unchanged.
 
 This is implemented by extending Theia's existing `EditorPreviewManager` instead of installing a separate diff editor or overriding commands. The behavior applies to diff URI editors regardless of which opener produced them.
+
+## Natural Explorer sorting
+
+Explorer file and directory names use VS Code's default numeric comparison, so `1`, `2`, `10`, `11` appear in that order. Numeric ties place the shorter name first. Directories remain before files, as in Theia's original Explorer. The fix replaces only the Explorer's tree implementation in its child container; file dialogs and other filesystem trees are unaffected.

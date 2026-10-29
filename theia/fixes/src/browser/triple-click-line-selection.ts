@@ -3,7 +3,8 @@ import { DisposableCollection } from '@theia/core/lib/common';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { EditorManager, EditorWidget } from '@theia/editor/lib/browser';
 import { MonacoEditor } from '@theia/monaco/lib/browser/monaco-editor';
-import { getTripleClickSelection } from './triple-click-selection';
+import { MonacoDiffEditor } from '@theia/monaco/lib/browser/monaco-diff-editor';
+import { getTripleClickControls, getTripleClickSelection } from './triple-click-selection';
 
 @injectable()
 export class TripleClickLineSelectionContribution implements FrontendApplicationContribution {
@@ -33,9 +34,13 @@ export class TripleClickLineSelectionContribution implements FrontendApplication
 			return;
 		}
 
-		const control = widget.editor.getControl();
+		// getControl() refers only to the modified (right) side of a diff.
+		// Subscribe to the original editor separately so both sides behave alike.
+		const modified = widget.editor.getControl();
+		const original = widget.editor instanceof MonacoDiffEditor ? widget.editor.diffEditor.getOriginalEditor() : undefined;
 		const subscriptions = new DisposableCollection();
-		subscriptions.push(control.onMouseDown(event => {
+		for (const control of getTripleClickControls(modified, original)) {
+			subscriptions.push(control.onMouseDown(event => {
 			const mouse = event.event;
 			if (mouse.detail !== 3 || !mouse.leftButton || mouse.altKey || mouse.ctrlKey || mouse.metaKey || mouse.shiftKey) {
 				return;
@@ -53,7 +58,8 @@ export class TripleClickLineSelectionContribution implements FrontendApplication
 			if (selection) {
 				control.setSelection(selection);
 			}
-		}));
+			}));
+		}
 		subscriptions.push(widget.onDispose(() => {
 			subscriptions.dispose();
 			this.tracked.delete(widget);

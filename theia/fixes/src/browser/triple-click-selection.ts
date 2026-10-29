@@ -13,3 +13,8 @@ export function getTripleClickSelection(clickCount: number, lineNumber: number, 
 
 	return { startLineNumber: lineNumber, startColumn: 1, endLineNumber: lineNumber, endColumn: lineMaxColumn };
 }
+
+/** A diff exposes two distinct Monaco code editor mouse event streams. */
+export function getTripleClickControls<T>(modified: T, original?: T): T[] {
+	return original === undefined || original === modified ? [modified] : [original, modified];
+}

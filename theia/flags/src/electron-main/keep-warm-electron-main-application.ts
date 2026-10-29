@@ -476,9 +476,9 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 
 	protected async openGotoTarget(cliArgs: ParsedVscodeCliArgs, target: string, cwd: string): Promise<void> {
 		const parsedTarget = parseGotoTarget(target);
-		const target = await resolveDiffFileTarget(parsedTarget.filePath, cwd);
+		const resolvedTarget = await resolveDiffFileTarget(parsedTarget.filePath, cwd);
 		const window = await this.acquireEditorWindow(cliArgs);
-		await this.openEditorFile(cliArgs, window, target.path, parsedTarget.line, parsedTarget.column, target.exists);
+		await this.openEditorFile(cliArgs, window, resolvedTarget.path, parsedTarget.line, parsedTarget.column, resolvedTarget.exists);
 	}
 
 	protected async openFilesAndWait(cliArgs: ParsedVscodeCliArgs, paths: readonly string[], cwd: string): Promise<void> {

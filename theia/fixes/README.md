@@ -45,3 +45,7 @@ This is implemented by extending Theia's existing `EditorPreviewManager` instead
 ## Natural Explorer sorting
 
 Explorer file and directory names use VS Code's default numeric comparison, so `1`, `2`, `10`, `11` appear in that order. Numeric ties place the shorter name first. Directories remain before files, as in Theia's original Explorer. The fix replaces only the Explorer's tree implementation in its child container; file dialogs and other filesystem trees are unaffected.
+
+## Swap diff sides
+
+In a text diff editor, the Compare: Swap Left and Right Editor Side command and arrow swap toolbar button reverse the original and modified files. The replacement opens as a permanent tab in the same editor group and position. Theia's existing diff opener supplies the editor, and the original comparison closes after the new one opens. For unsaved changes on the old modified side, an editable tab is retained before swapping, matching VS Code's safeguard. Ordinary file editors and custom diff widgets are unaffected.

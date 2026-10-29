@@ -13,6 +13,7 @@ import { ParsedVscodeCliArgs, VSCODE_COMPAT_HELP, getWindowTarget, getWindowTarg
 import { runWaitController } from './wait-controller';
 import { resolveDiffFileTarget } from './diff-file-target';
 import { revealEditorWindow } from './window-attention';
+import { selectExistingEditorWindow } from './editor-window-selection';
 
 const KEEP_WARM_FLAG = '--keep-warm';
 const KEEP_WARMER_FLAG = '--keep-warmer';
@@ -373,13 +374,12 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	}
 
 	protected async openEditorFile(cliArgs: ParsedVscodeCliArgs, window: BrowserWindow, filePath: string, line?: number, column?: number): Promise<void> {
+		this.revealWindow(window);
 		if (cliArgs.waitSocket) {
 			const closing = this.extensionInstaller.openFileAndWait(window.webContents.id, filePath, line, column);
-			this.revealWindow(window);
 			await this.waitForEditorOrWindowClose(window, closing);
 		} else {
 			await this.extensionInstaller.openFile(window.webContents.id, filePath, line, column);
-			this.revealWindow(window);
 		}
 	}
 
@@ -558,7 +558,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			return super.openDefaultWindow();
 		}
 
-		const activeWindow = this.getActiveVisibleWindow();
+		const activeWindow = selectExistingEditorWindow(this.activeWindowStack, this.windows, this.warmRenderer);
 		if (activeWindow) {
 			return activeWindow;
 		}

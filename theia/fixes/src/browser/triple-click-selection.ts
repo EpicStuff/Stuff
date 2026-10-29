@@ -1,3 +1,5 @@
+import type { ICodeEditor } from '@theia/monaco-editor-core/esm/vs/editor/browser/editorBrowser';
+
 /** A Monaco line selection includes the newline by ending at column 1 of the next line. */
 export interface LineSelectionRange {
 	startLineNumber: number;
@@ -14,7 +16,25 @@ export function getTripleClickSelection(clickCount: number, lineNumber: number, 
 	return { startLineNumber: lineNumber, startColumn: 1, endLineNumber: lineNumber, endColumn: lineMaxColumn };
 }
 
-/** A diff exposes two distinct Monaco code editor mouse event streams. */
-export function getTripleClickControls<T>(modified: T, original?: T): T[] {
-	return original === undefined || original === modified ? [modified] : [original, modified];
+
+/** Installs the selection adjustment on any Monaco editor, including embedded editors. */
+export function listenForTripleClickSelection(control: ICodeEditor): { dispose(): void } {
+	return control.onMouseDown(event => {
+		const mouse = event.event;
+		if (mouse.detail !== 3 || !mouse.leftButton || mouse.altKey || mouse.ctrlKey || mouse.metaKey || mouse.shiftKey) {
+			return;
+		}
+
+		const lineNumber = event.target.position?.lineNumber;
+		const model = control.getModel();
+		if (!lineNumber || !model) {
+			return;
+		}
+
+		// Monaco has already performed its native full line selection.
+		const selection = getTripleClickSelection(mouse.detail, lineNumber, model.getLineMaxColumn(lineNumber), control.getSelection());
+		if (selection) {
+			control.setSelection(selection);
+		}
+	});
 }

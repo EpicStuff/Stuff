@@ -49,3 +49,7 @@ Explorer file and directory names use VS Code's default numeric comparison, so `
 ## Swap diff sides
 
 In a text diff editor, the Compare: Swap Left and Right Editor Side command and arrow swap toolbar button reverse the original and modified files. The replacement opens as a permanent tab in the same editor group and position. Theia's existing diff opener supplies the editor, and the original comparison closes after the new one opens. For unsaved changes on the old modified side, an editable tab is retained before swapping, matching VS Code's safeguard. Ordinary file editors and custom diff widgets are unaffected.
+
+## Keyboard Shortcuts command ID search
+
+The Keyboard Shortcuts search now matches command IDs as well as command names, shortcuts, contexts, and sources. Type a command ID such as `core.nextTab` directly to find it. As in VS Code, `@command:core.nextTab` filters to that exact command ID, with optional `+when:<expression>` to filter existing binding contexts. The implementation extends Theia's existing `KeybindingWidget` and preserves its editing and filtering behavior.

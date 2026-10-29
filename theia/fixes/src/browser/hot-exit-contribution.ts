@@ -2,6 +2,7 @@ import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import { WindowService } from '@theia/core/lib/browser/window/window-service';
 import { FrontendApplicationStateService } from '@theia/core/lib/browser/frontend-application-state';
 import { MessageService } from '@theia/core/lib/common/message-service';
+import { CorePreferences } from '@theia/core/lib/common/core-preferences';
 import { URI } from '@theia/core/lib/common/uri';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { EditorManager, EditorWidget } from '@theia/editor/lib/browser';
@@ -31,6 +32,9 @@ export class HotExitContribution implements FrontendApplicationContribution {
 	@inject(WindowService)
 	protected readonly windowService!: WindowService;
 
+	@inject(CorePreferences)
+	protected readonly corePreferences!: CorePreferences;
+
 	private readonly models = new Map<string, { model: MonacoEditorModel; baseContent: string }>();
 	private readonly backups = new Map<string, HotExitBackup>();
 	private readonly recovered = new Map<string, HotExitBackup>();
@@ -57,7 +61,10 @@ export class HotExitContribution implements FrontendApplicationContribution {
 		const original = service.isSafeToShutDown.bind(service);
 		service.isSafeToShutDown = async reason => {
 			const allowed = await original(reason);
-			return allowed && (!this.hasPendingWork() || await this.prepareToExit());
+			if (!allowed || this.corePreferences['application.confirmExit'] !== 'never') {
+				return allowed;
+			}
+			return !this.hasPendingWork() || await this.prepareToExit();
 		};
 		this.modelService.onDidCreate(model => this.track(model));
 		for (const model of this.modelService.models) {

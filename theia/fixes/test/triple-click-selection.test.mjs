@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { getTripleClickControls, getTripleClickSelection } from '../lib/browser/triple-click-selection.js';
+import { getTripleClickSelection, listenForTripleClickSelection } from '../lib/browser/triple-click-selection.js';
 
 test('triple click selects the line without its newline', () => {
 	const native = { startLineNumber: 2, startColumn: 1, endLineNumber: 3, endColumn: 1 };
@@ -26,15 +26,48 @@ test('does not change partial, multiple line, or final line selections', () => {
 	assert.equal(getTripleClickSelection(3, 2, 11, null), undefined);
 });
 
-test('diff editor handles original and modified controls', () => {
-	const modified = { name: 'modified' };
-	const original = { name: 'original' };
-	const controls = getTripleClickControls(modified, original);
-	assert.deepEqual(controls, [original, modified]);
+function mockCodeEditor() {
+	let handler;
+	let selection = { startLineNumber: 2, startColumn: 1, endLineNumber: 3, endColumn: 1 };
+	const editor = {
+		onMouseDown(callback) {
+			handler = callback;
+			return { dispose() { handler = undefined; } };
+		},
+		getModel() { return { getLineMaxColumn() { return 11; } }; },
+		getSelection() { return selection; },
+		setSelection(next) { selection = next; }
+	};
+	return {
+		editor,
+		click() {
+			handler?.({
+				event: { detail: 3, leftButton: true, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false },
+				target: { position: { lineNumber: 2 } }
+			});
+		},
+		get selection() { return selection; }
+	};
+}
+
+test('the selection handler works on two independent Monaco code editors', () => {
+	const original = mockCodeEditor();
+	const modified = mockCodeEditor();
+	const leftSubscription = listenForTripleClickSelection(original.editor);
+	const rightSubscription = listenForTripleClickSelection(modified.editor);
+	original.click();
+	modified.click();
+	const expected = { startLineNumber: 2, startColumn: 1, endLineNumber: 2, endColumn: 11 };
+	assert.deepEqual(original.selection, expected);
+	assert.deepEqual(modified.selection, expected);
+	leftSubscription.dispose();
+	rightSubscription.dispose();
 });
 
-test('normal editor handles one control, without duplicate registrations', () => {
-	const modified = { name: 'modified' };
-	assert.deepEqual(getTripleClickControls(modified), [modified]);
-	assert.deepEqual(getTripleClickControls(modified, modified), [modified]);
+test('disposing the Monaco mouse listener stops changing selections', () => {
+	const control = mockCodeEditor();
+	const listener = listenForTripleClickSelection(control.editor);
+	listener.dispose();
+	control.click();
+	assert.deepEqual(control.selection, { startLineNumber: 2, startColumn: 1, endLineNumber: 3, endColumn: 1 });
 });

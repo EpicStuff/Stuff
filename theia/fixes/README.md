@@ -22,7 +22,7 @@ Build with `yarn build`. Run the tests with `yarn test` after building.
 
 ## Triple click selection
 
-A triple click in a Monaco source editor, including either side of a diff editor, selects all characters of the clicked line without its terminating newline. Single and double clicks, clicks with selection modifiers, and quadruple clicks retain their built in behavior. The change also handles empty lines and does not interfere with selections that Monaco has not recognized as a full line. The handler subscribes to both the original and modified editor controls in diffs.
+A triple click in a Monaco source editor, including either side of a diff editor, selects all characters of the clicked line without its terminating newline. Single and double clicks, clicks with selection modifiers, and quadruple clicks retain their built in behavior. The change also handles empty lines and does not interfere with selections that Monaco has not recognized as a full line. The handler is registered centrally through Monaco's `ICodeEditorService`, which automatically covers every Monaco code editor instance, including both sides of diffs and embedded editors. Listeners are cleaned up when the corresponding Monaco editor is removed.
 
 ## Word wrap toggle
 

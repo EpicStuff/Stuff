@@ -1,4 +1,5 @@
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
+import type { TheiaCoreAPI } from '@theia/core/lib/electron-common/electron-api';
 import { WindowService } from '@theia/core/lib/browser/window/window-service';
 import { FrontendApplicationStateService } from '@theia/core/lib/browser/frontend-application-state';
 import { MessageService } from '@theia/core/lib/common/message-service';
@@ -47,7 +48,8 @@ export class HotExitContribution implements FrontendApplicationContribution {
 
 	async onStart(): Promise<void> {
 		this.workspace = decodeURI(window.location.hash.slice(1));
-		this.windowId = Number((window as Window & { electronTheiaCore: { WindowMetadata: { webcontentId: string } } }).electronTheiaCore.WindowMetadata.webcontentId);
+		const electronApi: TheiaCoreAPI = window.electronTheiaCore;
+		this.windowId = Number(electronApi.WindowMetadata.webcontentId);
 		const saved = await this.backupService.list(this.workspace, this.windowId);
 		const { selected, conflicts } = selectHotExitBackups(saved);
 		for (const [uri, backup] of selected) {

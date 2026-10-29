@@ -1,4 +1,4 @@
-import { Command, CommandContribution, CommandRegistry } from '@theia/core';
+import { Command, CommandContribution, CommandRegistry, URI } from '@theia/core';
 import { ApplicationShell, DockLayout, DockPanel, FrontendApplicationContribution, Widget, codicon } from '@theia/core/lib/browser';
 import { TabBarToolbarContribution, TabBarToolbarRegistry } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 import { inject, injectable } from '@theia/core/shared/inversify';
@@ -20,6 +20,12 @@ export namespace GroupTabsCommands {
 	export const UNGROUP: Command = {
 		id: 'group-tabs.ungroup',
 		label: 'Ungroup Tabs'
+	};
+
+	// A stable browser widget per source document, unlike mini-browser.openUrl's shared preview widget.
+	export const OPEN_DOCUMENT_URL_PREVIEW: Command = {
+		id: 'group-tabs.openDocumentUrlPreview',
+		label: 'Open Document URL Preview'
 	};
 }
 
@@ -44,6 +50,10 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 	}
 
 	registerCommands(commands: CommandRegistry): void {
+		commands.registerCommand(GroupTabsCommands.OPEN_DOCUMENT_URL_PREVIEW, {
+			execute: (startPage: string, documentUri: string) => this.openDocumentUrlPreview(startPage, documentUri)
+		});
+
 		commands.registerCommand(GroupTabsCommands.GROUP, {
 			execute: () => this.groupTabs(),
 			isEnabled: () => this.getCurrentTabs().length > 1
@@ -160,6 +170,26 @@ export class GroupTabsContribution implements FrontendApplicationContribution, C
 			add(tabBar.currentTitle?.owner);
 		}
 		return result;
+	}
+
+	protected async openDocumentUrlPreview(startPage: string, documentUri: string): Promise<void> {
+		if (!startPage || !documentUri) {
+			throw new Error('Document URL preview requires a URL and document URI');
+		}
+
+		const source = this.groupTabsService.resolveSource(this.shell.activeWidget ?? this.shell.currentWidget);
+		const rightWasExpanded = this.shell.isExpanded('right');
+		const previewUri = MiniBrowserOpenHandler.PREVIEW_URI.withPath('/' + encodeURIComponent(documentUri));
+		const preview = await this.miniBrowserOpenHandler.open(previewUri, {
+			name: 'Preview',
+			startPage,
+			toolbar: 'read-only',
+			widgetOptions: { area: 'right' },
+			resetBackground: new URI(startPage).scheme === 'http' || new URI(startPage).scheme === 'https',
+			iconClass: codicon('preview'),
+			openFor: 'preview'
+		});
+		this.groupTabsService.noteMiniBrowserUrlPreview(preview, source, !rightWasExpanded);
 	}
 
 	protected patchMiniBrowserUrlPreview(): void {

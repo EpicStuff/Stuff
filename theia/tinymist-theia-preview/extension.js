@@ -2,6 +2,7 @@ const vscode = require('vscode');
 
 const TINYMIST_EXTENSION_ID = 'myriad-dreamin.tinymist';
 const MINI_BROWSER_OPEN_URL = 'mini-browser.openUrl';
+const DOCUMENT_PREVIEW_OPEN_URL = 'group-tabs.openDocumentUrlPreview';
 
 function activate() {
 	return {
@@ -15,12 +16,14 @@ function activate() {
 				compatibleTinymistVersion: String(tinymist.packageJSON.version),
 				async handlePreview(task) {
 					const commands = await vscode.commands.getCommands(true);
-					if (!commands.includes(MINI_BROWSER_OPEN_URL)) {
+					const url = `http://127.0.0.1:${task.staticServerPort}`;
+					if (commands.includes(DOCUMENT_PREVIEW_OPEN_URL)) {
+						await vscode.commands.executeCommand(DOCUMENT_PREVIEW_OPEN_URL, url, task.documentUri);
+					} else if (commands.includes(MINI_BROWSER_OPEN_URL)) {
+						await vscode.commands.executeCommand(MINI_BROWSER_OPEN_URL, url);
+					} else {
 						throw new Error('Theia Mini Browser command is not available');
 					}
-
-					const url = `http://127.0.0.1:${task.staticServerPort}`;
-					await vscode.commands.executeCommand(MINI_BROWSER_OPEN_URL, url);
 				}
 			};
 		}

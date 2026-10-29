@@ -41,23 +41,23 @@ export class TripleClickLineSelectionContribution implements FrontendApplication
 		const subscriptions = new DisposableCollection();
 		for (const control of getTripleClickControls(modified, original)) {
 			subscriptions.push(control.onMouseDown(event => {
-			const mouse = event.event;
-			if (mouse.detail !== 3 || !mouse.leftButton || mouse.altKey || mouse.ctrlKey || mouse.metaKey || mouse.shiftKey) {
-				return;
-			}
+				const mouse = event.event;
+				if (mouse.detail !== 3 || !mouse.leftButton || mouse.altKey || mouse.ctrlKey || mouse.metaKey || mouse.shiftKey) {
+					return;
+				}
 
-			const lineNumber = event.target.position?.lineNumber;
-			const model = control.getModel();
-			if (!lineNumber || !model) {
-				return;
-			}
+				const lineNumber = event.target.position?.lineNumber;
+				const model = control.getModel();
+				if (!lineNumber || !model) {
+					return;
+				}
 
-			// Monaco handles the click before emitting onMouseDown, so only adjust
-			// its existing full line selection instead of overriding other gestures.
-			const selection = getTripleClickSelection(mouse.detail, lineNumber, model.getLineMaxColumn(lineNumber), control.getSelection());
-			if (selection) {
-				control.setSelection(selection);
-			}
+				// Monaco handles the click before emitting onMouseDown, so only adjust
+				// its existing full line selection instead of overriding other gestures.
+				const selection = getTripleClickSelection(mouse.detail, lineNumber, model.getLineMaxColumn(lineNumber), control.getSelection());
+				if (selection) {
+					control.setSelection(selection);
+				}
 			}));
 		}
 		subscriptions.push(widget.onDispose(() => {

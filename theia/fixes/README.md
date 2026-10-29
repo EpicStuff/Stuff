@@ -35,3 +35,9 @@ The temporary state uses Monaco's transient model properties, so split editors d
 Backup filenames are scoped to the owning Electron window and process run as well as the workspace and file URI. Two windows editing the same file cannot overwrite or delete each other's backup files. Older backups remain readable. Backups from other currently open windows are not recovered into the new window. If multiple abandoned versions exist for the same file, recovery does not select one automatically: both JSON backups remain on disk for manual recovery.
 
 Grouped Monaco text editors are included in Hot Exit. A final backup check during Electron shutdown also runs when `application.confirmExit` is set to `never`. Notebooks and unsupported custom editors still do not have Hot Exit backup support.
+
+## Diff preview tabs
+
+Diff editors opened without an explicit preview choice use Theia's existing temporary editor tabs, matching VS Code. A new diff replaces the previous temporary tab in the same editor group. Double clicking the tab or choosing Keep Open makes it permanent. Explicit `preview: false` requests stay permanent, and the `editor.enablePreview` preference is respected. Ordinary editors are unchanged.
+
+This is implemented by extending Theia's existing `EditorPreviewManager` instead of installing a separate diff editor or overriding commands. The behavior applies to diff URI editors regardless of which opener produced them.

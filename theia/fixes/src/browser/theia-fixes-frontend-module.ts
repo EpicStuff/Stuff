@@ -3,12 +3,14 @@ import { CommonFrontendContribution } from '@theia/core/lib/browser/common-front
 import { ElectronIpcConnectionProvider } from '@theia/core/lib/electron-browser/messaging/electron-ipc-connection-source';
 import { ContainerModule } from '@theia/core/shared/inversify';
 import { EditorNavigationContribution } from '@theia/editor/lib/browser/editor-navigation-contribution';
+import { EditorPreviewManager } from '@theia/editor-preview/lib/browser/editor-preview-manager';
 import { CodeFoldingPersistenceContribution } from './code-folding-persistence';
 import { TripleClickLineSelectionContribution } from './triple-click-line-selection';
 import { HotExitBackupService, HotExitBackupServicePath } from '../common/hot-exit-protocol';
 import { HotExitCommonFrontendContribution } from './hot-exit-common-frontend-contribution';
 import { HotExitContribution } from './hot-exit-contribution';
 import { VSCodeWordWrapNavigationContribution } from './vscode-word-wrap-navigation';
+import { VSCodeDiffPreviewManager } from './vscode-diff-preview-manager';
 
 export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
 	bind(CodeFoldingPersistenceContribution).toSelf().inSingletonScope();
@@ -20,4 +22,5 @@ export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
 	bind(FrontendApplicationContribution).toService(HotExitContribution);
 	rebind(CommonFrontendContribution).to(HotExitCommonFrontendContribution).inSingletonScope();
 	rebind(EditorNavigationContribution).to(VSCodeWordWrapNavigationContribution).inSingletonScope();
+	rebind(EditorPreviewManager).to(VSCodeDiffPreviewManager).inSingletonScope();
 });

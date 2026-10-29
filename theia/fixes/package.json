@@ -23,7 +23,8 @@
 		"@theia/core": ">=1.75.0 <2.0.0",
 		"@theia/editor": ">=1.75.0 <2.0.0",
 		"@theia/monaco": ">=1.75.0 <2.0.0",
-		"@theia/monaco-editor-core": ">=1.108.0 <2.0.0"
+		"@theia/monaco-editor-core": ">=1.108.0 <2.0.0",
+		"@theia/editor-preview": ">=1.75.0 <2.0.0"
 	},
 	"devDependencies": {
 		"typescript": "~5.9.3"

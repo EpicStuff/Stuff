@@ -53,3 +53,7 @@ In a text diff editor, the Compare: Swap Left and Right Editor Side command and 
 ## Keyboard Shortcuts command ID search
 
 The Keyboard Shortcuts search now matches command IDs as well as command names, shortcuts, contexts, and sources. Type a command ID such as `core.nextTab` directly to find it. As in VS Code, `@command:core.nextTab` filters to that exact command ID, with optional `+when:<expression>` to filter existing binding contexts. The implementation extends Theia's existing `KeybindingWidget` and preserves its editing and filtering behavior.
+
+## Keyboard Shortcuts JSON tab placement
+
+The Keyboard Shortcuts toolbar's JSON button opens `keymaps.json` in a normal tab, consistent with Settings JSON, instead of splitting the editor group to the right. The fix reuses Theia's existing `KeymapsService.open()` without a reference widget. The standalone Open Keyboard Shortcuts (JSON) command and the remaining shortcut editor actions are unchanged.

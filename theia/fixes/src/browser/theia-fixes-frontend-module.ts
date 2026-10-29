@@ -6,6 +6,7 @@ import { ElectronIpcConnectionProvider } from '@theia/core/lib/electron-browser/
 import { ContainerModule } from '@theia/core/shared/inversify';
 import { EditorNavigationContribution } from '@theia/editor/lib/browser/editor-navigation-contribution';
 import { EditorPreviewManager } from '@theia/editor-preview/lib/browser/editor-preview-manager';
+import { KeymapsFrontendContribution } from '@theia/keymaps/lib/browser/keymaps-frontend-contribution';
 import { KeybindingWidget } from '@theia/keymaps/lib/browser/keybindings-widget';
 import { FileNavigatorWidget } from '@theia/navigator/lib/browser/navigator-widget';
 import { FileNavigatorTree } from '@theia/navigator/lib/browser/navigator-tree';
@@ -19,6 +20,7 @@ import { VSCodeWordWrapNavigationContribution } from './vscode-word-wrap-navigat
 import { VSCodeDiffPreviewManager } from './vscode-diff-preview-manager';
 import { VSCodeNaturalFileNavigatorTree } from './vscode-natural-file-navigator-tree';
 import { VSCodeDiffSwapContribution } from './vscode-diff-swap';
+import { TabbedKeymapsFrontendContribution } from './tabbed-keymaps-frontend-contribution';
 import { VSCodeKeybindingWidget } from './vscode-keybinding-widget';
 
 export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
@@ -32,6 +34,7 @@ export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
 	rebind(CommonFrontendContribution).to(HotExitCommonFrontendContribution).inSingletonScope();
 	rebind(EditorNavigationContribution).to(VSCodeWordWrapNavigationContribution).inSingletonScope();
 	rebind(EditorPreviewManager).to(VSCodeDiffPreviewManager).inSingletonScope();
+	rebind(KeymapsFrontendContribution).to(TabbedKeymapsFrontendContribution).inSingletonScope();
 	rebind(KeybindingWidget).to(VSCodeKeybindingWidget).inSingletonScope();
 	bind(VSCodeDiffSwapContribution).toSelf().inSingletonScope();
 	bind(CommandContribution).toService(VSCodeDiffSwapContribution);

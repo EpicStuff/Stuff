@@ -42,6 +42,10 @@ Diff editors opened without an explicit preview choice use Theia's existing temp
 
 This is implemented by extending Theia's existing `EditorPreviewManager` instead of installing a separate diff editor or overriding commands. The behavior applies to diff URI editors regardless of which opener produced them.
 
+## Natural Explorer sorting
+
+Explorer file and directory names use VS Code's default numeric comparison, so `1`, `2`, `10`, `11` appear in that order. Numeric ties place the shorter name first. Directories remain before files, as in Theia's original Explorer. The fix replaces only the Explorer's tree implementation in its child container; file dialogs and other filesystem trees are unaffected.
+
 ## Draggable windows
 
 Adds VS Code style floating editor behavior to Theia's existing secondary window support.

@@ -452,17 +452,34 @@ class CollapsibleCodeCellInput extends React.Component<CollapsibleCodeCellInputP
 				},
 				editor,
 				React.createElement('span', {
+					className: codicon('more'),
+					onClick: (event: React.MouseEvent<HTMLSpanElement>) => {
+						event.preventDefault();
+						event.stopPropagation();
+						setInputCollapsed(this.props.cell, false);
+					},
+					onMouseDown: (event: React.MouseEvent<HTMLSpanElement>) => {
+						event.preventDefault();
+						event.stopPropagation();
+					},
 					style: {
+						alignItems: 'center',
 						background: 'var(--theia-editor-background)',
+						borderRadius: '5px',
+						cursor: 'pointer',
+						display: 'flex',
+						height: '16px',
+						justifyContent: 'center',
 						opacity: 0.7,
-						paddingLeft: '4px',
-						pointerEvents: 'none',
+						padding: '2px',
 						position: 'absolute',
 						right: '8px',
-						top: '10px',
-						zIndex: 5
-					}
-				}, '…')
+						top: '8px',
+						width: '16px',
+						zIndex: 20
+					},
+					title: 'Expand Cell Input'
+				})
 			)
 			: editor;
 

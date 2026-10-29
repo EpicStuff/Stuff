@@ -1,4 +1,6 @@
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
+import { CommandContribution } from '@theia/core/lib/common';
+import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 import { CommonFrontendContribution } from '@theia/core/lib/browser/common-frontend-contribution';
 import { ElectronIpcConnectionProvider } from '@theia/core/lib/electron-browser/messaging/electron-ipc-connection-source';
 import { ContainerModule } from '@theia/core/shared/inversify';
@@ -15,6 +17,7 @@ import { HotExitContribution } from './hot-exit-contribution';
 import { VSCodeWordWrapNavigationContribution } from './vscode-word-wrap-navigation';
 import { VSCodeDiffPreviewManager } from './vscode-diff-preview-manager';
 import { VSCodeNaturalFileNavigatorTree } from './vscode-natural-file-navigator-tree';
+import { VSCodeDiffSwapContribution } from './vscode-diff-swap';
 import { SecondaryWindowService } from '@theia/core/lib/browser/window/secondary-window-service';
 import { DraggableWindowsContribution } from './draggable-windows-contribution';
 import { DraggableWindowPlacementPath, DraggableWindowPlacementService } from '../common/window-placement-protocol';
@@ -31,6 +34,9 @@ export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
 	rebind(CommonFrontendContribution).to(HotExitCommonFrontendContribution).inSingletonScope();
 	rebind(EditorNavigationContribution).to(VSCodeWordWrapNavigationContribution).inSingletonScope();
 	rebind(EditorPreviewManager).to(VSCodeDiffPreviewManager).inSingletonScope();
+	bind(VSCodeDiffSwapContribution).toSelf().inSingletonScope();
+	bind(CommandContribution).toService(VSCodeDiffSwapContribution);
+	bind(TabBarToolbarContribution).toService(VSCodeDiffSwapContribution);
 	rebind(FileNavigatorWidget).toDynamicValue(context => {
 		const child = createFileNavigatorContainer(context.container);
 		child.rebind(FileNavigatorTree).to(VSCodeNaturalFileNavigatorTree).inSingletonScope();

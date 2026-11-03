@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import { promises as fs } from 'fs';
+import { connect } from 'net';
 import * as path from 'path';
 import { app, BrowserWindow, Event as ElectronEvent } from '@theia/core/electron-shared/electron';
 import { MaybePromise } from '@theia/core/lib/common/types';
@@ -8,7 +9,12 @@ import { ElectronMainApplication, ElectronMainCommandOptions } from '@theia/core
 import { TheiaBrowserWindowOptions } from '@theia/core/lib/electron-main/theia-electron-window';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { KeepWarmExtensionInstallerServiceImpl } from './keep-warm-extension-installer-service';
-import { ParsedVscodeCliArgs, VSCODE_COMPAT_HELP, getWindowTarget, hasWindowTarget, parseGotoTarget, parseVscodeCliArgs } from './vscode-cli';
+import { ParsedVscodeCliArgs, VSCODE_COMPAT_HELP, getWindowTarget, getWindowTargetIndices, getWindowTargets, hasWindowTarget, parseGotoTarget, parseVscodeCliArgs } from './vscode-cli';
+import { runWaitController } from './wait-controller';
+import { resolveDiffFileTarget } from './diff-file-target';
+import { revealEditorWindow } from './window-attention';
+import { selectExistingEditorWindow } from './editor-window-selection';
+import { resolveWindowPathTarget } from './window-path-target';
 
 const KEEP_WARM_FLAG = '--keep-warm';
 const KEEP_WARMER_FLAG = '--keep-warmer';
@@ -18,6 +24,7 @@ const QUIT_FLAG = '--quit';
 interface ResolvedPathTarget {
 	path: string;
 	isWorkspace: boolean;
+	exists: boolean;
 }
 
 @injectable()
@@ -31,7 +38,10 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	protected warmRenderer: BrowserWindow | undefined;
 	protected warmRendererCreation: Promise<void> | undefined;
 	protected quitting = false;
+	protected pendingWaitRequests = 0;
 	protected sessionRestorePending = true;
+	protected restoreInProgress: Promise<boolean> | undefined;
+	protected readonly knownWorkspaceWindows = new Map<number, { window: BrowserWindow; workspacePath: string }>();
 	protected startupCliArgs: ParsedVscodeCliArgs | undefined;
 	protected readonly pendingSecondInstanceCliArgs: ParsedVscodeCliArgs[] = [];
 
@@ -49,6 +59,20 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		if (cliArgs.help) {
 			process.stdout.write(VSCODE_COMPAT_HELP);
 			app.exit(0);
+			return;
+		}
+
+		if (cliArgs.wait) {
+			if (applicationArgs.includes(DAEMON_FLAG) || applicationArgs.includes(QUIT_FLAG)) {
+				this.failCli(new Error('--wait cannot be combined with --daemon or --quit'));
+				return;
+			}
+			try {
+				app.exit(await runWaitController(applicationArgs));
+			} catch (error) {
+				console.error(error);
+				app.exit(1);
+			}
 			return;
 		}
 
@@ -119,6 +143,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		const windowId = window.webContents.id;
 
 		window.once('closed', () => {
+			this.knownWorkspaceWindows.delete(windowId);
 			this.extensionInstaller.rejectWindowWaiters(windowId);
 			setTimeout(() => {
 				if (this.quitting || !this.getActiveVisibleWindow()) {
@@ -160,7 +185,11 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	}
 
 	protected getSuperArgs(cliArgs: ParsedVscodeCliArgs, includeUserDataDir: boolean): string[] {
-		const args = this.removeControlFlags(cliArgs.remainingArgs);
+		let args = this.removeControlFlags(cliArgs.remainingArgs);
+		if (cliArgs.waitSocket) {
+			const extraTargetIndices = new Set(getWindowTargetIndices(args).slice(1));
+			args = args.filter((_arg, index) => !extraTargetIndices.has(index));
+		}
 		if (includeUserDataDir && cliArgs.userDataDir) {
 			args.push('--electronUserData', cliArgs.userDataDir);
 		}
@@ -204,10 +233,11 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		}
 		const hasWindowAction = !!cliArgs && this.hasWindowAction(cliArgs);
 		const hasExplicitTarget = hasWindowAction || options.file !== undefined;
+		const restoreRequested = cliArgs?.restore === true;
 
 		if (this.suppressInitialEmptyWindow && !options.secondInstance) {
 			this.suppressInitialEmptyWindow = false;
-			if (options.file === undefined && !hasWindowAction) {
+			if (options.file === undefined && !hasWindowAction && !restoreRequested) {
 				if (this.keepWarmer) {
 					await this.ensureWarmRenderer();
 				}
@@ -215,12 +245,26 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			}
 		}
 
-		if (this.sessionRestorePending && hasExplicitTarget) {
+		if (cliArgs?.waitSocket) {
+			await this.handleWaitRequest(cliArgs, options, hasExplicitTarget);
+			return;
+		}
+
+		if (hasExplicitTarget && !restoreRequested && (this.sessionRestorePending || options.secondInstance && !selectExistingEditorWindow(this.activeWindowStack, this.windows, this.warmRenderer))) {
 			this.sessionRestorePending = false;
 			await this.extensionInstaller.replaceSession([]);
 		}
 
-		if (hasWindowAction && cliArgs) {
+		if (restoreRequested) {
+			this.sessionRestorePending = false;
+			const restored = await this.restoreWindowSession();
+			if (!restored && !this.keepWarm && !options.secondInstance) {
+				await super.handleMainCommand(options);
+			}
+			return;
+		}
+
+		if ((hasWindowAction || options.file !== undefined) && cliArgs) {
 			try {
 				await this.handleVscodeWindowCommand(cliArgs, options);
 			} catch (error) {
@@ -239,6 +283,108 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		await super.handleMainCommand(options);
 	}
 
+	protected async handleWaitRequest(cliArgs: ParsedVscodeCliArgs, options: ElectronMainCommandOptions, hasExplicitTarget: boolean): Promise<void> {
+		const socket = connect(cliArgs.waitSocket!);
+		this.pendingWaitRequests++;
+		try {
+			await new Promise<void>((resolve, reject) => {
+				socket.once('connect', resolve);
+				socket.once('error', reject);
+			});
+			socket.on('error', error => console.error('Theia wait connection failed:', error));
+			const disconnected = new Promise<undefined>(resolve => socket.once('close', () => resolve(undefined)));
+			const operation = (async (): Promise<string> => {
+				try {
+					if (hasExplicitTarget && (this.sessionRestorePending || options.secondInstance && !selectExistingEditorWindow(this.activeWindowStack, this.windows, this.warmRenderer))) {
+						this.sessionRestorePending = false;
+						await this.extensionInstaller.replaceSession([]);
+					}
+					await this.handleVscodeWindowCommand(cliArgs, options);
+					return '0';
+				} catch (error) {
+					console.error(error);
+					return `1:${error instanceof Error ? error.message : String(error)}`;
+				}
+			})();
+			const result = await Promise.race([operation, disconnected]);
+			if (result === undefined) {
+				return;
+			}
+			await new Promise<void>(resolve => socket.end(result, resolve));
+		} catch (error) {
+			console.error('Could not complete Theia wait request:', error);
+		} finally {
+			socket.destroy();
+			this.pendingWaitRequests--;
+			if (this.pendingWaitRequests === 0 && this.windows.size === 0 && !this.keepWarm) {
+				this.requestStop();
+			}
+		}
+	}
+
+	protected listenForWindowEnd(window: BrowserWindow, finish: () => void): () => void {
+		if (window.isDestroyed()) {
+			finish();
+			return () => undefined;
+		}
+		const contents = window.webContents;
+		let ready = !contents.isLoadingMainFrame();
+		const onLoad = (): void => {
+			ready = true;
+		};
+		const cleanup = (): void => {
+			window.removeListener('closed', onClosed);
+			if (!contents.isDestroyed()) {
+				contents.removeListener('did-start-navigation', onNavigate);
+				contents.removeListener('did-finish-load', onLoad);
+			}
+		};
+		const onClosed = (): void => {
+			cleanup();
+			finish();
+		};
+		const onNavigate = (event: ElectronEvent): void => {
+			const navigation = event as ElectronEvent & { isMainFrame?: boolean; isSameDocument?: boolean };
+			if (ready && navigation.isMainFrame && !navigation.isSameDocument) {
+				cleanup();
+				finish();
+			}
+		};
+		window.once('closed', onClosed);
+		contents.on('did-start-navigation', onNavigate);
+		contents.on('did-finish-load', onLoad);
+		return cleanup;
+	}
+
+	protected waitForWindowCloseOrReload(window: BrowserWindow): Promise<void> {
+		return new Promise(resolve => this.listenForWindowEnd(window, resolve));
+	}
+
+	protected async waitForEditorOrWindowClose(window: BrowserWindow, editorClosed: Promise<void>): Promise<void> {
+		if (window.isDestroyed()) {
+			return;
+		}
+		let stopListening = (): void => undefined;
+		const windowClosed = new Promise<void>(resolve => {
+			stopListening = this.listenForWindowEnd(window, resolve);
+		});
+		try {
+			await Promise.race([editorClosed, windowClosed]);
+		} finally {
+			stopListening();
+		}
+	}
+
+	protected async openEditorFile(cliArgs: ParsedVscodeCliArgs, window: BrowserWindow, filePath: string, line?: number, column?: number, exists = true): Promise<void> {
+		this.revealWindow(window);
+		if (cliArgs.waitSocket) {
+			const closing = this.extensionInstaller.openFileAndWait(window.webContents.id, filePath, line, column, exists);
+			await this.waitForEditorOrWindowClose(window, closing);
+		} else {
+			await this.extensionInstaller.openFile(window.webContents.id, filePath, line, column, exists);
+		}
+	}
+
 	protected async handleVscodeWindowCommand(cliArgs: ParsedVscodeCliArgs, options: ElectronMainCommandOptions): Promise<void> {
 		if (cliArgs.gotoTarget) {
 			await this.openGotoTarget(cliArgs, cliArgs.gotoTarget, options.cwd);
@@ -251,21 +397,39 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		}
 
 		if (options.file !== undefined) {
+			const targets = cliArgs.waitSocket ? getWindowTargets(cliArgs.remainingArgs) : [];
+			if (targets.length > 1) {
+				await this.openFilesAndWait(cliArgs, targets, options.cwd);
+				return;
+			}
 			await this.openPathWithWindowMode(cliArgs, options.file, options.cwd);
 			return;
 		}
 
 		if (cliArgs.newWindow) {
-			await this.openNewEmptyWindow();
+			const window = await this.openNewEmptyWindow();
+			if (cliArgs.waitSocket) {
+				await this.waitForWindowCloseOrReload(window);
+			}
 			return;
 		}
 
 		if (cliArgs.reuseWindow) {
-			await this.reuseLastWindow();
+			const window = await this.reuseLastWindow();
+			if (cliArgs.waitSocket) {
+				await this.waitForWindowCloseOrReload(window);
+			}
 		}
 	}
 
 	protected async restoreWindowSession(): Promise<boolean> {
+		this.restoreInProgress ??= this.performRestoreWindowSession().finally(() => {
+			this.restoreInProgress = undefined;
+		});
+		return this.restoreInProgress;
+	}
+
+	protected async performRestoreWindowSession(): Promise<boolean> {
 		const storedWorkspaces = await this.extensionInstaller.getRestorableWorkspaces();
 		const workspaces: string[] = [];
 
@@ -282,77 +446,87 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		}
 
 		if (workspaces.length !== storedWorkspaces.length) {
-			await this.extensionInstaller.replaceSession(workspaces);
+			await this.extensionInstaller.pruneUnavailableRestorableWorkspaces(workspaces);
 		}
 		if (workspaces.length === 0) {
 			return false;
 		}
 
-		await Promise.all(workspaces.map((workspacePath, index) =>
-			index === 0 ? this.openWindowWithWorkspace(workspacePath) : this.openNewWindowWithWorkspace(workspacePath)
-		));
+		const windowWorkspaces = await this.extensionInstaller.getOpenWindowWorkspaces();
+		const alreadyOpen = new Set([...windowWorkspaces.values()].filter((workspacePath): workspacePath is string => workspacePath !== undefined));
+		for (const [windowId, known] of this.knownWorkspaceWindows) {
+			if (known.window.isDestroyed() || windowWorkspaces.has(windowId) && windowWorkspaces.get(windowId) !== known.workspacePath) {
+				this.knownWorkspaceWindows.delete(windowId);
+			} else {
+				alreadyOpen.add(known.workspacePath);
+			}
+		}
+		const missingWorkspaces = workspaces.filter(workspacePath => !alreadyOpen.has(workspacePath));
+		const activeWindow = this.getActiveVisibleWindow();
+		const canReuseInitial = !activeWindow || this.initialWindow === activeWindow;
+		for (const [index, workspacePath] of missingWorkspaces.entries()) {
+			if (index === 0 && canReuseInitial) {
+				await this.openWindowWithWorkspace(workspacePath);
+			} else {
+				await this.openNewWindowWithWorkspace(workspacePath);
+			}
+		}
 		return true;
 	}
 
 	protected async openGotoTarget(cliArgs: ParsedVscodeCliArgs, target: string, cwd: string): Promise<void> {
 		const parsedTarget = parseGotoTarget(target);
-		const filePath = await this.resolveFilePath(parsedTarget.filePath, cwd);
+		const resolvedTarget = await resolveDiffFileTarget(parsedTarget.filePath, cwd);
 		const window = await this.acquireEditorWindow(cliArgs);
-		await this.extensionInstaller.openFile(window.webContents.id, filePath, parsedTarget.line, parsedTarget.column);
+		await this.openEditorFile(cliArgs, window, resolvedTarget.path, parsedTarget.line, parsedTarget.column, resolvedTarget.exists);
+	}
+
+	protected async openFilesAndWait(cliArgs: ParsedVscodeCliArgs, paths: readonly string[], cwd: string): Promise<void> {
+		const resolved = await Promise.all(paths.map(file => resolveDiffFileTarget(file, cwd)));
+		const window = await this.acquireEditorWindow(cliArgs);
+		const completion = this.extensionInstaller.openFilesAndWait(window.webContents.id, resolved.map(target => target.path), resolved.map(target => target.exists));
 		this.revealWindow(window);
+		await this.waitForEditorOrWindowClose(window, completion);
 	}
 
 	protected async openDiffTargets(cliArgs: ParsedVscodeCliArgs, targets: [string, string], cwd: string): Promise<void> {
-		const leftPath = await this.resolveFilePath(targets[0], cwd);
-		const rightPath = await this.resolveFilePath(targets[1], cwd);
+		const [left, right] = await Promise.all(targets.map(target => resolveDiffFileTarget(target, cwd)));
 		const window = await this.acquireEditorWindow(cliArgs);
-		await this.extensionInstaller.openDiff(window.webContents.id, leftPath, rightPath);
 		this.revealWindow(window);
+		if (cliArgs.waitSocket) {
+			const closing = this.extensionInstaller.openDiffAndWait(window.webContents.id, left.path, right.path, left.exists, right.exists);
+			await this.waitForEditorOrWindowClose(window, closing);
+		} else {
+			await this.extensionInstaller.openDiff(window.webContents.id, left.path, right.path, left.exists, right.exists);
+		}
 	}
 
 	protected async openPathWithWindowMode(cliArgs: ParsedVscodeCliArgs, inputPath: string, cwd: string): Promise<void> {
 		const target = await this.resolvePathTarget(inputPath, cwd);
 
 		if (target.isWorkspace) {
+			let window: BrowserWindow;
 			if (cliArgs.newWindow) {
 				if (!this.getActiveVisibleWindow() && (this.warmRenderer && !this.warmRenderer.isDestroyed() || this.initialWindow && !this.initialWindow.isDestroyed())) {
-					await this.openWindowWithWorkspace(target.path);
+					window = await this.openWindowWithWorkspace(target.path);
 				} else {
-					await this.openNewWindowWithWorkspace(target.path);
+					window = await this.openNewWindowWithWorkspace(target.path);
 				}
 			} else {
-				await this.openWorkspaceReusingWindow(target.path);
+				window = await this.openWorkspaceReusingWindow(target.path);
+			}
+			if (cliArgs.waitSocket) {
+				await this.waitForWindowCloseOrReload(window);
 			}
 			return;
 		}
 
 		const window = await this.acquireEditorWindow(cliArgs);
-		await this.extensionInstaller.openFile(window.webContents.id, target.path);
-		this.revealWindow(window);
+		await this.openEditorFile(cliArgs, window, target.path, undefined, undefined, target.exists);
 	}
 
 	protected async resolvePathTarget(inputPath: string, cwd: string): Promise<ResolvedPathTarget> {
-		const resolvedPath = await fs.realpath(path.resolve(cwd, inputPath));
-		const stat = await fs.stat(resolvedPath);
-		const extension = path.extname(resolvedPath).toLowerCase();
-
-		if (!stat.isDirectory() && !stat.isFile()) {
-			throw new Error(`Path is not a file or directory: ${inputPath}`);
-		}
-
-		return {
-			path: resolvedPath,
-			isWorkspace: stat.isDirectory() || extension === '.theia-workspace' || extension === '.code-workspace'
-		};
-	}
-
-	protected async resolveFilePath(inputPath: string, cwd: string): Promise<string> {
-		const resolvedPath = await fs.realpath(path.resolve(cwd, inputPath));
-		const stat = await fs.stat(resolvedPath);
-		if (!stat.isFile()) {
-			throw new Error(`Path is not a file: ${inputPath}`);
-		}
-		return resolvedPath;
+		return resolveWindowPathTarget(inputPath, cwd);
 	}
 
 	protected async acquireEditorWindow(cliArgs: ParsedVscodeCliArgs): Promise<BrowserWindow> {
@@ -366,7 +540,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			return super.openDefaultWindow();
 		}
 
-		const activeWindow = this.getActiveVisibleWindow();
+		const activeWindow = selectExistingEditorWindow(this.activeWindowStack, this.windows, this.warmRenderer);
 		if (activeWindow) {
 			return activeWindow;
 		}
@@ -442,13 +616,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	}
 
 	protected revealWindow(window: BrowserWindow): void {
-		if (window.isDestroyed()) {
-			return;
-		}
-		if (!window.isVisible()) {
-			window.show();
-		}
-		window.focus();
+		revealEditorWindow(window);
 	}
 
 	protected async reloadWorkspaceWindow(window: BrowserWindow, workspacePath: string): Promise<BrowserWindow> {
@@ -458,6 +626,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		}
 
 		await this.extensionInstaller.openWorkspace(window.webContents.id, workspacePath);
+		this.rememberWorkspace(window, workspacePath);
 		if (!revealAfterLoad) {
 			this.revealWindow(window);
 		}
@@ -468,9 +637,14 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		const options = await this.getLastWindowOptions();
 		const [uri, window] = await Promise.all([this.createWindowUri(), this.createWindow(options)]);
 		void window.loadURL(uri.withFragment(encodeURI(workspacePath)).toString(true));
+		this.rememberWorkspace(window, workspacePath);
 		return window;
 	}
 
+
+	protected rememberWorkspace(window: BrowserWindow, workspacePath: string): void {
+		this.knownWorkspaceWindows.set(window.webContents.id, { window, workspacePath });
+	}
 
 	protected async createHiddenEmptyRenderer(): Promise<BrowserWindow> {
 		const options = await this.getLastWindowOptions();
@@ -500,7 +674,9 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 	protected override async openWindowWithWorkspace(workspacePath: string): Promise<BrowserWindow> {
 		const window = this.takeWarmRenderer();
 		if (!window) {
-			return super.openWindowWithWorkspace(workspacePath);
+			const opened = await super.openWindowWithWorkspace(workspacePath);
+			this.rememberWorkspace(opened, workspacePath);
+			return opened;
 		}
 
 		return this.reloadWorkspaceWindow(window, workspacePath);
@@ -520,7 +696,7 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			void this.ensureWarmRenderer();
 			return;
 		}
-		if (this.keepWarm) {
+		if (this.keepWarm || this.pendingWaitRequests > 0) {
 			return;
 		}
 		super.onWindowAllClosed(event);
@@ -558,10 +734,16 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		const windowTarget = getWindowTarget(cleanApplicationArgs);
 		const hasTarget = hasWindowTarget(cleanApplicationArgs);
 
-		if (wantsKeepWarm && !hasTarget && !hasWindowAction) {
+		if (wantsKeepWarm && !hasTarget && !hasWindowAction && !cliArgs.restore) {
 			if (wantsKeepWarmer && !this.getActiveVisibleWindow()) {
 				await this.ensureWarmRenderer();
 			}
+			return;
+		}
+
+		if (cliArgs.restore) {
+			this.pendingSecondInstanceCliArgs.push(cliArgs);
+			await this.handleMainCommand({ cwd, secondInstance: true });
 			return;
 		}
 

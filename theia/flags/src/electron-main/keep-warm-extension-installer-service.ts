@@ -14,6 +14,7 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 	protected readonly clientsByWindowId = new Map<number, KeepWarmExtensionInstallerClient>();
 	protected readonly workspaceByWindowId = new Map<number, string>();
 	protected readonly sessionWorkspaces = new Set<string>();
+	protected readonly restorableWorkspaces = new Set<string>();
 	protected readonly waiters: Array<(client: KeepWarmExtensionInstallerClient) => void> = [];
 	protected readonly windowWaiters = new Map<number, Array<{ resolve: (client: KeepWarmExtensionInstallerClient) => void; reject: (error: Error) => void }>>();
 	protected sessionLoad: Promise<void> | undefined;
@@ -72,14 +73,29 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 		await client.openWorkspace(workspacePath);
 	}
 
-	async openFile(windowId: number, filePath: string, line?: number, column?: number): Promise<void> {
+	async openFile(windowId: number, filePath: string, line?: number, column?: number, exists = true): Promise<void> {
 		const client = await this.waitForClient(windowId);
-		await client.openFile(filePath, line, column);
+		await client.openFile(filePath, line, column, exists);
 	}
 
-	async openDiff(windowId: number, leftPath: string, rightPath: string): Promise<void> {
+	async openFileAndWait(windowId: number, filePath: string, line?: number, column?: number, exists = true): Promise<void> {
 		const client = await this.waitForClient(windowId);
-		await client.openDiff(leftPath, rightPath);
+		await client.openFileAndWait(filePath, line, column, exists);
+	}
+
+	async openFilesAndWait(windowId: number, filePaths: string[], exists?: boolean[]): Promise<void> {
+		const client = await this.waitForClient(windowId);
+		await client.openFilesAndWait(filePaths, exists);
+	}
+
+	async openDiff(windowId: number, leftPath: string, rightPath: string, leftExists: boolean, rightExists: boolean): Promise<void> {
+		const client = await this.waitForClient(windowId);
+		await client.openDiff(leftPath, rightPath, leftExists, rightExists);
+	}
+
+	async openDiffAndWait(windowId: number, leftPath: string, rightPath: string, leftExists: boolean, rightExists: boolean): Promise<void> {
+		const client = await this.waitForClient(windowId);
+		await client.openDiffAndWait(leftPath, rightPath, leftExists, rightExists);
 	}
 
 	rejectWindowWaiters(windowId: number): void {
@@ -95,11 +111,37 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 		return [...this.sessionWorkspaces];
 	}
 
+	async getOpenWindowWorkspaces(): Promise<Map<number, string | undefined>> {
+		await this.ensureSessionLoaded();
+		const workspaces = new Map<number, string | undefined>();
+		for (const windowId of this.clientsByWindowId.keys()) {
+			workspaces.set(windowId, this.workspaceByWindowId.get(windowId));
+		}
+		return workspaces;
+	}
+
+	async pruneUnavailableRestorableWorkspaces(availableWorkspaces: readonly string[]): Promise<void> {
+		await this.ensureSessionLoaded();
+		const available = new Set(availableWorkspaces);
+		let changed = false;
+		for (const workspacePath of this.sessionWorkspaces) {
+			if (!available.has(workspacePath)) {
+				this.restorableWorkspaces.delete(workspacePath);
+				changed = this.sessionWorkspaces.delete(workspacePath) || changed;
+			}
+		}
+		if (changed) {
+			await this.persistSession();
+		}
+	}
+
 	async replaceSession(workspaces: readonly string[]): Promise<void> {
 		await this.ensureSessionLoaded();
 		this.sessionWorkspaces.clear();
+		this.restorableWorkspaces.clear();
 		for (const workspacePath of workspaces) {
 			this.sessionWorkspaces.add(workspacePath);
+			this.restorableWorkspaces.add(workspacePath);
 		}
 		this.workspaceByWindowId.clear();
 		await this.persistSession();
@@ -115,6 +157,7 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 
 		if (![...this.workspaceByWindowId.values()].includes(workspacePath)) {
 			this.sessionWorkspaces.delete(workspacePath);
+			this.restorableWorkspaces.delete(workspacePath);
 			await this.persistSession();
 		}
 	}
@@ -134,11 +177,13 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 		if (previousWorkspacePath && previousWorkspacePath !== workspacePath &&
 			![...this.workspaceByWindowId.entries()].some(([id, candidate]) => id !== windowId && candidate === previousWorkspacePath)) {
 			this.sessionWorkspaces.delete(previousWorkspacePath);
+			this.restorableWorkspaces.delete(previousWorkspacePath);
 		}
 
 		if (workspacePath) {
 			this.workspaceByWindowId.set(windowId, workspacePath);
 			this.sessionWorkspaces.add(workspacePath);
+			this.restorableWorkspaces.add(workspacePath);
 		} else {
 			this.workspaceByWindowId.delete(windowId);
 		}
@@ -159,6 +204,7 @@ export class KeepWarmExtensionInstallerServiceImpl implements KeepWarmExtensionI
 				for (const workspacePath of parsed.workspaces) {
 					if (typeof workspacePath === 'string' && workspacePath.length > 0) {
 						this.sessionWorkspaces.add(workspacePath);
+						this.restorableWorkspaces.add(workspacePath);
 					}
 				}
 			}

@@ -83,6 +83,9 @@ export interface ParsedVscodeCliArgs {
 	help: boolean;
 	newWindow: boolean;
 	reuseWindow: boolean;
+	restore: boolean;
+	wait: boolean;
+	waitSocket?: string;
 	gotoTarget?: string;
 	diffTargets?: [string, string];
 	listExtensions: boolean;
@@ -113,6 +116,7 @@ VS Code compatible options:
       --install-extension <id|vsix>  Install or update an extension
       --uninstall-extension <id>     Uninstall an extension
       --user-data-dir <dir>          Use an isolated Electron and Theia user data directory
+  -w, --wait                         Wait until the opened file or window closes
       --disable-gpu                  Disable hardware acceleration
 
 Theia options:
@@ -127,6 +131,7 @@ Theia custom options:
       --keep-warmer                  Also preload a hidden empty frontend renderer
       --daemon                       Detach the requested invocation from the terminal
       --quit                         Stop the resident keep warm instance
+      --restore                      Restore the previous session without replacing current windows
 `;
 
 export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs {
@@ -135,6 +140,8 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 		help: false,
 		newWindow: false,
 		reuseWindow: false,
+		restore: false,
+		wait: false,
 		listExtensions: false,
 		showVersions: false,
 		installExtensions: [],
@@ -187,6 +194,13 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 				index += 2;
 				break;
 			}
+			case '-w':
+			case '--wait':
+				parsed.wait = true;
+				break;
+			case '--restore':
+				parsed.restore = true;
+				break;
 			case '--list-extensions':
 				parsed.listExtensions = true;
 				break;
@@ -215,6 +229,8 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 					parsed.uninstallExtensions.push(requireInlineValue(arg, '--uninstall-extension'));
 				} else if (arg.startsWith('--user-data-dir=')) {
 					parsed.userDataDir = requireInlineValue(arg, '--user-data-dir');
+				} else if (arg.startsWith('--theia-wait-socket=')) {
+					parsed.waitSocket = requireInlineValue(arg, '--theia-wait-socket');
 				} else if (arg.startsWith('--goto=')) {
 					parsed.gotoTarget = requireInlineValue(arg, '--goto');
 				} else if (arg.startsWith('-') && !isKnownPassthroughOption(arg)) {
@@ -225,6 +241,18 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 		}
 	}
 
+	if (parsed.wait && parsed.waitSocket) {
+		throw new Error('--wait cannot be combined with an internal wait request');
+	}
+	if (parsed.wait && parsed.restore) {
+		throw new Error('--wait cannot be combined with --restore');
+	}
+	if (parsed.wait && !parsed.newWindow && !parsed.reuseWindow && !parsed.gotoTarget && !parsed.diffTargets && getWindowTarget(parsed.remainingArgs) === undefined) {
+		throw new Error('--wait requires a file, folder, --goto, --diff, --new-window or --reuse-window');
+	}
+	if (parsed.restore && (parsed.newWindow || parsed.reuseWindow || parsed.gotoTarget !== undefined || parsed.diffTargets !== undefined || hasWindowTarget(parsed.remainingArgs))) {
+		throw new Error('--restore cannot be combined with a path or other window opening options');
+	}
 	if (parsed.newWindow && parsed.reuseWindow) {
 		throw new Error('--new-window and --reuse-window cannot be used together');
 	}
@@ -242,14 +270,19 @@ export function parseVscodeCliArgs(args: readonly string[]): ParsedVscodeCliArgs
 	return parsed;
 }
 
-export function getWindowTarget(args: readonly string[]): string | undefined {
+export function getWindowTargetIndices(args: readonly string[]): number[] {
+	const targets: number[] = [];
 	for (let index = 0; index < args.length; index++) {
 		const arg = args[index];
 		if (arg === '--') {
-			return args[index + 1];
+			for (let target = index + 1; target < args.length; target++) {
+				targets.push(target);
+			}
+			break;
 		}
 		if (!arg.startsWith('-')) {
-			return arg;
+			targets.push(index);
+			continue;
 		}
 		const separator = arg.indexOf('=');
 		const option = separator >= 0 ? arg.slice(0, separator) : arg;
@@ -257,7 +290,15 @@ export function getWindowTarget(args: readonly string[]): string | undefined {
 			index++;
 		}
 	}
-	return undefined;
+	return targets;
+}
+
+export function getWindowTargets(args: readonly string[]): string[] {
+	return getWindowTargetIndices(args).map(index => args[index]);
+}
+
+export function getWindowTarget(args: readonly string[]): string | undefined {
+	return getWindowTargets(args)[0];
 }
 
 export function hasWindowTarget(args: readonly string[]): boolean {

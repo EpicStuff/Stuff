@@ -53,8 +53,9 @@ export interface ContextMenuConfigEditorState {
 	activeTargetId: string;
 	expandedKeys: string[];
 	selectedKey?: string;
-	mode: 'menu' | 'add' | 'edit';
+	mode: 'menu' | 'edit';
 	addFilter: string;
+	currentFilter: string;
 	editingKey?: string;
 	editLabel: string;
 	editWhen: string;
@@ -85,8 +86,9 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	/** Row to scroll into view after the next render. */
 	protected revealKey: string | undefined;
 	protected draggedKey: string | undefined;
-	protected mode: 'menu' | 'add' | 'edit' = 'menu';
+	protected mode: 'menu' | 'edit' = 'menu';
 	protected addFilter = '';
+	protected currentFilter = '';
 	protected editingKey: string | undefined;
 	protected editLabel = '';
 	protected editWhen = '';
@@ -94,6 +96,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	protected dragOverKey: string | undefined;
 	protected dragOverPosition: 'before' | 'after' | undefined;
 	protected selectedAddKey: string | undefined;
+	protected draggedChoiceKey: string | undefined;
 	protected renamingKey: string | undefined;
 	protected renameValue = '';
 	protected status = '';
@@ -146,6 +149,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 			selectedKey: this.selectedKey,
 			mode: this.mode,
 			addFilter: this.addFilter,
+			currentFilter: this.currentFilter,
 			editingKey: this.editingKey,
 			editLabel: this.editLabel,
 			editWhen: this.editWhen,
@@ -167,6 +171,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		this.selectedKey = state.selectedKey;
 		this.mode = state.mode;
 		this.addFilter = state.addFilter;
+		this.currentFilter = state.currentFilter ?? '';
 		this.editingKey = state.editingKey;
 		this.editLabel = state.editLabel;
 		this.editWhen = state.editWhen;
@@ -269,9 +274,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 				onKeyDown={this.handleKeyDown}
 				style={{ height: this.props.height, minHeight: 0, outline: 'none' }}
 			>
-				{this.mode === 'add'
-					? this.renderAddCommands()
-					: this.mode === 'edit' ? this.renderItemEditor() : this.renderMenuEditor()}
+				{this.mode === 'edit' ? this.renderItemEditor() : this.renderMenuEditor()}
 			</div>
 		);
 	}
@@ -296,6 +299,9 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	protected renderMenuEditor(): React.ReactNode {
 		const targets = this.props.service.getTargets();
 		const entries = this.getEntries();
+		const choices = this.getAddChoices();
+		const query = this.currentFilter.trim().toLocaleLowerCase();
+		const shownEntries = query ? this.filterMenuEntries(entries, query) : entries;
 		return (
 			<div style={{ display: 'flex', flexDirection: 'column', gap: '12px', height: '100%', minHeight: 0 }}>
 				<div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '0 0 auto' }}>
@@ -309,27 +315,49 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 						/>
 					</div>
 					<span style={{ opacity: 0.7 }}>
-						Drag items to reorder. Expand submenus to edit their contents.
+						Drag commands into the menu or double click to add them. Drag menu items to reorder.
 					</span>
 				</div>
 
-				<div
-					key={this.activeTargetId}
-					style={{
-						border: '1px solid var(--theia-panel-border)',
-						flex: 1,
-						minHeight: 0,
-						overflow: 'auto',
-						padding: '4px'
-					}}
-				>
-					{entries.length
-						? this.renderEntries(entries, 0)
-						: <div style={{ opacity: 0.7, padding: '18px', textAlign: 'center' }}>This menu is empty.</div>}
+				<div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px', flex: 1, minHeight: 0, minWidth: 0 }}>
+					{this.renderAvailableCommands(choices)}
+
+					<div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minHeight: 0, minWidth: 0 }}>
+						<div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+							<strong style={{ whiteSpace: 'nowrap' }}>Current Menu</strong>
+							<input
+								className='theia-input'
+								aria-label='Search current menu'
+								placeholder='Search commands'
+								spellCheck={false}
+								value={this.currentFilter}
+								onChange={event => {
+									this.currentFilter = event.currentTarget.value;
+									this.forceUpdate();
+								}}
+								style={{ flex: 1, minWidth: 0 }}
+							/>
+						</div>
+						<div
+							key={this.activeTargetId}
+							onDragOver={this.handleMenuEndDragOver}
+							onDrop={this.dropAvailableChoiceAtEnd}
+							style={{
+								border: '1px solid var(--theia-panel-border)',
+								flex: 1,
+								minHeight: 0,
+								overflow: 'auto',
+								padding: '4px'
+							}}
+						>
+							{shownEntries.length
+								? this.renderEntries(shownEntries, 0)
+								: <div style={{ opacity: 0.7, padding: '18px', textAlign: 'center' }}>{query ? 'No matching menu items.' : 'This menu is empty. Drop commands here to add them.'}</div>}
+						</div>
+					</div>
 				</div>
 
 				<div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '0 0 auto', flexWrap: 'wrap' }}>
-					{this.renderActionButton('add', 'Add Command', this.openAddCommands)}
 					{this.renderActionButton('add', 'Separator', this.addSeparator)}
 					{this.renderActionButton('folder', 'Submenu', this.addSubmenu)}
 					{this.renderActionButton('arrow-up', 'Move Up', () => this.moveSelected(-1), !this.canMoveSelected(-1))}
@@ -386,11 +414,34 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		);
 	}
 
+	/**
+	 * Filters the display only; edits and drag targets still operate on the complete menu model.
+	 * Include submenu ancestors so commands nested inside collapsed submenus remain discoverable.
+	 */
+	protected filterMenuEntries(entries: EditableMenuEntry[], query: string): EditableMenuEntry[] {
+		const result: EditableMenuEntry[] = [];
+		for (const entry of entries) {
+			if (entry.type === 'separator') {
+				continue;
+			}
+			const matches = entry.label.toLocaleLowerCase().includes(query) || !!entry.commandId?.toLocaleLowerCase().includes(query);
+			if (entry.submenu) {
+				const children = matches ? entry.children ?? [] : this.filterMenuEntries(entry.children ?? [], query);
+				if (matches || children.length) {
+					result.push({ ...entry, children });
+				}
+			} else if (matches) {
+				result.push(entry);
+			}
+		}
+		return result;
+	}
+
 	protected renderEntries(entries: EditableMenuEntry[], depth: number): React.ReactNode[] {
 		const result: React.ReactNode[] = [];
 		for (const entry of entries) {
 			result.push(this.renderEntry(entry, depth));
-			if (entry.type === 'item' && entry.submenu && this.expandedKeys.has(entry.key)) {
+			if (entry.type === 'item' && entry.submenu && (this.currentFilter.trim() || this.expandedKeys.has(entry.key))) {
 				const children = entry.children ?? [];
 				result.push(
 					<div key={`${entry.key}:children`}>
@@ -398,7 +449,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 						<div
 							onDragOver={event => {
 								event.preventDefault();
-								event.dataTransfer.dropEffect = 'move';
+								event.dataTransfer.dropEffect = this.isDraggingAvailableChoice(event) ? 'copy' : 'move';
 							}}
 							onDrop={event => this.dropIntoSubmenu(event, entry.key)}
 							style={{
@@ -458,7 +509,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 			);
 		}
 
-		const expanded = entry.submenu && this.expandedKeys.has(entry.key);
+		const expanded = entry.submenu && (this.currentFilter.trim() || this.expandedKeys.has(entry.key));
 		return (
 			<div
 				key={entry.key}
@@ -488,14 +539,16 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 							className={codicon(expanded ? 'chevron-down' : 'chevron-right')}
 							role='button'
 							tabIndex={0}
-							title={expanded ? 'Collapse submenu' : 'Expand submenu'}
+							title={this.currentFilter.trim() ? 'Expanded to show search results' : expanded ? 'Collapse submenu' : 'Expand submenu'}
 							onClick={event => {
 								event.stopPropagation();
-								this.toggleExpanded(entry.key);
+								if (!this.currentFilter.trim()) {
+									this.toggleExpanded(entry.key);
+								}
 							}}
 							style={{
 								alignItems: 'center',
-								cursor: 'pointer',
+								cursor: this.currentFilter.trim() ? 'default' : 'pointer',
 								display: 'inline-flex',
 								height: '22px',
 								justifyContent: 'center',
@@ -844,23 +897,14 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		}
 	}
 
-	protected renderAddCommands(): React.ReactNode {
-		const choices = this.getAddChoices();
+	protected renderAvailableCommands(choices: AddChoice[]): React.ReactNode {
 		return (
-			<div style={{ display: 'flex', flexDirection: 'column', gap: '10px', height: '100%', minHeight: 0 }}>
-				<div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '0 0 auto' }}>
-					<button
-						type='button'
-						className='theia-button secondary'
-						onClick={this.closeAddCommands}
-						style={{ alignItems: 'center', display: 'inline-flex', gap: '6px', justifyContent: 'center' }}
-					>
-						<span className={codicon('arrow-left')} style={{ alignItems: 'center', display: 'inline-flex', lineHeight: 1 }} />
-						<span>Back</span>
-					</button>
+			<div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minHeight: 0, minWidth: 0 }}>
+				<div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+					<strong style={{ whiteSpace: 'nowrap' }}>Available Commands</strong>
 					<input
-						autoFocus={true}
 						className='theia-input'
+						aria-label='Search available commands'
 						placeholder='Search commands'
 						spellCheck={false}
 						value={this.addFilter}
@@ -869,10 +913,9 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 							this.selectedAddKey = undefined;
 							this.forceUpdate();
 						}}
-						style={{ flex: 1 }}
+						style={{ flex: 1, minWidth: 0 }}
 					/>
 				</div>
-
 				<div
 					style={{
 						border: '1px solid var(--theia-panel-border)',
@@ -886,17 +929,6 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 						? choices.map(choice => this.renderAddChoice(choice))
 						: <div style={{ opacity: 0.7, padding: '18px', textAlign: 'center' }}>No matching commands.</div>}
 				</div>
-
-				<div style={{ display: 'flex', justifyContent: 'flex-end', flex: '0 0 auto' }}>
-					<button
-						type='button'
-						className='theia-button main'
-						disabled={!this.selectedAddKey}
-						onClick={this.addSelectedChoice}
-					>
-						Add Command
-					</button>
-				</div>
 			</div>
 		);
 	}
@@ -906,6 +938,9 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		return (
 			<div
 				key={choice.key}
+				draggable={true}
+				onDragStart={event => this.startAvailableChoiceDrag(event, choice)}
+				onDragEnd={this.endDrag}
 				onClick={() => {
 					this.selectedAddKey = choice.key;
 					this.forceUpdate();
@@ -936,33 +971,22 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		this.forceUpdate();
 	};
 
-	protected openAddCommands = (): void => {
-		this.mode = 'add';
-		this.addFilter = '';
-		this.selectedAddKey = undefined;
-		this.forceUpdate();
-	};
-
-	protected closeAddCommands = (): void => {
-		this.mode = 'menu';
-		this.addFilter = '';
-		this.selectedAddKey = undefined;
-		this.forceUpdate();
-	};
-
-	protected addSelectedChoice = (): void => {
-		if (!this.selectedAddKey) {
-			return;
-		}
-		const choice = this.getAddChoices().find(candidate => candidate.key === this.selectedAddKey);
-		if (choice) {
-			this.addChoice(choice);
-		}
-	};
-
-	protected addChoice(choice: AddChoice): void {
+	protected addChoice(choice: AddChoice, targetKey?: string, position: 'before' | 'after' | 'inside' | 'end' = 'after'): void {
 		this.edit(entries => {
-			const destination = this.getInsertionLocation(entries);
+			let destination: { parent: EditableMenuEntry[], index: number };
+			if (position === 'end') {
+				destination = { parent: entries, index: entries.length };
+			} else {
+				const target = targetKey ? this.findLocation(entries, targetKey) : undefined;
+				if (target && position === 'inside' && target.entry.type === 'item' && target.entry.submenu) {
+					target.entry.children ??= [];
+					destination = { parent: target.entry.children, index: target.entry.children.length };
+				} else if (target) {
+					destination = { parent: target.parent, index: target.index + (position === 'after' ? 1 : 0) };
+				} else {
+					destination = this.getInsertionLocation(entries);
+				}
+			}
 			const entry = this.cloneEntry(choice.entry);
 			if (entry.custom) {
 				entry.storageKey = this.nextCustomStorageKey(entries);
@@ -970,9 +994,11 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 			}
 			destination.parent.splice(destination.index, 0, entry);
 			this.selectedKey = entry.key;
+			this.revealKey = entry.key;
 			return true;
 		});
-		this.closeAddCommands();
+		this.selectedAddKey = undefined;
+		this.forceUpdate();
 	}
 
 	protected getAddChoices(): AddChoice[] {
@@ -1125,6 +1151,7 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 
 	protected startDrag(event: React.DragEvent<HTMLElement>, key: string): void {
 		this.draggedKey = key;
+		this.draggedChoiceKey = undefined;
 		this.dragOverKey = undefined;
 		this.dragOverPosition = undefined;
 		event.dataTransfer.effectAllowed = 'move';
@@ -1133,17 +1160,35 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 		event.dataTransfer.setDragImage(event.currentTarget, 12, 12);
 	}
 
+	protected startAvailableChoiceDrag(event: React.DragEvent<HTMLElement>, choice: AddChoice): void {
+		this.draggedKey = undefined;
+		this.draggedChoiceKey = choice.key;
+		this.dragOverKey = undefined;
+		this.dragOverPosition = undefined;
+		event.dataTransfer.effectAllowed = 'copy';
+		event.dataTransfer.setData('application/x-custom-context-menu-choice', choice.key);
+	}
+
 	protected endDrag = (): void => {
 		this.draggedKey = undefined;
+		this.draggedChoiceKey = undefined;
 		this.dragOverKey = undefined;
 		this.dragOverPosition = undefined;
 		this.forceUpdate();
 	};
 
+	protected isDraggingAvailableChoice(event: React.DragEvent<HTMLElement>): boolean {
+		return !!this.draggedChoiceKey || Array.from(event.dataTransfer.types).includes('application/x-custom-context-menu-choice');
+	}
+
+	protected getDraggedChoiceKey(event: React.DragEvent<HTMLElement>): string | undefined {
+		return this.draggedChoiceKey || event.dataTransfer.getData('application/x-custom-context-menu-choice') || undefined;
+	}
+
 	protected handleDragOver(event: React.DragEvent<HTMLElement>, targetKey: string): void {
 		event.preventDefault();
 		event.stopPropagation();
-		event.dataTransfer.dropEffect = 'move';
+		event.dataTransfer.dropEffect = this.isDraggingAvailableChoice(event) ? 'copy' : 'move';
 		const bounds = event.currentTarget.getBoundingClientRect();
 		const position: 'before' | 'after' = event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after';
 		if (this.dragOverKey !== targetKey || this.dragOverPosition !== position) {
@@ -1152,6 +1197,27 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 			this.forceUpdate();
 		}
 	}
+
+	protected handleMenuEndDragOver = (event: React.DragEvent<HTMLElement>): void => {
+		if (this.isDraggingAvailableChoice(event)) {
+			event.preventDefault();
+			event.dataTransfer.dropEffect = 'copy';
+		}
+	};
+
+	protected dropAvailableChoiceAtEnd = (event: React.DragEvent<HTMLElement>): void => {
+		const choiceKey = this.getDraggedChoiceKey(event);
+		if (!choiceKey) {
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		this.endDrag();
+		const choice = this.getAddChoices().find(candidate => candidate.key === choiceKey);
+		if (choice) {
+			this.addChoice(choice, undefined, 'end');
+		}
+	};
 
 	protected getDraggedKey(event: React.DragEvent<HTMLElement>): string | undefined {
 		return this.draggedKey
@@ -1163,16 +1229,23 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	protected dropAt(event: React.DragEvent<HTMLElement>, targetKey: string): void {
 		event.preventDefault();
 		event.stopPropagation();
-		const draggedKey = this.getDraggedKey(event);
+		const choiceKey = this.getDraggedChoiceKey(event);
+		const draggedKey = choiceKey ? undefined : this.getDraggedKey(event);
 		const bounds = event.currentTarget.getBoundingClientRect();
 		const position = this.dragOverKey === targetKey && this.dragOverPosition
 			? this.dragOverPosition
 			: event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after';
 		this.endDrag();
+		if (choiceKey) {
+			const choice = this.getAddChoices().find(candidate => candidate.key === choiceKey);
+			if (choice) {
+				this.addChoice(choice, targetKey, position);
+			}
+			return;
+		}
 		if (!draggedKey || draggedKey === targetKey) {
 			return;
 		}
-
 		this.edit(entries => {
 			const source = this.findLocation(entries, draggedKey);
 			if (!source || !this.findLocation(entries, targetKey) || this.entryContainsKey(source.entry, targetKey)) {
@@ -1193,12 +1266,19 @@ export class ContextMenuConfigEditor extends React.Component<ContextMenuConfigEd
 	protected dropIntoSubmenu(event: React.DragEvent<HTMLElement>, submenuKey: string): void {
 		event.preventDefault();
 		event.stopPropagation();
-		const draggedKey = this.getDraggedKey(event);
+		const choiceKey = this.getDraggedChoiceKey(event);
+		const draggedKey = choiceKey ? undefined : this.getDraggedKey(event);
 		this.endDrag();
+		if (choiceKey) {
+			const choice = this.getAddChoices().find(candidate => candidate.key === choiceKey);
+			if (choice) {
+				this.addChoice(choice, submenuKey, 'inside');
+			}
+			return;
+		}
 		if (!draggedKey || draggedKey === submenuKey) {
 			return;
 		}
-
 		this.edit(entries => {
 			const source = this.findLocation(entries, draggedKey);
 			const submenu = this.findLocation(entries, submenuKey);

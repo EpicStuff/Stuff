@@ -12,6 +12,8 @@ interface NotebookScrollPosition {
 	editor: NotebookEditorWidget;
 	scrollLeft: number;
 	scrollTop: number;
+	anchorCellIndex?: number;
+	anchorOffsetTop?: number;
 }
 
 @injectable()
@@ -81,25 +83,75 @@ export class NotebookExternalFileChangeContribution implements FrontendApplicati
 			}
 
 			const scrollContainer = editor.node.querySelector<HTMLElement>('.theia-notebook-scroll-container');
-			return scrollContainer ? [{
+			if (!scrollContainer) {
+				return [];
+			}
+
+			const position: NotebookScrollPosition = {
 				editor,
 				scrollLeft: scrollContainer.scrollLeft,
 				scrollTop: scrollContainer.scrollTop
-			}] : [];
+			};
+
+			const containerRect = scrollContainer.getBoundingClientRect();
+			const cellNodes = Array.from(editor.node.querySelectorAll<HTMLElement>('.theia-notebook-cell[data-cell-handle]'));
+			const anchorNode = cellNodes.find(node => node.getBoundingClientRect().bottom > containerRect.top);
+			if (anchorNode) {
+				const handle = Number(anchorNode.dataset.cellHandle);
+				const cell = Number.isInteger(handle) ? model.getCellByHandle(handle) : undefined;
+				const index = cell ? model.cells.indexOf(cell) : -1;
+				if (index >= 0) {
+					position.anchorCellIndex = index;
+					position.anchorOffsetTop = anchorNode.getBoundingClientRect().top - containerRect.top;
+				}
+			}
+
+			return [position];
 		});
 	}
 
 	protected async restoreScrollPositions(positions: NotebookScrollPosition[]): Promise<void> {
-		await animationFrame();
-		await animationFrame();
-
-		for (const { editor, scrollLeft, scrollTop } of positions) {
-			const scrollContainer = editor.node.querySelector<HTMLElement>('.theia-notebook-scroll-container');
-			if (scrollContainer) {
-				scrollContainer.scrollLeft = scrollLeft;
-				scrollContainer.scrollTop = scrollTop;
-			}
+		for (let frame = 0; frame < 2; frame++) {
+			await animationFrame();
 		}
+
+		for (let pass = 0; pass < 6; pass++) {
+			for (const position of positions) {
+				this.restoreScrollPosition(position);
+			}
+			await animationFrame();
+		}
+	}
+
+	protected restoreScrollPosition(position: NotebookScrollPosition): void {
+		const { editor, scrollLeft, scrollTop, anchorCellIndex, anchorOffsetTop } = position;
+		const scrollContainer = editor.node.querySelector<HTMLElement>('.theia-notebook-scroll-container');
+		if (!scrollContainer) {
+			return;
+		}
+
+		scrollContainer.scrollLeft = scrollLeft;
+
+		if (anchorCellIndex === undefined || anchorOffsetTop === undefined || !editor.model) {
+			scrollContainer.scrollTop = scrollTop;
+			return;
+		}
+
+		const anchorCell = editor.model.cells[anchorCellIndex];
+		if (!anchorCell) {
+			scrollContainer.scrollTop = scrollTop;
+			return;
+		}
+
+		const anchorNode = editor.node.querySelector<HTMLElement>(`.theia-notebook-cell[data-cell-handle='${anchorCell.handle}']`);
+		if (!anchorNode) {
+			scrollContainer.scrollTop = scrollTop;
+			return;
+		}
+
+		const containerTop = scrollContainer.getBoundingClientRect().top;
+		const currentOffsetTop = anchorNode.getBoundingClientRect().top - containerTop;
+		scrollContainer.scrollTop += currentOffsetTop - anchorOffsetTop;
 	}
 
 	protected isOpen(model: NotebookModel): boolean {

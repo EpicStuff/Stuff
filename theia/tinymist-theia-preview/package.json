@@ -1,8 +1,8 @@
 {
 	"name": "tinymist-theia-preview",
 	"displayName": "Tinymist Theia Preview",
-	"description": "Opens Tinymist previews in Theia's Mini Browser instead of a VS Code webview.",
-	"version": "0.1.0",
+	"description": "Opens independent Tinymist previews in Theia webview panels.",
+	"version": "0.2.0",
 	"publisher": "epicstuff",
 	"repository": {
 		"type": "git",

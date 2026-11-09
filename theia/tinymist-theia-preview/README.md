@@ -1,12 +1,12 @@
 # Tinymist Theia Preview
 
-This is a small VS Code extension for Eclipse Theia. It keeps Tinymist's existing preview button, command, shortcut, and preview server, but opens the rendered document in Theia's Mini Browser.
+This VS Code extension keeps Tinymist's preview button, command, shortcut, and server. Each document opens in its own Theia webview panel, with an iframe pointed at that document's localhost preview server.
 
-Tinymist's built in VS Code webview preview uses a WebSocket. Theia webviews use a `*.webview.localhost` origin, which Tinymist currently rejects. Tinymist's browser preview works because it is served directly from `127.0.0.1`.
+The iframe loads Tinymist's page directly from `127.0.0.1`, so the page and its WebSocket use the same localhost origin. The outer webview allows that server in its `frame-src` CSP. Closing a panel calls `tinymist.doDisposePreview` to stop its preview task.
 
-The extension uses Tinymist's previewer provider API. Tinymist starts its normal preview server and passes the provider its static server port. This adapter only opens that URL through Theia's normal `mini-browser.openUrl` command. It contains no tab grouping logic.
+The adapter uses Tinymist's previewer provider API and returns a panel disposer. Tinymist relaunches a preview when the same document is requested again; the old panel closes before the new panel opens. The adapter contains no native Theia commands.
 
-The native `theia-group-tabs` extension can learn a Mini Browser URL Preview relationship after the user groups it once. That behavior is generic to Theia's URL Preview and does not contain Typst specific matching.
+Group Tabs can learn to group the `tinymist.theiaPreview` webview kind after a manual grouping. In a Theia GUI test, a second editor and preview formed their own group automatically, and reopening that preview kept the correct pair. Its generic matching uses widget kind and opening mode rather than the document URI, so layouts with several matching ungrouped editors remain ambiguous. Webview session restoration also needs care: a restored iframe URL only works while its Tinymist preview server is running.
 
 The package contributes this default:
 

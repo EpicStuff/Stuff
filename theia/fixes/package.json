@@ -1,0 +1,53 @@
+{
+	"name": "theia-fixes",
+	"version": "0.2.0",
+	"description": "Native Eclipse Theia fixes including draggable editor windows, persistent source code folding and triple click line selection.",
+	"engines": {
+		"node": ">=24"
+	},
+	"files": [
+		"lib",
+		"src",
+		"README.md"
+	],
+	"exports": {
+		"./lib/browser/theia-fixes-frontend-module": "./lib/browser/theia-fixes-frontend-module.js",
+		"./lib/electron-main/theia-fixes-electron-main-module": "./lib/electron-main/theia-fixes-electron-main-module.js"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"clean": "rm -rf lib",
+		"test": "node --test test/*.test.mjs"
+	},
+	"peerDependencies": {
+		"@theia/core": ">=1.75.0 <2.0.0",
+		"@theia/editor": ">=1.75.0 <2.0.0",
+		"@theia/monaco": ">=1.75.0 <2.0.0",
+		"@theia/monaco-editor-core": ">=1.108.0 <2.0.0",
+		"@theia/editor-preview": ">=1.75.0 <2.0.0",
+		"@theia/filesystem": ">=1.75.0 <2.0.0",
+		"@theia/navigator": ">=1.75.0 <2.0.0",
+		"@theia/keymaps": ">=1.75.0 <2.0.0",
+		"@theia/secondary-window": ">=1.75.0 <2.0.0"
+	},
+	"devDependencies": {
+		"typescript": "~5.9.3"
+	},
+	"theiaExtensions": [
+		{
+			"frontendElectron": "lib/browser/theia-fixes-frontend-module",
+			"electronMain": "lib/electron-main/theia-fixes-electron-main-module"
+		}
+	],
+	"keywords": [
+		"theia-extension",
+		"theia",
+		"folding",
+		"persistence",
+		"hot-exit",
+		"selection",
+		"tabs",
+		"secondary-window",
+		"electron"
+	]
+}

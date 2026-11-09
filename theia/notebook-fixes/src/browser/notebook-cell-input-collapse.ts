@@ -3,7 +3,7 @@ import { ApplicationShell, codicon, StorageService } from '@theia/core/lib/brows
 import { KeybindingRegistry } from '@theia/core/lib/browser/keybinding';
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
 import * as React from '@theia/core/shared/react';
-import * as monaco from '@theia/monaco-editor-core';
+import { ContentWidgetPositionPreference, ICodeEditor, IContentWidget } from '@theia/monaco-editor-core/esm/vs/editor/browser/editorBrowser';
 import { CellKind } from '@theia/notebook/lib/common';
 import { NotebookMenus } from '@theia/notebook/lib/browser/contributions/notebook-actions-contribution';
 import { NotebookCellActionContribution, NotebookCellCommands } from '@theia/notebook/lib/browser/contributions/notebook-cell-actions-contribution';
@@ -37,7 +37,7 @@ let notebookCellEditorService: NotebookCellEditorService | undefined;
 let notebookKeybindingRegistry: KeybindingRegistry | undefined;
 
 const collapsedCodeCellHiddenAreaSource = {};
-const collapsedCodeCellMoreWidgets = new WeakMap<NotebookCellModel, { editor: monaco.editor.ICodeEditor; widget: monaco.editor.IContentWidget }>();
+const collapsedCodeCellMoreWidgets = new WeakMap<NotebookCellModel, { editor: ICodeEditor; widget: IContentWidget }>();
 
 let inputCollapseStorageService: StorageService | undefined;
 let persistedInputCollapseState: PersistedInputCollapseState = {};
@@ -165,7 +165,7 @@ function removeCollapsedCodeCellMoreWidget(cell: NotebookCellModel): void {
 	collapsedCodeCellMoreWidgets.delete(cell);
 }
 
-function ensureCollapsedCodeCellMoreWidget(cell: NotebookCellModel, editor: monaco.editor.ICodeEditor): void {
+function ensureCollapsedCodeCellMoreWidget(cell: NotebookCellModel, editor: ICodeEditor): void {
 	const model = editor.getModel();
 	if (!model) {
 		return;
@@ -202,7 +202,7 @@ function ensureCollapsedCodeCellMoreWidget(cell: NotebookCellModel, editor: mona
 		setInputCollapsed(cell, false);
 	});
 
-	const widget: monaco.editor.IContentWidget = {
+	const widget: IContentWidget = {
 		getDomNode: () => domNode,
 		getId: () => `notebook-cell-collapse-more-${cell.handle}`,
 		getPosition: () => ({
@@ -210,7 +210,7 @@ function ensureCollapsedCodeCellMoreWidget(cell: NotebookCellModel, editor: mona
 				lineNumber: 1,
 				column: model.getLineMaxColumn(1)
 			},
-			preference: [monaco.editor.ContentWidgetPositionPreference.EXACT]
+			preference: [ContentWidgetPositionPreference.EXACT]
 		})
 	};
 	editor.addContentWidget(widget);

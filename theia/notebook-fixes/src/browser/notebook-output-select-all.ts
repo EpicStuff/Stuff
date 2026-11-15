@@ -52,6 +52,8 @@ export function patchNotebookOutputSelectAll(): void {
 
 		const activeElement = document.activeElement;
 		if (activeElement && hasActiveEditableElement(activeElement, document)) {
+			event.stopPropagation();
+			event.stopImmediatePropagation();
 			return;
 		}
 

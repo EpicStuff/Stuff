@@ -813,6 +813,12 @@ export namespace NotebookCellInputCollapseCommands {
 		category: 'Notebook'
 	};
 
+	export const COLLAPSE_ALL_OUTPUTS: Command = {
+		id: 'notebook.cell.collapseAllOutputs',
+		label: 'Collapse All Outputs',
+		category: 'Notebook'
+	};
+
 	export const COLLAPSE_PICKER: Command = {
 		id: 'notebook.cell.collapsePicker',
 		label: 'Collapse...',
@@ -1010,17 +1016,38 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 			}
 		});
 
+		commands.registerCommand(NotebookCellInputCollapseCommands.COLLAPSE_ALL_OUTPUTS, {
+			isEnabled: (item?: URI | NotebookModel) => {
+				const notebook = this.resolveNotebook(item);
+				return !!notebook?.cells.some(cell => cell.cellKind === CellKind.Code && cell.outputs.length > 0 && cell.outputVisible);
+			},
+			isVisible: (item?: URI | NotebookModel) => !!this.resolveNotebook(item),
+			execute: (item?: URI | NotebookModel) => {
+				const notebook = this.resolveNotebook(item);
+				if (!notebook) {
+					return;
+				}
+
+				for (const cell of notebook.cells) {
+					if (cell.cellKind === CellKind.Code && cell.outputs.length > 0) {
+						cell.outputVisible = false;
+					}
+				}
+			}
+		});
+
 		commands.registerCommand(NotebookCellInputCollapseCommands.COLLAPSE_PICKER, {
 			isEnabled: (item?: URI | NotebookModel) => {
 				const notebook = this.resolveNotebook(item);
-				return !!notebook?.cells.some(cell => isInputCollapsibleCell(cell) && !isInputCollapsed(cell));
+				return !!notebook?.cells.some(cell => (isInputCollapsibleCell(cell) && !isInputCollapsed(cell)) || (cell.cellKind === CellKind.Code && cell.outputs.length > 0 && cell.outputVisible));
 			},
 			isVisible: (item?: URI | NotebookModel) => !!this.resolveNotebook(item),
 			execute: async (item?: URI | NotebookModel) => {
 				const selected = await this.quickInputService.showQuickPick([
 					{ label: 'All Inputs', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_INPUTS.id },
-					{ label: 'Code Inputs', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_CODE_INPUTS.id },
-					{ label: 'Markdown Inputs', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_MARKDOWN_INPUTS.id }
+					{ label: 'All Code Cells', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_CODE_INPUTS.id },
+					{ label: 'All Markdown Cells', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_MARKDOWN_INPUTS.id },
+					{ label: 'All Outputs', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_OUTPUTS.id }
 				], { placeholder: 'Collapse' });
 				if (selected) {
 					await commands.executeCommand(selected.commandId, item);

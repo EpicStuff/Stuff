@@ -778,37 +778,37 @@ export function patchNotebookCodeCellInputCollapse(): void {
 
 export namespace NotebookCellInputCollapseCommands {
 	export const COLLAPSE: Command = {
-		id: 'notebook.cell.collapseCellInput',
+		id: 'notebook.cell.collapseCell',
 		label: 'Collapse Cell Input',
 		category: 'Notebook'
 	};
 
 	export const EXPAND: Command = {
-		id: 'notebook.cell.expandCellInput',
+		id: 'notebook.cell.expandCell',
 		label: 'Expand Cell Input',
 		category: 'Notebook'
 	};
 
 	export const TOGGLE: Command = {
-		id: 'notebook.cell.toggleCellInput',
+		id: 'notebook.cell.toggleCell',
 		label: 'Toggle Cell Input',
 		category: 'Notebook'
 	};
 
 	export const COLLAPSE_ALL_INPUTS: Command = {
-		id: 'notebook.cell.collapseAllCellInputs',
+		id: 'notebook.cell.collapseAllInputs',
 		label: 'Collapse All Cell Inputs',
 		category: 'Notebook'
 	};
 
 	export const COLLAPSE_ALL_CODE_INPUTS: Command = {
-		id: 'notebook.cell.collapseAllCodeInputs',
+		id: 'notebook.cell.collapseAllCode',
 		label: 'Collapse All Code Cell Inputs',
 		category: 'Notebook'
 	};
 
 	export const COLLAPSE_ALL_MARKDOWN_INPUTS: Command = {
-		id: 'notebook.cell.collapseAllMarkdownInputs',
+		id: 'notebook.cell.collapseAllMarkdown',
 		label: 'Collapse All Markdown Cell Inputs',
 		category: 'Notebook'
 	};
@@ -828,12 +828,6 @@ export namespace NotebookCellInputCollapseCommands {
 	export const COLLAPSE_PICKER: Command = {
 		id: 'notebook.cell.collapsePicker',
 		label: 'Collapse All...',
-		category: 'Notebook'
-	};
-
-	export const EXPAND_ALL_INPUTS: Command = {
-		id: 'notebook.cell.expandAllCellInputs',
-		label: 'Expand All Cell Inputs',
 		category: 'Notebook'
 	};
 
@@ -1084,28 +1078,6 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 				if (selected) {
 					await commands.executeCommand(selected.commandId, item);
 				}
-			}
-		});
-
-		commands.registerCommand(NotebookCellInputCollapseCommands.EXPAND_ALL_INPUTS, {
-			isEnabled: (item?: URI | NotebookModel) => {
-				const notebook = this.resolveNotebook(item);
-				return !!notebook?.cells.some(cell => isInputCollapsibleCell(cell) && isInputCollapsed(cell));
-			},
-			isVisible: (item?: URI | NotebookModel) => !!this.resolveNotebook(item),
-			execute: (item?: URI | NotebookModel) => {
-				const notebook = this.resolveNotebook(item);
-				if (!notebook) {
-					return;
-				}
-
-				trackNotebook(notebook);
-				for (const cell of notebook.cells) {
-					if (isInputCollapsibleCell(cell)) {
-						setInputCollapsed(cell, false, false);
-					}
-				}
-				void inputCollapseStorageReady.then(() => persistNotebookInputCollapseState(notebook));
 			}
 		});
 

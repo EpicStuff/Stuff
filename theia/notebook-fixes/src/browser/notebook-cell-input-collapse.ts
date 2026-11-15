@@ -1075,7 +1075,7 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 			isVisible: (item?: URI | NotebookModel) => !!this.resolveNotebook(item),
 			execute: async (item?: URI | NotebookModel) => {
 				const selected = await this.quickInputService.showQuickPick([
-					{ label: 'All', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL.id },
+					{ label: 'Cells', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL.id },
 					{ label: 'Input Cells', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_INPUTS.id },
 					{ label: 'Code Cells', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_CODE_INPUTS.id },
 					{ label: 'Markdown Cells', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_MARKDOWN_INPUTS.id },

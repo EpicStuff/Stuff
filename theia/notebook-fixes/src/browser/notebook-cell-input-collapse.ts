@@ -38,6 +38,18 @@ let notebookKeybindingRegistry: KeybindingRegistry | undefined;
 
 const collapsedCodeCellHiddenAreaSource = {};
 const collapsedCodeCellMoreWidgets = new WeakMap<NotebookCellModel, { editor: ICodeEditor; widget: IContentWidget }>();
+const focusScrollPatchedNativeEditContexts = new WeakSet<HTMLElement>();
+
+function preventNotebookEditorFocusScroll(editor: ICodeEditor): void {
+	const nativeEditContext = editor.getDomNode()?.querySelector<HTMLElement>('.native-edit-context');
+	if (!nativeEditContext || focusScrollPatchedNativeEditContexts.has(nativeEditContext)) {
+		return;
+	}
+
+	const originalFocus = nativeEditContext.focus.bind(nativeEditContext);
+	nativeEditContext.focus = options => originalFocus({ ...options, preventScroll: true });
+	focusScrollPatchedNativeEditContexts.add(nativeEditContext);
+}
 
 let inputCollapseStorageService: StorageService | undefined;
 let persistedInputCollapseState: PersistedInputCollapseState = {};
@@ -228,6 +240,8 @@ function applyCollapsedCodeEditorState(cell: NotebookCellModel, collapsed: boole
 	if (!editor || !model) {
 		return;
 	}
+
+	preventNotebookEditorFocusScroll(editor);
 
 	const lineCount = model.getLineCount();
 	if (collapsed && lineCount > 1) {

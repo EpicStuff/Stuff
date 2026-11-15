@@ -6,6 +6,7 @@ import { codeToTheiaMappings } from '@theia/plugin-ext/lib/main/browser/menus/vs
 import { NotebookCellInputCollapseContribution, patchNotebookCellToolbarInputCollapseIcon, patchNotebookCodeCellInputCollapse, readNotebookCellInputCollapseState } from './notebook-cell-input-collapse';
 import { patchNotebookContextCompatibility, setNotebookCellInputCollapseStateReader } from './notebook-context-compatibility';
 import { NotebookExternalFileChangeContribution } from './notebook-external-file-change';
+import { patchNotebookOutputSelectAll } from './notebook-output-select-all';
 import { rebindNotebookMarkdownMath } from './notebook-markdown-math';
 
 function patchNotebookToolbarMenuMapping(): void {
@@ -18,6 +19,7 @@ export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
 	patchNotebookContextCompatibility();
 	patchNotebookCodeCellInputCollapse();
 	patchNotebookCellToolbarInputCollapseIcon();
+	patchNotebookOutputSelectAll();
 	rebindNotebookMarkdownMath(rebind);
 
 	bind(NotebookCellInputCollapseContribution).toSelf().inSingletonScope();

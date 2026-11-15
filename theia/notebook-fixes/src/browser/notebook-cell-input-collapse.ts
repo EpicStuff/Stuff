@@ -813,9 +813,9 @@ export namespace NotebookCellInputCollapseCommands {
 		category: 'Notebook'
 	};
 
-	export const COLLAPSE_ALL_ONLY: Command = {
-		id: 'notebook.cell.collapseAllOnly',
-		label: 'Collapse All Only...',
+	export const COLLAPSE_PICKER: Command = {
+		id: 'notebook.cell.collapsePicker',
+		label: 'Collapse...',
 		category: 'Notebook'
 	};
 
@@ -1010,7 +1010,7 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 			}
 		});
 
-		commands.registerCommand(NotebookCellInputCollapseCommands.COLLAPSE_ALL_ONLY, {
+		commands.registerCommand(NotebookCellInputCollapseCommands.COLLAPSE_PICKER, {
 			isEnabled: (item?: URI | NotebookModel) => {
 				const notebook = this.resolveNotebook(item);
 				return !!notebook?.cells.some(cell => isInputCollapsibleCell(cell) && !isInputCollapsed(cell));
@@ -1018,9 +1018,10 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 			isVisible: (item?: URI | NotebookModel) => !!this.resolveNotebook(item),
 			execute: async (item?: URI | NotebookModel) => {
 				const selected = await this.quickInputService.showQuickPick([
-					{ label: 'Code', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_CODE_INPUTS.id },
-					{ label: 'Markdown', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_MARKDOWN_INPUTS.id }
-				], { placeholder: 'Collapse all inputs only for' });
+					{ label: 'All Inputs', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_INPUTS.id },
+					{ label: 'Code Inputs', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_CODE_INPUTS.id },
+					{ label: 'Markdown Inputs', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_MARKDOWN_INPUTS.id }
+				], { placeholder: 'Collapse' });
 				if (selected) {
 					await commands.executeCommand(selected.commandId, item);
 				}
@@ -1059,16 +1060,10 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 			order: '25'
 		});
 		menus.registerMenuAction(NotebookMenus.NOTEBOOK_MAIN_TOOLBAR_EXECUTION_GROUP, {
-			commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_INPUTS.id,
-			label: 'Collapse All Cell Inputs',
+			commandId: NotebookCellInputCollapseCommands.COLLAPSE_PICKER.id,
+			label: 'Collapse...',
 			icon: codicon('fold'),
 			order: '20'
-		});
-		menus.registerMenuAction(NotebookMenus.NOTEBOOK_MAIN_TOOLBAR_EXECUTION_GROUP, {
-			commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_ONLY.id,
-			label: 'Collapse All Only...',
-			icon: codicon('filter'),
-			order: '21'
 		});
 	}
 

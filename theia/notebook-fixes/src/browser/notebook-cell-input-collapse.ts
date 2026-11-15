@@ -1,5 +1,5 @@
 import { Command, CommandContribution, CommandRegistry, Disposable, Emitter, MenuContribution, MenuModelRegistry, URI } from '@theia/core';
-import { ApplicationShell, codicon, StorageService } from '@theia/core/lib/browser';
+import { ApplicationShell, codicon, QuickInputService, StorageService } from '@theia/core/lib/browser';
 import { KeybindingRegistry } from '@theia/core/lib/browser/keybinding';
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
 import * as React from '@theia/core/shared/react';
@@ -38,6 +38,18 @@ let notebookKeybindingRegistry: KeybindingRegistry | undefined;
 
 const collapsedCodeCellHiddenAreaSource = {};
 const collapsedCodeCellMoreWidgets = new WeakMap<NotebookCellModel, { editor: ICodeEditor; widget: IContentWidget }>();
+const focusScrollPatchedNativeEditContexts = new WeakSet<HTMLElement>();
+
+function preventNotebookEditorFocusScroll(editor: ICodeEditor): void {
+	const nativeEditContext = editor.getDomNode()?.querySelector<HTMLElement>('.native-edit-context');
+	if (!nativeEditContext || focusScrollPatchedNativeEditContexts.has(nativeEditContext)) {
+		return;
+	}
+
+	const originalFocus = nativeEditContext.focus.bind(nativeEditContext);
+	nativeEditContext.focus = options => originalFocus({ ...options, preventScroll: true });
+	focusScrollPatchedNativeEditContexts.add(nativeEditContext);
+}
 
 let inputCollapseStorageService: StorageService | undefined;
 let persistedInputCollapseState: PersistedInputCollapseState = {};
@@ -228,6 +240,8 @@ function applyCollapsedCodeEditorState(cell: NotebookCellModel, collapsed: boole
 	if (!editor || !model) {
 		return;
 	}
+
+	preventNotebookEditorFocusScroll(editor);
 
 	const lineCount = model.getLineCount();
 	if (collapsed && lineCount > 1) {
@@ -764,32 +778,56 @@ export function patchNotebookCodeCellInputCollapse(): void {
 
 export namespace NotebookCellInputCollapseCommands {
 	export const COLLAPSE: Command = {
-		id: 'notebook.cell.collapseCellInput',
+		id: 'notebook.cell.collapseCell',
 		label: 'Collapse Cell Input',
 		category: 'Notebook'
 	};
 
 	export const EXPAND: Command = {
-		id: 'notebook.cell.expandCellInput',
+		id: 'notebook.cell.expandCell',
 		label: 'Expand Cell Input',
 		category: 'Notebook'
 	};
 
 	export const TOGGLE: Command = {
-		id: 'notebook.cell.toggleCellInput',
+		id: 'notebook.cell.toggleCell',
 		label: 'Toggle Cell Input',
 		category: 'Notebook'
 	};
 
 	export const COLLAPSE_ALL_INPUTS: Command = {
-		id: 'notebook.cell.collapseAllCellInputs',
+		id: 'notebook.cell.collapseAllInputs',
 		label: 'Collapse All Cell Inputs',
 		category: 'Notebook'
 	};
 
-	export const EXPAND_ALL_INPUTS: Command = {
-		id: 'notebook.cell.expandAllCellInputs',
-		label: 'Expand All Cell Inputs',
+	export const COLLAPSE_ALL_CODE_INPUTS: Command = {
+		id: 'notebook.cell.collapseAllCode',
+		label: 'Collapse All Code Cell Inputs',
+		category: 'Notebook'
+	};
+
+	export const COLLAPSE_ALL_MARKDOWN_INPUTS: Command = {
+		id: 'notebook.cell.collapseAllMarkdown',
+		label: 'Collapse All Markdown Cell Inputs',
+		category: 'Notebook'
+	};
+
+	export const COLLAPSE_ALL_OUTPUTS: Command = {
+		id: 'notebook.cell.collapseAllOutputs',
+		label: 'Collapse All Outputs',
+		category: 'Notebook'
+	};
+
+	export const COLLAPSE_ALL: Command = {
+		id: 'notebook.cell.collapseAll',
+		label: 'Collapse All',
+		category: 'Notebook'
+	};
+
+	export const COLLAPSE_PICKER: Command = {
+		id: 'notebook.cell.collapsePicker',
+		label: 'Collapse All...',
 		category: 'Notebook'
 	};
 
@@ -811,6 +849,9 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 
 	@inject(StorageService)
 	protected readonly storageService!: StorageService;
+
+	@inject(QuickInputService)
+	protected readonly quickInputService!: QuickInputService;
 
 	@inject(NotebookService)
 	protected readonly notebookService!: NotebookService;
@@ -953,10 +994,52 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 			}
 		});
 
-		commands.registerCommand(NotebookCellInputCollapseCommands.EXPAND_ALL_INPUTS, {
+		commands.registerCommand(NotebookCellInputCollapseCommands.COLLAPSE_ALL_CODE_INPUTS, {
 			isEnabled: (item?: URI | NotebookModel) => {
 				const notebook = this.resolveNotebook(item);
-				return !!notebook?.cells.some(cell => isInputCollapsibleCell(cell) && isInputCollapsed(cell));
+				return !!notebook?.cells.some(cell => cell.cellKind === CellKind.Code && !isInputCollapsed(cell));
+			},
+			isVisible: (item?: URI | NotebookModel) => !!this.resolveNotebook(item),
+			execute: (item?: URI | NotebookModel) => {
+				this.collapseAllOnly(item, CellKind.Code);
+			}
+		});
+
+		commands.registerCommand(NotebookCellInputCollapseCommands.COLLAPSE_ALL_MARKDOWN_INPUTS, {
+			isEnabled: (item?: URI | NotebookModel) => {
+				const notebook = this.resolveNotebook(item);
+				return !!notebook?.cells.some(cell => cell.cellKind === CellKind.Markup && !isInputCollapsed(cell));
+			},
+			isVisible: (item?: URI | NotebookModel) => !!this.resolveNotebook(item),
+			execute: (item?: URI | NotebookModel) => {
+				this.collapseAllOnly(item, CellKind.Markup);
+			}
+		});
+
+		commands.registerCommand(NotebookCellInputCollapseCommands.COLLAPSE_ALL_OUTPUTS, {
+			isEnabled: (item?: URI | NotebookModel) => {
+				const notebook = this.resolveNotebook(item);
+				return !!notebook?.cells.some(cell => cell.cellKind === CellKind.Code && cell.outputs.length > 0 && cell.outputVisible);
+			},
+			isVisible: (item?: URI | NotebookModel) => !!this.resolveNotebook(item),
+			execute: (item?: URI | NotebookModel) => {
+				const notebook = this.resolveNotebook(item);
+				if (!notebook) {
+					return;
+				}
+
+				for (const cell of notebook.cells) {
+					if (cell.cellKind === CellKind.Code && cell.outputs.length > 0) {
+						cell.outputVisible = false;
+					}
+				}
+			}
+		});
+
+		commands.registerCommand(NotebookCellInputCollapseCommands.COLLAPSE_ALL, {
+			isEnabled: (item?: URI | NotebookModel) => {
+				const notebook = this.resolveNotebook(item);
+				return !!notebook?.cells.some(cell => (isInputCollapsibleCell(cell) && !isInputCollapsed(cell)) || (cell.cellKind === CellKind.Code && cell.outputs.length > 0 && cell.outputVisible));
 			},
 			isVisible: (item?: URI | NotebookModel) => !!this.resolveNotebook(item),
 			execute: (item?: URI | NotebookModel) => {
@@ -968,10 +1051,33 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 				trackNotebook(notebook);
 				for (const cell of notebook.cells) {
 					if (isInputCollapsibleCell(cell)) {
-						setInputCollapsed(cell, false, false);
+						setInputCollapsed(cell, true, false);
+					}
+					if (cell.cellKind === CellKind.Code && cell.outputs.length > 0) {
+						cell.outputVisible = false;
 					}
 				}
 				void inputCollapseStorageReady.then(() => persistNotebookInputCollapseState(notebook));
+			}
+		});
+
+		commands.registerCommand(NotebookCellInputCollapseCommands.COLLAPSE_PICKER, {
+			isEnabled: (item?: URI | NotebookModel) => {
+				const notebook = this.resolveNotebook(item);
+				return !!notebook?.cells.some(cell => (isInputCollapsibleCell(cell) && !isInputCollapsed(cell)) || (cell.cellKind === CellKind.Code && cell.outputs.length > 0 && cell.outputVisible));
+			},
+			isVisible: (item?: URI | NotebookModel) => !!this.resolveNotebook(item),
+			execute: async (item?: URI | NotebookModel) => {
+				const selected = await this.quickInputService.showQuickPick([
+					{ label: 'Cells', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL.id },
+					{ label: 'Input Cells', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_INPUTS.id },
+					{ label: 'Code Cells', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_CODE_INPUTS.id },
+					{ label: 'Markdown Cells', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_MARKDOWN_INPUTS.id },
+					{ label: 'Output Cells', commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_OUTPUTS.id }
+				], { placeholder: 'Collapse All' });
+				if (selected) {
+					await commands.executeCommand(selected.commandId, item);
+				}
 			}
 		});
 
@@ -985,11 +1091,26 @@ export class NotebookCellInputCollapseContribution implements CommandContributio
 			order: '25'
 		});
 		menus.registerMenuAction(NotebookMenus.NOTEBOOK_MAIN_TOOLBAR_EXECUTION_GROUP, {
-			commandId: NotebookCellInputCollapseCommands.COLLAPSE_ALL_INPUTS.id,
-			label: 'Collapse All Cell Inputs',
+			commandId: NotebookCellInputCollapseCommands.COLLAPSE_PICKER.id,
+			label: 'Collapse All...',
 			icon: codicon('fold'),
 			order: '20'
 		});
+	}
+
+	protected collapseAllOnly(item: URI | NotebookModel | undefined, cellKind: CellKind): void {
+		const notebook = this.resolveNotebook(item);
+		if (!notebook) {
+			return;
+		}
+
+		trackNotebook(notebook);
+		for (const cell of notebook.cells) {
+			if (cell.cellKind === cellKind) {
+				setInputCollapsed(cell, true, false);
+			}
+		}
+		void inputCollapseStorageReady.then(() => persistNotebookInputCollapseState(notebook));
 	}
 
 	protected resolveCell(first?: NotebookModel | NotebookCellModel, second?: NotebookCellModel): NotebookCellModel | undefined {

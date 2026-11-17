@@ -1,5 +1,7 @@
 require 'digest'
 require 'json'
+require 'shellwords'
+require 'tmpdir'
 require_relative './.lib/ensure_deps'
 require_relative './.lib/formula_sandbox_access'
 
@@ -37,6 +39,7 @@ class TheiaIde < Formula
 		cache_root = HOMEBREW_CACHE/'npm_cache/theia-ide'
 		ENV['XDG_CACHE_HOME'] = cache_root.to_s
 		prepare_ffmpeg_cache(cache_root)
+		prepare_ccache(cache_root)
 		system_electron = prepare_build_manifests
 		build_jobs = [ENV.make_jobs.to_i, 1].max
 		child_jobs = [Math.sqrt(build_jobs).floor, 1].max
@@ -61,10 +64,7 @@ class TheiaIde < Formula
 		end
 
 		system 'yarn', 'electron', 'build:prod'
-		plugin_cache = plugin_cache_path(cache_root)
-		restore_plugin_cache(plugin_cache)
-		system 'yarn', 'download:plugins'
-		store_plugin_cache(plugin_cache)
+		install_bundled_plugins(cache_root)
 		install_local_vscode_extensions
 		system 'yarn', 'electron', 'package:preview'
 
@@ -258,34 +258,66 @@ class TheiaIde < Formula
 		ln_s cache, link
 	end
 
-	def plugin_cache_path(cache_root)
-		package = JSON.parse((buildpath/'package.json').read)
+	def prepare_ccache(cache_root)
+		ccache = Utils::Shell.which('ccache') || Utils::Shell.which('ccache', ORIGINAL_PATHS)
+		return unless ccache
+
+		ENV['CCACHE_DIR'] ||= (cache_root/'ccache').to_s
+		ENV['CCACHE_BASEDIR'] ||= buildpath.to_s
+		{ 'CC' => 'cc', 'CXX' => 'c++' }.each do |var, default|
+			compiler = ENV[var].to_s.strip
+			compiler = default if compiler.empty?
+			next if File.basename(compiler.split.first) == 'ccache'
+
+			ENV[var] = "#{ccache.to_s.shellescape} #{compiler}"
+		end
+	end
+
+	def install_bundled_plugins(cache_root)
+		package_path = buildpath/'package.json'
+		package_json = package_path.read
+		package = JSON.parse(package_json)
 		fingerprint = Digest::SHA256.hexdigest(JSON.generate({
 			plugins: package['theiaPlugins'],
 			excluded: package['theiaPluginsExcludeIds'],
 		}))
-		cache_root/'plugins'/version.to_s/fingerprint
-	end
 
-	def restore_plugin_cache(cache)
-		return unless cache.directory?
+		cache = cache_root/'plugins'/fingerprint
+		source = cache.directory? ? cache : cache.parent.glob("*/#{fingerprint}").find(&:directory?)
+		if source
+			plugins = buildpath/'plugins'
+			plugins.mkpath
+			system 'cp', '-a', '--reflink=auto', "#{source}/.", plugins
 
-		plugins = buildpath/'plugins'
-		plugins.mkpath
-		system 'cp', '-a', '--reflink=auto', "#{cache}/.", plugins
+			# A bundle unpacks into individual plugin dirs. Skip its URL while
+			# letting Theia resolve plugin dependencies against its current API.
+			package['theiaPlugins'] = {}
+			begin
+				package_path.write(JSON.generate(package))
+				system 'yarn', 'download:plugins'
+			ensure
+				package_path.write(package_json)
+			end
+		else
+			system 'yarn', 'download:plugins'
+		end
+
+		store_plugin_cache(cache) unless source == cache
 	end
 
 	def store_plugin_cache(cache)
 		plugins = buildpath/'plugins'
 		return unless plugins.directory?
 
-		# download:plugins skips plugins that already exist, so never leave a partially copied cache behind.
-		staging = cache.sub_ext('.tmp')
-		rm_rf staging
-		staging.mkpath
+		# Publish only complete copies and leave a concurrent winner intact.
+		cache.parent.mkpath
+		staging = Pathname(Dir.mktmpdir('.plugins-', cache.parent))
 		system 'cp', '-a', '--reflink=auto', "#{plugins}/.", staging
-		rm_rf cache
 		staging.rename(cache)
+	rescue Errno::EEXIST, Errno::ENOTEMPTY
+		raise unless cache.directory?
+	ensure
+		rm_rf staging if staging
 	end
 
 	def prepare_build_manifests

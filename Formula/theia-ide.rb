@@ -402,8 +402,9 @@ class TheiaIde < Formula
 
 		frontend_module_path = buildpath/'theia-extensions/product/src/browser/theia-ide-frontend-module.ts'
 		frontend_module = frontend_module_path.read
-		frontend_module.sub!("import { AIRegistryConfiguration } from '@theia/ai-registry/lib/common/ai-registry-configuration';\n", '')
-		frontend_module.sub!("import { TheiaIDEAIRegistryConfiguration } from './theia-ide-ai-registry-configuration';\n", '')
+		registry_import = "import { AIRegistryConfiguration } from '@theia/ai-registry/lib/common/ai-registry-configuration';\n"
+		configuration_import = %r{^import \{ TheiaIDEAIRegistryConfiguration \} from '\./theia-ide-ai-registry-configuration(?:\.js)?';\n}
+		odie 'Could not remove Theia IDE AI registry imports' unless frontend_module.sub!(registry_import, '') && frontend_module.sub!(configuration_import, '')
 
 		ai_binding = [
 			'    if (isBound(AIRegistryConfiguration)) {',

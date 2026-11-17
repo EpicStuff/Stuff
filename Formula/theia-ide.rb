@@ -491,7 +491,7 @@ class TheiaIde < Formula
 
 		# theia-flags prints the combined help from the Electron main process, so drop Theia's early --help exit.
 		help_block = /^    if \(hasFlag\(\['--help'\]\)\) \{\n.*?^        process\.exit\(0\);\n    \}\n/m
-		odie 'Unsupported Theia CLI help layout' unless source.match?(help_block)
+		odie "Homebrew integration for theia-flags is out of date for Theia #{version}. Update the Theia formula. The expected CLI help layout was not found." unless source.match?(help_block)
 		usage_path.atomic_write(source.sub(help_block, ''))
 	end
 
@@ -502,11 +502,11 @@ class TheiaIde < Formula
 		plugin_line = 'browserOptions.plugins.push(webviewContextFixPlugin());'
 
 		return if source.include?(import_line) && source.include?(plugin_line)
-		odie 'Theia webview context fix is only partially integrated' if source.include?(import_line) || source.include?(plugin_line)
+		odie "Homebrew integration for theia-webview-context-fix is incomplete for Theia #{version}. Update the Theia formula." if source.include?(import_line) || source.include?(plugin_line)
 
 		import_anchor = "import esbuild from 'esbuild';"
 		plugin_anchor = 'const browserContext = await esbuild.context(browserOptions);'
-		odie 'Unsupported Theia esbuild layout for webview context fix' unless source.include?(import_anchor) && source.include?(plugin_anchor)
+		odie "Homebrew integration for theia-webview-context-fix is out of date for Theia #{version}. Update the Theia formula. The expected esbuild layout was not found." unless source.include?(import_anchor) && source.include?(plugin_anchor)
 
 		source = source.sub(import_anchor, "#{import_anchor}\n#{import_line}")
 		source = source.sub(plugin_anchor, "#{plugin_line}\n#{plugin_anchor}")

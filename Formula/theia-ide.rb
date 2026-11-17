@@ -505,11 +505,11 @@ class TheiaIde < Formula
 		odie 'Theia webview context fix is only partially integrated' if source.include?(import_line) || source.include?(plugin_line)
 
 		import_anchor = "import esbuild from 'esbuild';"
-		plugin_anchor = 'nodeOptions.plugins.unshift(asarRipgrepPlugin);'
+		plugin_anchor = 'const browserContext = await esbuild.context(browserOptions);'
 		odie 'Unsupported Theia esbuild layout for webview context fix' unless source.include?(import_anchor) && source.include?(plugin_anchor)
 
 		source = source.sub(import_anchor, "#{import_anchor}\n#{import_line}")
-		source = source.sub(plugin_anchor, "#{plugin_anchor}\n#{plugin_line}")
+		source = source.sub(plugin_anchor, "#{plugin_line}\n#{plugin_anchor}")
 		esbuild_path.atomic_write(source)
 	end
 end

@@ -222,7 +222,7 @@ export class CustomContextMenuService {
 		if (this.pendingValues.has(targetId)) {
 			return this.pendingValues.get(targetId);
 		}
-		const layouts = this.preferenceService.get<unknown>(CUSTOM_CONTEXT_MENU_LAYOUTS, {});
+		const layouts = this.preferenceService.get<unknown>(CUSTOM_CONTEXT_MENU_LAYOUTS);
 		return this.isRecord(layouts) ? layouts[targetId] : undefined;
 	}
 

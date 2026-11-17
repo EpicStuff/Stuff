@@ -1,6 +1,7 @@
 require 'etc'
 require 'fileutils'
 require 'formula_installer'
+require 'system_command'
 
 module FormulaSandboxAccess
 	def finish
@@ -9,6 +10,7 @@ module FormulaSandboxAccess
 		return unless uses_xdg_data_loader?
 
 		link_loader(config_home/'plasma-workspace/env/homebrew-xdg-data-dirs.sh', HOMEBREW_PREFIX/'opt/xdg-data-loader/xdg-data-dirs.sh')
+		return if formula.name == 'theia-ide' && session_has_homebrew_data_dir?
 		refresh_xdg_data(restart_dolphin: true)
 	end
 
@@ -48,6 +50,19 @@ module FormulaSandboxAccess
 
 		FileUtils.mkdir_p(loader.dirname)
 		File.symlink(target, loader)
+	end
+
+	def session_has_homebrew_data_dir?
+		systemctl = Utils::Shell.which('systemctl', ORIGINAL_PATHS)
+		return false unless systemctl
+
+		runtime_dir = ENV['XDG_RUNTIME_DIR']
+		runtime_dir = "/run/user/#{Process.uid}" if runtime_dir.to_s.empty?
+		session = SystemCommand.run(systemctl, args: ['--user', 'show-environment'], env: { 'XDG_RUNTIME_DIR' => runtime_dir }, print_stderr: false)
+		return false unless session.success?
+
+		data_dirs = session.stdout[/^XDG_DATA_DIRS=(.*)$/, 1]
+		data_dirs.to_s.split(':').include?((HOMEBREW_PREFIX/'share').to_s)
 	end
 
 	def refresh_xdg_data(restart_dolphin:)

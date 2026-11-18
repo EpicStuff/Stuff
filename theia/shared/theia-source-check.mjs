@@ -63,6 +63,13 @@ export async function verifyTheiaSources(from, checks) {
 	}
 
 	if (failures.length > 0) {
-		throw new Error(`Upstream Theia code changed since this extension was verified:\n${failures.map(failure => `- ${failure}`).join('\n')}`);
+		const require = createRequire(from);
+		let name = '(unknown)';
+		try {
+			name = require('../package.json').name || name;
+		} catch {
+			// Keep the source check error when extension metadata is unavailable.
+		}
+		throw new Error(`Native extension ${name} is outdated\n${failures.map(failure => `- ${failure}`).join('\n')}`);
 	}
 }

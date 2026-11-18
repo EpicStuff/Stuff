@@ -98,6 +98,12 @@ const electronNativeContextMenu = `        if (this.useNativeStyle) {
             return new ElectronContextMenuAccess(menuHandle);
         } else {`;
 
+const electronNativeContextMenu177 = electronNativeContextMenu.replace(
+	'            const windowName = params.context?.ownerDocument.defaultView?.Window.name;',
+	`            // the name of the window, e.g. of a secondary window, in which the menu is to be shown; empty for the main window
+            const windowName = params.context?.ownerDocument.defaultView?.name;`
+);
+
 function buildError(error) {
 	return {
 		errors: [{
@@ -126,7 +132,7 @@ export function verifyMenuFocusSource(browserMenuSource, electronContextMenuSour
 		'Unsupported @theia/core DynamicMenuWidget command focus implementation.'
 	);
 	requireExactlyOnce(
-		electronContextMenuSource,
+		electronContextMenuSource.replaceAll(electronNativeContextMenu177, electronNativeContextMenu),
 		electronNativeContextMenu,
 		'Unsupported @theia/core ElectronContextMenuRenderer native popup implementation.'
 	);

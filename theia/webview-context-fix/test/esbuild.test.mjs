@@ -131,6 +131,16 @@ test('accepts the verified browser and native menu focus implementations', () =>
 	assert.doesNotThrow(() => verifyMenuFocusSource(browserMenuSource, electronContextMenuSource));
 });
 
+test('accepts the verified Theia 1.77 native menu implementation', () => {
+	const updated = electronContextMenuSource.replace(
+		'            const windowName = params.context?.ownerDocument.defaultView?.Window.name;',
+		`            // the name of the window, e.g. of a secondary window, in which the menu is to be shown; empty for the main window
+            const windowName = params.context?.ownerDocument.defaultView?.name;`
+	);
+	assert.doesNotThrow(() => verifyMenuFocusSource(browserMenuSource, updated));
+	assert.throws(() => verifyMenuFocusSource(browserMenuSource, `${electronContextMenuSource}\n${updated}`), /found 2/);
+});
+
 test('rejects changed browser menu focus restoration', () => {
 	const changed = browserMenuSource.replace('this.restoreFocusedElement();', 'this.node.focus();');
 	assert.throws(() => verifyMenuFocusSource(changed, electronContextMenuSource), /DynamicMenuWidget focus restoration/);

@@ -1,4 +1,4 @@
-import { verifyTheiaSources } from '../../shared/theia-source-check.mjs';
+import { baselineTheiaVersion, verifyTheiaSources } from '../../shared/theia-source-check.mjs';
 
 const expectedGetProcessArgvWithoutBin = `    getProcessArgvWithoutBin(argv = process.argv): Array<string> {
         return argv.slice(this.processArgvBinIndex + 1);
@@ -249,7 +249,7 @@ const expectedVsxCliOnWillStart = `    async onWillStart(context: PluginDeployer
         context.userEntries.push(...pluginUris);
     }`;
 
-await verifyTheiaSources(import.meta.url, [{
+const sourceChecks = [{
 	package: '@theia/core',
 	file: 'src/electron-main/electron-main-application.ts',
 	expect: [
@@ -282,4 +282,14 @@ await verifyTheiaSources(import.meta.url, [{
 	expect: [
 		{ snippet: expectedVsxCliOnWillStart, message: 'Unsupported @theia/vsx-registry VsxCliDeployerParticipant.onWillStart implementation.' }
 	]
-}]);
+}];
+
+try {
+	await verifyTheiaSources(import.meta.url, sourceChecks);
+} catch (error) {
+	const message = error instanceof Error ? error.message : String(error);
+	// The shared checker uses its own baseline in the details. These snapshots were verified on 1.77.0.
+	const details = message.replace(/^[^\n]+\n(?=- )/, '').replaceAll(`verified against Theia ${baselineTheiaVersion},`, 'verified against Theia 1.77.0,');
+	console.error(`${details}\nError: theia-flags is outdated`);
+	process.exitCode = 1;
+}

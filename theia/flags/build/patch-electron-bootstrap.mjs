@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const require = createRequire(import.meta.url);
-const startupAnchor = "require('@theia/core/shared/reflect-metadata');";
+const startupAnchor = "import '@theia/core/shared/reflect-metadata';";
 const lockAnchor = "    if (isSingleInstance && !app.requestSingleInstanceLock(process.argv)) {";
 const marker = '// theia-flags: validate arguments before the single instance lock';
 
@@ -17,7 +17,7 @@ export function addEarlyCliValidation(source) {
 	}
 	const validation = [
 		marker,
-		"const { parseVscodeCliArgs, VSCODE_COMPAT_HELP } = require('theia-flags/lib/electron-main/vscode-cli');",
+		"import { parseVscodeCliArgs, VSCODE_COMPAT_HELP } from 'theia-flags/lib/electron-main/vscode-cli';",
 		'const applicationArgs = process.argv.slice(process.versions.electron && !process.defaultApp ? 1 : 2);',
 		'try {',
 		'    const parsed = parseVscodeCliArgs(applicationArgs);',

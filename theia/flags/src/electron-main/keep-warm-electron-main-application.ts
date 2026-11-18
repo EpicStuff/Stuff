@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import { connect } from 'net';
 import * as path from 'path';
 import { app, BrowserWindow, Event as ElectronEvent } from '@theia/core/electron-shared/electron';
+import type { LaunchArguments } from '@theia/core/lib/common/launch-arguments';
 import { MaybePromise } from '@theia/core/lib/common/types';
 import { DEFAULT_WINDOW_HASH } from '@theia/core/lib/common/window';
 import { ElectronMainApplication, ElectronMainCommandOptions } from '@theia/core/lib/electron-main/electron-main-application';
@@ -231,6 +232,14 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			cliArgs = this.startupCliArgs;
 			this.startupCliArgs = undefined;
 		}
+		if (options.claimed) {
+			if (!options.secondInstance) {
+				this.suppressInitialEmptyWindow = false;
+			}
+			await super.handleMainCommand(options);
+			return;
+		}
+
 		const hasWindowAction = !!cliArgs && this.hasWindowAction(cliArgs);
 		const hasExplicitTarget = hasWindowAction || options.file !== undefined;
 		const restoreRequested = cliArgs?.restore === true;
@@ -671,10 +680,12 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		await this.warmRendererCreation;
 	}
 
-	protected override async openWindowWithWorkspace(workspacePath: string): Promise<BrowserWindow> {
-		const window = this.takeWarmRenderer();
+	protected override async openWindowWithWorkspace(workspacePath: string, launchArgs?: LaunchArguments): Promise<BrowserWindow> {
+		// A warm window already loaded its launch metadata. Let Theia supply new options before loading a new window.
+		const hasLaunchOptions = launchArgs && (Object.keys(launchArgs.values).length > 0 || launchArgs.negated.length > 0);
+		const window = hasLaunchOptions ? undefined : this.takeWarmRenderer();
 		if (!window) {
-			const opened = await super.openWindowWithWorkspace(workspacePath);
+			const opened = await super.openWindowWithWorkspace(workspacePath, launchArgs);
 			this.rememberWorkspace(opened, workspacePath);
 			return opened;
 		}
@@ -733,6 +744,16 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 		const hasWindowAction = this.hasWindowAction(cliArgs);
 		const windowTarget = getWindowTarget(cleanApplicationArgs);
 		const hasTarget = hasWindowTarget(cleanApplicationArgs);
+		const cleanOriginalArgv = this.replaceApplicationArgs(originalArgv, applicationArgs, cleanApplicationArgs);
+
+		if (!hasWindowAction && !cliArgs.waitSocket && !cliArgs.restore) {
+			const separator = cleanApplicationArgs.indexOf('--');
+			const options = cleanApplicationArgs.slice(0, separator === -1 ? undefined : separator);
+			if (options.some(arg => /^--(?:attach-container|session-preference)(?:=|$)/.test(arg))) {
+				await super.onSecondInstance(event, argv, cwd, cleanOriginalArgv);
+				return;
+			}
+		}
 
 		if (wantsKeepWarm && !hasTarget && !hasWindowAction && !cliArgs.restore) {
 			if (wantsKeepWarmer && !this.getActiveVisibleWindow()) {
@@ -765,7 +786,6 @@ export class KeepWarmElectronMainApplication extends ElectronMainApplication {
 			return;
 		}
 
-		const cleanOriginalArgv = this.replaceApplicationArgs(originalArgv, applicationArgs, cleanApplicationArgs);
 		await super.onSecondInstance(event, argv, cwd, cleanOriginalArgv);
 	}
 }

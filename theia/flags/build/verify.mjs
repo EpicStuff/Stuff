@@ -38,10 +38,12 @@ const expectedStart = `    async start(config: FrontendApplicationConfig): Promi
                         () => this.startContributions());
                     startupMeasurement.info('Startup sequence completed');
 
+                    const launchArgs = LaunchArgvParser.parse(argv);
                     this.handleMainCommand({
                         file: args.file,
                         cwd: process.cwd(),
-                        secondInstance: false
+                        secondInstance: false,
+                        claimed: await this.isWindowClaimed(launchArgs)
                     });
                 },
             ).parse();
@@ -56,11 +58,14 @@ const expectedShowInitialWindow = `    protected showInitialWindow(urlToOpen: st
                     options.preventAutomaticShow = true;
                 }
                 this.initialWindow = await this.createWindow({ ...options });
-                TheiaRendererAPI.onApplicationStateChanged(this.initialWindow.webContents, state => {
-                    if (state === 'ready' && urlToOpen) {
-                        this.openUrl(urlToOpen);
-                    }
-                });
+                if (urlToOpen) {
+                    const listener = TheiaRendererAPI.onApplicationStateChanged(this.initialWindow.webContents, state => {
+                        if (state === 'ready') {
+                            listener.dispose();
+                            this.openUrl(urlToOpen);
+                        }
+                    });
+                }
                 if (this.isShowSplashScreen()) {
                     console.log('Showing splash screen');
                     this.configureAndShowSplashScreen(this.initialWindow);
@@ -88,6 +93,7 @@ const expectedCreateWindow = `    async createWindow(asyncOptions: MaybePromise<
                 this.activeWindowStack.splice(stackIndex, 1);
             }
             this.windows.delete(id);
+            this.launchArgsStore.delete(id);
         });
         electronWindow.window.on('maximize', () => TheiaRendererAPI.sendWindowEvent(electronWindow.window.webContents, 'maximize'));
         electronWindow.window.on('unmaximize', () => TheiaRendererAPI.sendWindowEvent(electronWindow.window.webContents, 'unmaximize'));
@@ -104,18 +110,33 @@ const expectedCreateWindow = `    async createWindow(asyncOptions: MaybePromise<
         return electronWindow.window;
     }`;
 
-const expectedOpenWindows = `    async openDefaultWindow(params?: WindowSearchParams): Promise<BrowserWindow> {
+const expectedOpenWindows = `    async openDefaultWindow(params?: WindowSearchParams, launchArgs?: LaunchArguments): Promise<BrowserWindow> {
         const options = this.getDefaultTheiaWindowOptions();
         const [uri, electronWindow] = await Promise.all([this.createWindowUri(params), this.reuseOrCreateWindow(options)]);
+        this.stashLaunchArgs(electronWindow, launchArgs);
         electronWindow.loadURL(uri.withFragment(DEFAULT_WINDOW_HASH).toString(true));
         return electronWindow;
     }
 
-    protected async openWindowWithWorkspace(workspacePath: string): Promise<BrowserWindow> {
+    protected async openWindowWithWorkspace(workspacePath: string, launchArgs?: LaunchArguments): Promise<BrowserWindow> {
         const options = await this.getLastWindowOptions();
         const [uri, electronWindow] = await Promise.all([this.createWindowUri(), this.reuseOrCreateWindow(options)]);
+        this.stashLaunchArgs(electronWindow, launchArgs);
         electronWindow.loadURL(uri.withFragment(encodeURI(workspacePath)).toString(true));
         return electronWindow;
+    }
+
+    /**
+     * Associates the parsed options of a forwarded launch with the target window before it loads its
+     * URL, so that the preload script cannot ask for them before they are stored. No-op for a
+     * cold-start launch, which carries none.
+     *
+     * @experimental
+     */
+    protected stashLaunchArgs(window: BrowserWindow, launchArgs?: LaunchArguments): void {
+        if (launchArgs) {
+            this.launchArgsStore.store(window.webContents.id, launchArgs);
+        }
     }
 
     protected async reuseOrCreateWindow(asyncOptions: MaybePromise<TheiaBrowserWindowOptions>): Promise<BrowserWindow> {
@@ -133,6 +154,14 @@ const expectedRequestStopAndHandleMainCommand = `    requestStop(): void {
     }
 
     protected async handleMainCommand(options: ElectronMainCommandOptions): Promise<void> {
+        // A claimed launch (e.g. a CLI attach) opens an empty window rather than restoring the last
+        // workspace: the local workbench would only be discarded when the window reloads into the
+        // claimed target, so loading a real workspace behind the placeholder wastes work and can
+        // trigger side effects.
+        if (options.claimed) {
+            await this.openDefaultWindow(undefined, options.launchArgs);
+            return;
+        }
         let workspacePath: string | undefined;
         if (options.file) {
             try {
@@ -142,12 +171,12 @@ const expectedRequestStopAndHandleMainCommand = `    requestStop(): void {
             }
         }
         if (workspacePath !== undefined) {
-            await this.openWindowWithWorkspace(workspacePath);
+            await this.openWindowWithWorkspace(workspacePath, options.launchArgs);
         } else {
             if (options.secondInstance === false) {
-                await this.openWindowWithWorkspace(''); // restore previous workspace.
+                await this.openWindowWithWorkspace('', options.launchArgs); // restore previous workspace.
             } else if (options.file === undefined) {
-                await this.openDefaultWindow();
+                await this.openDefaultWindow(undefined, options.launchArgs);
             }
         }
     }`;
@@ -162,16 +191,20 @@ const expectedOnSecondInstance = `    protected async onSecondInstance(event: El
         if (originalArgv.includes('--open-url')) {
             this.openUrl(originalArgv[originalArgv.length - 1]);
         } else {
-            createYargs(this.processArgv.getProcessArgvWithoutBin(originalArgv), cwd)
+            const argv = this.processArgv.getProcessArgvWithoutBin(originalArgv);
+            createYargs(argv, cwd)
                 .help(false)
                 .command('$0 [file]', false,
                     cmd => cmd
                         .positional('file', { type: 'string' }),
                     async args => {
+                        const launchArgs = LaunchArgvParser.parse(argv);
                         await this.handleMainCommand({
                             file: args.file,
                             cwd: cwd,
-                            secondInstance: true
+                            secondInstance: true,
+                            launchArgs,
+                            claimed: await this.isWindowClaimed(launchArgs)
                         });
                     },
                 ).parse();

@@ -293,10 +293,10 @@ class TheiaIde < Formula
 			# letting Theia resolve plugin dependencies against its current API.
 			package['theiaPlugins'] = {}
 			begin
-				package_path.write(JSON.generate(package))
+				package_path.atomic_write(JSON.generate(package))
 				system 'yarn', 'download:plugins'
 			ensure
-				package_path.write(package_json)
+				package_path.atomic_write(package_json)
 			end
 		else
 			system 'yarn', 'download:plugins'
